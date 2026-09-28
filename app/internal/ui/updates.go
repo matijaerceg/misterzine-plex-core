@@ -19,9 +19,15 @@ type updateState struct {
 	nextStatus  time.Time
 	reading     bool
 	status      updates.Status
-	message     string    // the updater could not start, or a choice was not saved
-	launched    time.Time // an update started and its updater has not reported yet
-	checked     time.Time // when a check last read the catalogue
+	message     string // a choice was not saved
+	// An update started and its updater has not written the status file
+	// since: the file still reads as it did then (its "updated" stamp is
+	// seen). No clock is compared: the board may set its clock at any time.
+	launched time.Time
+	seen     float64   // the status file's stamp at the last read
+	before   float64   // and at the launch
+	failedAt time.Time // when this app first saw the current failure
+	checked  time.Time // when the last check that read the catalogue started
 }
 
 func (a *App) checkUpdates(manual bool, now time.Time) {
@@ -36,6 +42,7 @@ func (a *App) checkUpdates(manual bool, now time.Time) {
 	if manual {
 		a.updates.message = ""
 	}
+	started := time.Now()
 	root := a.betaDir()
 	go func() {
 		cached, cacheErr := updates.Cached(root)
@@ -66,7 +73,7 @@ func (a *App) checkUpdates(manual bool, now time.Time) {
 				return
 			}
 			a.updates.catalogue = c
-			a.updates.checked = time.Now()
+			a.updates.checked = started
 		})
 	}()
 }
@@ -85,19 +92,28 @@ func (a *App) pollUpdates(now time.Time) {
 		s := updates.ReadStatus(root)
 		a.Later(func() {
 			a.updates.reading = false
-			if !a.updates.launched.IsZero() && s.Updated < float64(a.updates.launched.UnixNano())/1e9 {
-				if time.Since(a.updates.launched) >= 10*time.Second && a.updates.status.Stage != "failed" {
-					a.updates.status = updates.Status{Stage: "failed", Updated: float64(time.Now().UnixNano()) / 1e9,
-						Release: a.updates.status.Release, Message: "The updater did not start. Run Install to repair update support."}
-				}
+			a.updates.seen = s.Updated
+			if !a.updates.launched.IsZero() && s.Updated == a.updates.before {
 				// the file still holds what came before the launch: keep saying
-				// what this update is doing until its updater reports
+				// what this update is doing until its updater writes
+				if time.Since(a.updates.launched) >= 10*time.Second && a.updates.status.Stage != "failed" {
+					a.fail(a.updates.status.Release, "The updater did not start. Run Install to repair update support.")
+				}
 				return
 			}
 			a.updates.launched = time.Time{}
+			if old := a.updates.status; s.Stage == "failed" && (old.Stage != "failed" || old.Updated != s.Updated || old.Message != s.Message) {
+				a.updates.failedAt = time.Now()
+			}
 			a.updates.status = s
 		})
 	}()
+}
+
+// fail records a failure the updater did not write itself.
+func (a *App) fail(r *updates.Release, message string) {
+	a.updates.status = updates.Status{Stage: "failed", Release: r, Message: message}
+	a.updates.failedAt = time.Now()
 }
 
 // ownChannel is the channel whose releases come first: a development build
@@ -184,15 +200,14 @@ func (a *App) prepared() *updates.Release {
 // failure reports a failed update that still needs explaining: one that names
 // no release (the updater never started), or one for a release still ahead of
 // this build. It stays, whatever the catalogue says since, until the next
-// update starts, or until a check made after it finds nothing to install:
+// update starts, or until a check started after it finds nothing to install:
 // then there is nothing to try again.
 func (a *App) failure() bool {
 	s := a.updates.status
 	if s.Stage != "failed" || s.Release != nil && !a.offers(*s.Release) {
 		return false
 	}
-	at := time.Unix(0, int64(s.Updated*1e9))
-	return !a.updates.checked.After(at) || len(a.offered()) > 0
+	return !a.updates.checked.After(a.updates.failedAt) || len(a.offered()) > 0
 }
 
 // retry is what a failed update offers next: the failed release while it is
@@ -218,16 +233,16 @@ func (a *App) startUpdate(action string, r *updates.Release) {
 	if a.updates.status.Busy() || !a.Starting.IsZero() {
 		return
 	}
-	if err := updates.Start(a.betaDir(), action, r); err != nil {
-		a.updates.message = "Could not start the updater. Run MisterZine-Plex-Install to repair update support."
-		return
-	}
 	stage, shown := "download", r
 	if action == "activate" {
 		stage, shown = "activating", a.prepared()
 	}
-	a.updates.launched = time.Now()
-	a.updates.message = ""
+	// before the updater runs, so nothing it writes can pass for the old file
+	a.updates.launched, a.updates.before = time.Now(), a.updates.seen
+	if err := updates.Start(a.betaDir(), action, r); err != nil {
+		a.fail(shown, "Could not start the updater. Run MisterZine-Plex-Install to repair update support.")
+		return
+	}
 	a.updates.status = updates.Status{Stage: stage, Release: shown}
 }
 

@@ -266,3 +266,88 @@ func TestSilentUpdaterFailureStays(t *testing.T) {
 		t.Fatalf("view %v, %q", v, rows[0].label)
 	}
 }
+
+func writeStatus(t *testing.T, a *App, data string) {
+	t.Helper()
+	dir := filepath.Join(a.betaDir(), "updates")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "status.json"), []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+func readStatus(t *testing.T, a *App) {
+	t.Helper()
+	a.updates.nextStatus = time.Time{}
+	a.pollUpdates(time.Now())
+	drain(t, a)
+}
+
+// An updater's status counts once the file changes after the launch, whatever
+// its stamp says: the board's clock may have been set back since.
+func TestUpdaterStatusCountsAfterAClockStep(t *testing.T) {
+	a := betaTestApp(t)
+	a.later = make(chan func(), 4)
+	a.updates.nextCheck = time.Now().Add(time.Hour)
+	a.updates.launched, a.updates.before, a.updates.seen = time.Now(), 100, 100
+	a.updates.status = updates.Status{Stage: "download"}
+	writeStatus(t, a, `{"stage":"ready","updated":50,"release":{"id":"next","version":"0.3.0-beta.1","channel":"beta"}}`)
+	readStatus(t, a)
+	if a.prepared() == nil || !a.updates.launched.IsZero() {
+		t.Fatalf("a status stamped before the launch was ignored: %+v", a.updates.status)
+	}
+}
+
+// A status file that cannot be read is a failure from when it is seen, not
+// from its missing stamp: a check made earlier does not end it.
+func TestUnreadableStatusAfterACheckShows(t *testing.T) {
+	a := betaTestApp(t)
+	a.later = make(chan func(), 4)
+	a.updates.nextCheck = time.Now().Add(time.Hour)
+	a.updates.checked = time.Now().Add(-time.Minute)
+	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{}}
+	writeStatus(t, a, `{`)
+	readStatus(t, a)
+	if v, rows := (&Updates{app: a}).view(); v != viewFailed || rows[0].label != "Check again" {
+		t.Fatalf("view %v, %+v", v, a.updates.status)
+	}
+}
+
+// An updater that cannot be launched is a failure like any other: Options
+// says so, and neither the old status file nor a check brings back the offer.
+func TestUpdaterLaunchErrorIsAFailure(t *testing.T) {
+	a := betaTestApp(t) // the settings folder has no updater to launch
+	a.later = make(chan func(), 4)
+	a.updates.nextCheck = time.Now().Add(time.Hour)
+	file := filepath.Join(t.TempDir(), "catalogue.json")
+	if err := os.WriteFile(file, []byte(`{"schema":1,"releases":{"public":{"id":"pub","version":"0.3.0","channel":"public","notes":"","url":"https://example.org/p.zip","db_url":"https://example.org/p.json.zip","size":1,"sha256":"`+strings.Repeat("a", 64)+`"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PLEXCRT_CATALOGUE_FILE", file)
+	a.checkUpdates(true, time.Now())
+	drain(t, a)
+	u := &Updates{app: a}
+	_, rows := u.view()
+	rows[0].do() // Update now
+	s := a.updates.status
+	if s.Stage != "failed" || s.Release == nil || s.Release.ID != "pub" || !strings.Contains(s.Message, "MisterZine-Plex-Install") {
+		t.Fatalf("launch error: %+v", s)
+	}
+	readStatus(t, a)
+	a.checkUpdates(true, time.Now())
+	drain(t, a)
+	v, rows := u.view()
+	if v != viewFailed || rows[0].label != "Try again" {
+		t.Fatalf("after a status read and a check: %v, %+v", v, a.updates.status)
+	}
+	label := ""
+	for _, it := range (&Options{app: a}).items() {
+		if strings.HasPrefix(it.label, "Updates") {
+			label = it.label
+		}
+	}
+	if label != "Updates - update failed" {
+		t.Fatalf("Options says %q", label)
+	}
+}
