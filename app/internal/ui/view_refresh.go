@@ -105,7 +105,7 @@ func restoreAction(actions []string, kind string) int {
 }
 
 func (p *Preplay) pollRefresh(now time.Time) {
-	if p.cw.poll() {
+	if p.cw.poll(p.app, now) {
 		kind := actionKind(p.actions, p.cur)
 		p.rebuild()
 		p.cur = restoreAction(p.actions, kind)
@@ -131,7 +131,7 @@ func (p *Preplay) pollRefresh(now time.Time) {
 
 func (s *Season) pollRefresh(now time.Time) {
 	// an answer that lands while the episodes load is kept for their rebuild
-	if s.cw.poll() && !s.loading && len(s.eps) > 0 {
+	if s.cw.poll(s.app, now) && !s.loading && len(s.eps) > 0 {
 		kind := actionKind(s.actions, s.act)
 		s.rebuild()
 		s.act = restoreAction(s.actions, kind)

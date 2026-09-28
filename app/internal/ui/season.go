@@ -332,7 +332,10 @@ func (s *Season) Key(ev input.Event, now time.Time) {
 				s.act++
 			}
 		case input.Up:
+			// back to the filmstrip, where OK plays the first action: the
+			// row returns to its start so that action shows
 			s.acts = false
+			s.act = 0
 		case input.Enter:
 			s.do(s.actions[s.act])
 		}
@@ -361,6 +364,7 @@ func (s *Season) Key(ev input.Event, now time.Time) {
 		s.do(s.actions[0])
 	}
 	s.rebuild()
+	s.keepActVisible(now) // the new episode's row, or the action Down selected
 	s.colX.Move(float64(s.scrollTarget()), now, ev.Repeat)
 }
 

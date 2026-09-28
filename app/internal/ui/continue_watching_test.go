@@ -21,10 +21,11 @@ import (
 // removal action; a removal takes the item off the list, as Plex does.
 type continueServer struct {
 	*httptest.Server
-	mu      sync.Mutex
-	keys    map[string]bool
-	removed []string
-	fail    bool
+	mu       sync.Mutex
+	keys     map[string]bool
+	removed  []string
+	fail     bool // the removal is refused
+	failList bool // the list is refused
 }
 
 func newContinueServer(t *testing.T, keys ...string) *continueServer {
@@ -37,6 +38,10 @@ func newContinueServer(t *testing.T, keys ...string) *continueServer {
 		defer s.mu.Unlock()
 		switch {
 		case r.URL.Path == "/hubs/continueWatching/items":
+			if s.failList {
+				http.Error(w, "busy", 503)
+				return
+			}
 			io.WriteString(w, "<MediaContainer>")
 			for k := range s.keys {
 				fmt.Fprintf(w, `<Video ratingKey=%q type="movie"/>`, k)
@@ -58,6 +63,12 @@ func newContinueServer(t *testing.T, keys ...string) *continueServer {
 	return s
 }
 
+func (s *continueServer) set(f func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f()
+}
+
 func (s *continueServer) removals() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -70,14 +81,16 @@ func continueTestApp(t *testing.T, s *continueServer) *App {
 	return a
 }
 
-// settle waits for the page's Continue Watching answer to land.
-func settle(t *testing.T, a *App) {
+// settle waits for the list's answer to land (not for any wake-up: the
+// page's other refresh wakes the app too).
+func settle(t *testing.T, l *continueList) {
 	t.Helper()
-	select {
-	case <-a.Wake:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the Continue Watching answer did not land")
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if l.pending == nil || len(l.pending) > 0 {
+			return
+		}
 	}
+	t.Fatal("the Continue Watching answer did not land")
 }
 
 func continueHome(a *App, cw ...*plex.Item) *Home {
@@ -101,7 +114,7 @@ func TestPreplayRemovesFromContinueWatching(t *testing.T) {
 	if slices.Contains(p.actions, RemoveContinue) {
 		t.Fatal("the action showed before the list answered")
 	}
-	settle(t, a)
+	settle(t, &p.cw)
 	p.pollRefresh(time.Now())
 	if p.actions[len(p.actions)-1] != RemoveContinue {
 		t.Fatalf("the action is not last: %q", p.actions)
@@ -129,13 +142,13 @@ func TestPreplayRemovesFromContinueWatching(t *testing.T) {
 
 func TestContinueRemovalRefusedKeepsTheAction(t *testing.T) {
 	srv := newContinueServer(t, "m1")
-	srv.fail = true
+	srv.set(func() { srv.fail = true })
 	a := continueTestApp(t, srv)
 	m1 := &plex.Item{RatingKey: "m1", Type: "movie", Summary: "s", PartID: "p", ViewOffset: 600}
 	h := continueHome(a, m1)
 	p := NewPreplay(a, m1)
 	a.stack = []Screen{h, p}
-	settle(t, a)
+	settle(t, &p.cw)
 	p.pollRefresh(time.Now())
 	p.cur = len(p.actions) - 1
 	p.Key(input.Event{Key: input.Enter}, time.Now())
@@ -176,7 +189,7 @@ func TestSeasonRemovesEpisodeFromContinueWatching(t *testing.T) {
 		eps: []*plex.Item{e1, e2}, cur: 1, acts: true, fetched: map[string]bool{"e1": true, "e2": true}}
 	s.rebuild()
 	s.cw.refetch(a)
-	settle(t, a)
+	settle(t, &s.cw)
 	s.act = 2 // Mark watched
 	s.pollRefresh(time.Now())
 	if s.actions[len(s.actions)-1] != RemoveContinue || s.actions[s.act] != "Mark watched" {
@@ -221,6 +234,68 @@ func TestSeasonActionRowEndHasNoChevron(t *testing.T) {
 	s.keepActVisible(now)
 	if off := round(s.actX.Target()); s.actRowW()-off > SafeW {
 		t.Fatalf("scrolled to the end, the row still reaches %d px past its start (safe width %d)", s.actRowW()-off, SafeW)
+	}
+}
+
+// Scrolled to the trailing action, Up to the filmstrip and Down again: the
+// first action is selected and the row is back at its start, so OK never
+// acts on a label off the screen.
+func TestSeasonActionRowReturnsToStart(t *testing.T) {
+	a := continueTestApp(t, newContinueServer(t))
+	ep := &plex.Item{RatingKey: "e1", Type: "episode", ViewOffset: 300, PartID: "p",
+		Subs: []plex.Stream{{ID: "1", Title: "English (SRT)", Selected: true}}}
+	s := &Season{app: a, show: &plex.Item{}, seasons: []*plex.Item{{}}, eps: []*plex.Item{ep}, acts: true,
+		fetched: map[string]bool{"e1": true}}
+	s.cw.keys = map[string]bool{"e1": true}
+	s.rebuild()
+	now := time.Now()
+	for range s.actions {
+		s.Key(input.Event{Key: input.Right}, now)
+	}
+	if s.act != len(s.actions)-1 || round(s.actX.Target()) == 0 {
+		t.Fatalf("the row did not scroll to its last action (act %d, offset %d)", s.act, round(s.actX.Target()))
+	}
+	s.Key(input.Event{Key: input.Up}, now)
+	if s.acts || round(s.actX.Target()) != 0 {
+		t.Fatalf("on the filmstrip the row stays scrolled to %d", round(s.actX.Target()))
+	}
+	s.Key(input.Event{Key: input.Down}, now)
+	if !s.acts || s.act != 0 || round(s.actX.Target()) != 0 {
+		t.Fatalf("Down selected action %d with the row at %d", s.act, round(s.actX.Target()))
+	}
+}
+
+// A page left open asks again every refresh interval: an item removed on
+// another client loses the action, and a first fetch that failed is retried.
+func TestContinueListAsksAgain(t *testing.T) {
+	srv := newContinueServer(t, "m1")
+	srv.set(func() { srv.failList = true })
+	a := continueTestApp(t, srv)
+	m1 := &plex.Item{RatingKey: "m1", Type: "movie", Summary: "s", PartID: "p", ViewOffset: 600}
+	p := NewPreplay(a, m1)
+	settle(t, &p.cw)
+	p.pollRefresh(time.Now())
+	if slices.Contains(p.actions, RemoveContinue) {
+		t.Fatal("a failed fetch showed the action")
+	}
+
+	srv.set(func() { srv.failList = false })
+	later := time.Now().Add(viewRefreshInterval)
+	p.pollRefresh(later) // time to ask again
+	settle(t, &p.cw)
+	p.pollRefresh(later)
+	if !slices.Contains(p.actions, RemoveContinue) {
+		t.Fatal("the failed fetch was not retried")
+	}
+
+	srv.set(func() { delete(srv.keys, "m1") }) // removed on another client
+	p.cur = len(p.actions) - 1
+	later = later.Add(2 * viewRefreshInterval)
+	p.pollRefresh(later)
+	settle(t, &p.cw)
+	p.pollRefresh(later)
+	if slices.Contains(p.actions, RemoveContinue) || p.cur != 0 {
+		t.Fatalf("the removal elsewhere was not picked up: %q, cursor %d", p.actions, p.cur)
 	}
 }
 

@@ -12,13 +12,16 @@ import (
 const RemoveContinue = "Remove from Continue Watching"
 
 // continueList is the server's Continue Watching list as rating keys, held
-// by a movie or season page. The page fetches it off-thread when it opens
-// and after a play or a mark, and takes the answer on the render thread
-// (pollRefresh). Until an answer lands, or when the server has no list,
-// nothing counts as in it and the action stays hidden.
+// by a movie or season page. The page fetches it off-thread when it opens,
+// after a play or a mark, and every viewRefreshInterval after that (a
+// change made on another client, a fetch that failed), and takes the
+// answer on the render thread (pollRefresh). Until an answer lands, or
+// when the server has no list, nothing counts as in it and the action
+// stays hidden.
 type continueList struct {
 	keys    map[string]bool
 	pending chan map[string]bool // a nil answer: the fetch failed
+	next    time.Time            // when to ask again; zero: never asked
 }
 
 // refetch asks the server again; an answer still on its way is dropped.
@@ -26,6 +29,7 @@ func (l *continueList) refetch(a *App) {
 	if a.Plex == nil {
 		return
 	}
+	l.next = time.Now().Add(viewRefreshInterval)
 	result := make(chan map[string]bool, 1)
 	l.pending = result
 	client, lg := a.Plex, a.Log
@@ -42,9 +46,13 @@ func (l *continueList) refetch(a *App) {
 	}()
 }
 
-// poll takes an answer that has landed; true when the list changed.
-func (l *continueList) poll() bool {
+// poll takes an answer that has landed, or asks again when it is time;
+// true when the list changed.
+func (l *continueList) poll(a *App, now time.Time) bool {
 	if l.pending == nil {
+		if !l.next.IsZero() && !now.Before(l.next) {
+			l.refetch(a)
+		}
 		return false
 	}
 	select {
