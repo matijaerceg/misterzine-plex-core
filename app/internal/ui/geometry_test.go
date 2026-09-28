@@ -265,6 +265,7 @@ func TestCalibratePreview(t *testing.T) {
 		sel  int
 	}{
 		{"top", Geometry{}, calTop},
+		{"left-minimum", Geometry{}, calLeft},
 		{"left-set", Geometry{Left: 18, Top: 12, Right: 14, Bottom: 10}, calLeft},
 		{"corner", Geometry{Left: 18, Top: 12, Right: 14, Bottom: 10}, calCorner},
 		{"limits", Geometry{Left: 120, Top: 80, Right: 120, Bottom: 80}, calBottom},

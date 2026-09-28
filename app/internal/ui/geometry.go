@@ -310,7 +310,7 @@ func (s *Calibrate) Draw(c *gfx.Canvas, now time.Time) bool {
 
 	// the instructions, inside the circle
 	var lines []string
-	value := ""
+	value, note := "", ""
 	if s.sel == calCorner {
 		lines = []string{"Use a ruler, and move the", "corner until the square is", "as wide as it is tall"}
 		value = fmt.Sprintf("Picture width %d.%d%%", g.Width/10, g.Width%10)
@@ -321,8 +321,16 @@ func (s *Calibrate) Draw(c *gfx.Canvas, now time.Time) bool {
 			unit = "lines"
 		}
 		value = itoa(n) + " " + unit + " in"
+		// at a blanked line end: why it goes no further out
+		if end := map[int]int{calLeft: s.endL, calRight: s.endR}[s.sel]; end > 0 && n == end {
+			value += " (minimum)"
+			note = "Always black beyond this line"
+		}
 	}
 	ty := cy - 66
+	if note != "" {
+		ty -= 16 // room for it where the circle is still wide
+	}
 	s.centre(c, cx, ty, f.Title, gfx.Amber, calNames[s.sel], inside)
 	ty += f.Title.Height() + 8
 	for _, l := range lines {
@@ -330,6 +338,9 @@ func (s *Calibrate) Draw(c *gfx.Canvas, now time.Time) bool {
 		ty += 24
 	}
 	s.centre(c, cx, ty+6, f.Body, gfx.Amber, value, inside)
+	if note != "" {
+		s.centre(c, cx, ty+6+f.Body.Height()+6, f.SmallBold, gfx.GreyHi, note, inside)
+	}
 
 	// keys and every value, under the square; what this is, over it
 	by := bottom + 12
