@@ -7,6 +7,7 @@ import (
 
 	"plexcrt/internal/gfx"
 	"plexcrt/internal/input"
+	"plexcrt/internal/ring"
 )
 
 // Geometry is where video goes on the 720x480 raster, set on the calibration
@@ -106,6 +107,31 @@ func squareWidth(sqW, sqH int) int {
 // VideoGeometry is the presenter's PLEXFB_GEOMETRY, read at each playback start.
 func (a *App) VideoGeometry() string { return a.Cfg.Geometry.Env() }
 
+// The core leaves the first 12 and the last 8 pixels of every line black in
+// 480i and 240p (core/rtl/ddr_scanout.v, "Line ends"), so an edge placed
+// inside them could not be seen. The calibration keeps the left and right
+// edges past them; a saved area that reaches into them only loses what the
+// core blanks.
+const (
+	LineEndLeft  = 12
+	LineEndRight = 8
+)
+
+// lineEnds is how far in the calibration keeps the left and right edges: the
+// blanked line ends, except in 480p, which keeps every pixel.
+func (a *App) lineEnds() (left, right int) {
+	progressive := a.Cfg.Progressive
+	if r, ok := a.Out.(*ring.Ring); ok {
+		if mode, _, supported := r.VideoStatus(); supported {
+			progressive = mode == 2
+		}
+	}
+	if progressive {
+		return 0, 0
+	}
+	return LineEndLeft, LineEndRight
+}
+
 // Calibrate is the video geometry screen: the picture area's edges, and a
 // square with a circle in it that a ruler can check. OK steps through the
 // four edges and the square's top-right corner, the d-pad moves the one
@@ -117,6 +143,7 @@ type Calibrate struct {
 	sqW, sqH   int // the square, in pixels and lines
 	sqW0, sqH0 int // its size on opening: the bottom-left corner stays put
 	width0     int // the saved width, which that size only approximates
+	endL, endR int // the blanked line ends the left and right edges stay past
 }
 
 const (
@@ -133,9 +160,12 @@ var calNames = [calSteps]string{"Top edge", "Right edge", "Bottom edge", "Left e
 // calFill is the picture area: dark, so the lines and text stand out.
 const calFill gfx.Color = 0x1C2230
 
-// NewCalibrate opens the calibration with the saved geometry.
+// NewCalibrate opens the calibration with the saved geometry, its left and
+// right edges past the blanked line ends.
 func NewCalibrate(a *App) *Calibrate {
-	s := &Calibrate{app: a, g: a.Cfg.Geometry.Normal()}
+	s := &Calibrate{app: a}
+	s.endL, s.endR = a.lineEnds()
+	s.g = s.pastEnds(a.Cfg.Geometry.Normal())
 	// 288 lines (60% of the raster) unless the picture area is too short for
 	// it, as wide as the saved width says a square is
 	s.sqH = min(288, (480-s.g.Top-s.g.Bottom-60)&^1)
@@ -204,7 +234,13 @@ func (s *Calibrate) Key(ev input.Event, now time.Time) {
 			s.sqW, s.sqH, g.Width = w, h, width
 		}
 	}
-	*g = g.Normal()
+	*g = s.pastEnds(g.Normal())
+}
+
+// pastEnds keeps the left and right edges out of the blanked line ends.
+func (s *Calibrate) pastEnds(g Geometry) Geometry {
+	g.Left, g.Right = max(g.Left, s.endL), max(g.Right, s.endR)
+	return g
 }
 
 // Draw paints the pattern: black outside the picture area, the area's edges

@@ -94,7 +94,9 @@ func press(s *Calibrate, keys ...input.Key) {
 }
 
 func TestCalibrateMovesEachEdgeTheWayItIsPushed(t *testing.T) {
-	_, s := calibrateApp(t)
+	a, _ := calibrateApp(t)
+	a.Cfg.Progressive = true // 480p: no blanked line ends to stay past
+	s := NewCalibrate(a)
 	press(s, input.Down, input.Down, input.Down, input.Up)                  // top: in 3, out 1
 	press(s, input.Enter, input.Left, input.Left, input.Up)                 // right: in 2; up does nothing
 	press(s, input.Enter, input.Up, input.Up, input.Up)                     // bottom: in 3
@@ -107,6 +109,28 @@ func TestCalibrateMovesEachEdgeTheWayItIsPushed(t *testing.T) {
 	press(s, input.Enter, input.Enter, input.Up, input.Up, input.Up)
 	if s.g.Top != 0 || s.sel != calTop {
 		t.Fatalf("top pushed past the raster: %+v, selected %d", s.g, s.sel)
+	}
+}
+
+func TestCalibrateKeepsLeftAndRightEdgesPastTheBlankedLineEnds(t *testing.T) {
+	a, s := calibrateApp(t) // 480i: the core blanks the line ends
+	if s.g.Left != LineEndLeft || s.g.Right != LineEndRight || s.g.Top != 0 {
+		t.Fatalf("opened at %+v", s.g)
+	}
+	press(s, input.Enter, input.Right, input.Right, input.Left) // right: out stops at the end, then in 2
+	press(s, input.Enter, input.Enter, input.Left, input.Right) // left: out stops at the end, then in 2
+	if s.g.Right != LineEndRight+2 || s.g.Left != LineEndLeft+2 {
+		t.Fatalf("edges at %+v", s.g)
+	}
+	// an area saved further in opens as it was
+	a.Cfg.Geometry = Geometry{Left: 30, Right: 20, Width: 1000}
+	if g := NewCalibrate(a).g; g.Left != 30 || g.Right != 20 {
+		t.Fatalf("saved 30/20 opened at %+v", g)
+	}
+	// 480p keeps every pixel
+	a.Cfg.Geometry, a.Cfg.Progressive = Geometry{}, true
+	if g := NewCalibrate(a).g; g.Left != 0 || g.Right != 0 {
+		t.Fatalf("480p opened at %+v", g)
 	}
 }
 
