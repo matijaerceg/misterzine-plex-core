@@ -27,12 +27,14 @@ Detailed behavior and display settings. For everyday help, see the
   as the last action on its page. Plex keeps the resume point, and playing it
   again puts it back in the row. Servers without a Continue Watching list
   don't show the action.
-- The menu lists Home, Search, the movie and TV libraries, Options, and Exit to
-  MiSTer menu. A long list of libraries scrolls, and the menu opens on the
-  library visited last.
+- The menu lists Home, Search, the movie and TV libraries, Options, Exit to
+  MiSTer menu and Patreon. A long list of libraries scrolls, and the menu opens
+  on the library visited last. Patreon says what membership gets you and holds
+  **Beta access**; on an unlocked beta it thanks you instead.
 - Options contains video mode, video geometry and crop, theme music, navigation
   taps, autoplay, bitrate, downmix boost, the 4:3 filter, server selection and
-  sign-out. The 4:3 filter applies to the
+  sign-out. A scrollbar on the right shows where the list is. The 4:3 filter
+  applies to the
   home rows, search and every library view. Movies and episodes are judged by
   their own picture; a show by its first episode. Each TV library is read once
   for that, the first time the filter needs it, and the answers are kept in the
@@ -198,14 +200,14 @@ separate playback tools do not check Patreon access.
 Find the exact version shown in the app's drawer or Options, then find its
 members-only Patreon release post. The post supplies a six-digit code.
 
-Press Play or Resume to open the early-access code screen, or select **Beta access** in
-Options. Left/right selects a digit; up/down changes it. Hold up/down to repeat.
+Press Play or Resume to open the early-access code screen, or select **Beta access** on
+the menu's Patreon page. Left/right selects a digit; up/down changes it. Hold up/down to repeat.
 Digit changes take effect immediately, with a short rolling animation. A keyboard can type the
 six digits directly, including leading zeros. Press OK to unlock or Back to cancel.
 Keyboard Backspace edits and Escape cancels. The Patreon address is displayed
-on the code screen and in Options. An incorrect code stays visible for
+on the code screen, the Patreon page and in Options. An incorrect code stays visible for
 correction. Successful entry continues the selected playback automatically;
-unlocking from Options simply returns to Options.
+unlocking from the Patreon page simply returns to it.
 
 Access is saved with the installation, separately from the Plex account. Restarts,
 sign-out, reinstallations that preserve settings and updates using the same access
@@ -215,7 +217,7 @@ unlocked releases still work after rollback. Keep the installation's settings an
 
 The BETA badge stays visible after unlocking. Video playback has no beta watermark.
 
-To clear saved access, select **Options → Beta access → Forget beta access** and
+To clear saved access, select **Patreon → Beta access → Forget beta access** in the menu and
 confirm. This removes all saved beta unlocks and legacy keys on the installation,
 including access to older releases. Plex sign-in and settings are kept. Beta
 playback requires unlocking again; legacy builds need their key restored.

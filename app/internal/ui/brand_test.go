@@ -118,14 +118,19 @@ func TestScrubRunTopsOutAtTheSecondSpeed(t *testing.T) {
 	}
 }
 
-func TestMenuEndsWithExit(t *testing.T) {
+func TestMenuEndsWithExitThenPatreon(t *testing.T) {
 	a := betaTestApp(t)
 	a.secs = []plex.Section{{Key: "1", Title: "Films", Type: "movie"}}
 	items, _ := a.menuItems()
-	if n := len(items); items[n-2].Type != "options" || items[n-1].Type != "exit" || items[n-1].Title != "Exit to MiSTer menu" {
-		t.Fatalf("menu ends %q, %q", items[n-2].Title, items[n-1].Title)
+	n := len(items)
+	if items[n-3].Type != "options" || items[n-2].Type != "exit" || items[n-2].Title != "Exit to MiSTer menu" || items[n-1].Type != "patreon" {
+		t.Fatalf("menu ends %q, %q, %q", items[n-3].Title, items[n-2].Title, items[n-1].Title)
 	}
-	a.MenuPick(nil, items[len(items)-1])
+	a.MenuPick(nil, items[n-1])
+	if _, ok := a.top().(*Patreon); !ok || a.ToMenu {
+		t.Fatalf("Patreon opened %T", a.top())
+	}
+	a.MenuPick(nil, items[n-2])
 	if !a.ToMenu {
 		t.Fatal("Exit did not ask for the MiSTer menu")
 	}
@@ -148,8 +153,8 @@ func TestOptionsHoldExitWhileSignedOut(t *testing.T) {
 	}
 	a.Plex = nil // signed out: Back from the sign-in screen opens Options
 	i := find()
-	if items := o.items(); i < 0 || items[len(items)-1].label != "Version" {
-		t.Fatalf("Exit at %d; Version must stay last", i)
+	if items := o.items(); i < 0 || items[i+1].label != "Patreon" || items[len(items)-1].label != "Version" {
+		t.Fatalf("Exit at %d, then Patreon; Version must stay last", i)
 	}
 	o.cur = i
 	o.Key(input.Event{Key: input.Enter}, time.Now())
@@ -164,7 +169,7 @@ type exitScreen struct {
 	frames int
 }
 
-func (s *exitScreen) Key(ev input.Event, now time.Time)       { s.app.ToMenu = true }
+func (s *exitScreen) Key(ev input.Event, now time.Time)      { s.app.ToMenu = true }
 func (s *exitScreen) Draw(c *gfx.Canvas, now time.Time) bool { s.frames++; return false }
 
 func TestRunReturnsOnExitBeforeDrawing(t *testing.T) {

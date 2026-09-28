@@ -13,14 +13,14 @@ does to your library or your MiSTer.
 
 D-pad moves, OK selects, and Back returns or opens the menu. During playback,
 OK opens the controls; Back or Down closes them. Press Back with the controls
-hidden to stop. To leave the app, choose Exit to MiSTer menu at the bottom of
-the menu.
+hidden to stop. To leave the app, choose Exit to MiSTer menu near the bottom
+of the menu.
 
 ### Why is it asking for another code?
 
 The Plex sign-in code links your account. Early-access releases also need a
 six-digit code from that version's Patreon post to play videos. Enter it when
-you press Play, or under **Options > Beta access**. It's saved for next time.
+you press Play, or under **Patreon > Beta access** in the menu. It's saved for next time.
 Public releases are free and need no playback code.
 
 ### Installation or sign-in isn't working

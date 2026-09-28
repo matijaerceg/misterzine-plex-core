@@ -11,7 +11,8 @@ import (
 )
 
 // Drawer is the menu: a panel that slides in down the left over the home
-// screen, which shows dimmed behind it. Home, the libraries, Options.
+// screen, which shows dimmed behind it. Home, the libraries, Options, Exit,
+// Patreon.
 type Drawer struct {
 	app       *App
 	items     []*plex.Item
@@ -174,6 +175,9 @@ func (d *Drawer) compose() {
 	for i := d.first; i < last; i++ {
 		it := d.items[i]
 		col := gfx.GreyHi
+		if it.Type == "patreon" {
+			col = gfx.Purple // the app's Patreon colour, as on the address lines
+		}
 		if i == d.cur {
 			col = gfx.White
 			menuFocusBar(c, MenuX, y, f.Height())

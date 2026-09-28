@@ -595,7 +595,7 @@ func (a *App) knownSections(secs []plex.Section) {
 }
 
 // Menu opens the drawer over the home screen: Home, the libraries, Options,
-// Exit.
+// Exit, Patreon.
 func (a *App) Menu() {
 	if a.Plex == nil {
 		return // signing in: nothing to list
@@ -613,7 +613,8 @@ func (a *App) menuItems() ([]*plex.Item, int) {
 	for _, s := range a.secs {
 		items = append(items, &plex.Item{RatingKey: s.Key, Title: s.Title, Type: "section", Key: s.Key})
 	}
-	items = append(items, &plex.Item{Title: "Options", Type: "options"}, &plex.Item{Title: "Exit to MiSTer menu", Type: "exit"})
+	items = append(items, &plex.Item{Title: "Options", Type: "options"}, &plex.Item{Title: "Exit to MiSTer menu", Type: "exit"},
+		&plex.Item{Title: "Patreon", Type: "patreon"})
 	// open on the library visited last, so a long list needs no scrolling to return
 	cur := 0
 	for i, it := range items {
@@ -633,6 +634,8 @@ func (a *App) MenuPick(d *Drawer, it *plex.Item) {
 		d.Close(func() { a.Push(NewSearch(a)) })
 	case "options":
 		a.Push(NewOptions(a))
+	case "patreon":
+		a.Push(NewPatreon(a))
 	case "section":
 		if s, ok := a.section(it.Key); ok {
 			a.lastSection = s.Key

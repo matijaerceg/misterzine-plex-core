@@ -3,7 +3,6 @@ package ui
 import (
 	"time"
 
-	"plexcrt/internal/beta"
 	"plexcrt/internal/gfx"
 	"plexcrt/internal/input"
 	"plexcrt/internal/plex"
@@ -85,20 +84,6 @@ func (o *Options) items() []option {
 		label = "Sign out (" + cfg.AccountName + ")"
 	}
 	items = append(items, option{label: label, do: o.app.SignOut})
-	if beta.IsBeta() {
-		items = append(items, option{label: "Beta access", val: func() string {
-			switch beta.Check(o.app.betaDir()) {
-			case nil:
-				return "Unlocked"
-			case beta.ErrLocked:
-				return "Locked"
-			default:
-				return "Build error"
-			}
-		}, do: func() {
-			o.app.chooseBetaAccess()
-		}})
-	}
 	updateLabel := "Updates"
 	if o.app.updateAvailable() {
 		updateLabel = "Updates - update available"
@@ -109,9 +94,11 @@ func (o *Options) items() []option {
 	items = append(items, option{label: updateLabel, do: func() { o.app.Push(NewUpdates(o.app)) }})
 	items = append(items, option{label: "Send a report", do: func() { o.app.Push(NewReport(o.app)) }})
 	if o.app.Plex == nil {
-		// signed out there is no menu to hold Exit: Back from the sign-in
-		// screen comes here
-		items = append(items, option{label: "Exit to MiSTer menu", do: func() { o.app.ToMenu = true }})
+		// signed out there is no menu to hold Exit and Patreon: Back from
+		// the sign-in screen comes here
+		items = append(items,
+			option{label: "Exit to MiSTer menu", do: func() { o.app.ToMenu = true }},
+			option{label: "Patreon", do: func() { o.app.Push(NewPatreon(o.app)) }})
 	}
 	items = append(items, option{label: "Version", val: func() string {
 		if o.app.Version == "" {
@@ -259,14 +246,8 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 		}
 		y += MenuRowH
 	}
-	// more rows above or below the window: a chevron at the edge
-	cx := MenuX + MenuWidth/2
-	if first > 0 {
-		chevron(c, cx, ListY0-10, true, gfx.GreyLo)
-	}
-	if first+visibleRows < len(items) {
-		chevron(c, cx, y+2, false, gfx.GreyLo)
-	}
+	// more rows than the window: a scrollbar from the first row's text to the last's
+	menuScrollbar(c, ListY0+9, visibleRows*MenuRowH-MenuRowH+f.Body.Height(), first, visibleRows, len(items))
 	if o.app.Build != "" {
 		o.app.text(c, MenuX, SafeBottom-48, f.Small, gfx.GreyLo, f.Small.Fit("Build: "+o.app.Build, MenuWidth))
 	}
