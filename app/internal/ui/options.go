@@ -73,9 +73,14 @@ func (o *Options) items() []option {
 		{label: "Video crop", val: func() string { return cfg.Crop.Label() }, step: func(d int) {
 			cfg.Crop = Crops[max(0, min(len(Crops)-1, cfg.Crop.index()+d))].Mode
 		}},
+	}
+	if o.app.Display.VRRForced() {
+		items = append(items, option{label: "HDMI VRR", val: func() string { return "Forced on" }, do: func() { o.app.Push(NewVRRNote(o.app)) }})
+	}
+	items = append(items, []option{
 		{label: "Theme music", get: func() bool { return !cfg.NoTheme }, set: func(v bool) { cfg.NoTheme = !v }, after: o.app.syncTheme},
 		{label: "Navigation sounds", get: func() bool { return !cfg.NoTaps }, set: func(v bool) { cfg.NoTaps = !v }},
-	}
+	}...)
 	if cfg.Token != "" {
 		items = append(items, option{label: "Choose server again", do: func() { o.app.Push(NewServerPicker(o.app)) }})
 	}

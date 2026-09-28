@@ -82,6 +82,9 @@ type App struct {
 	Cfg            *Config
 	Showcase       bool // session-only capture privacy
 	Version, Build string
+	// Display is what the launcher read in the MiSTer INI; Options warn
+	// about settings that hurt playback.
+	Display DisplayCheck
 	// ToMenu is set by the menu's Exit: Run returns, and the launcher loads
 	// the MiSTer menu once the app has stopped.
 	ToMenu bool

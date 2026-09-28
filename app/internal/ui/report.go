@@ -133,7 +133,7 @@ func (r *Report) Draw(c *gfx.Canvas, now time.Time) bool {
 		}
 		para("Press OK to go back.", gfx.GreyHi)
 	default:
-		para("A report describes this MiSTer to the developer: the app and launcher logs, the video settings MisterZine reads from MiSTer.ini, which MiSTer main is running, and the framebuffer state.", gfx.GreyHi)
+		para("A report describes this MiSTer to the developer: the app and launcher logs, the video settings MisterZine reads from the MiSTer INI, which MiSTer main is running, and the framebuffer state.", gfx.GreyHi)
 		para("It can name media titles and playback details. Sign-in tokens, the server address and account files are never included.", gfx.GreyHi)
 		para("Press OK to send it, or Back to cancel.", gfx.White)
 	}

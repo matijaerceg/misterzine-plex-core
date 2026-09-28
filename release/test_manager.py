@@ -368,6 +368,87 @@ class ReportTests(unittest.TestCase):
         self.assertTrue(manager.prepare_framebuffer(params))
         self.assertFalse(manager.prepare_framebuffer(params))
 
+    def test_report_reads_the_active_alternative_ini_by_number(self):
+        (self.card / 'MiSTer_Bench.ini').write_text('[MiSTer]\nvrr_mode=2\n[MisterZine Plex Core]\nvideo_mode=8\n')
+        facts = manager.system_facts(self.root, [], self.proc.parent, altcfg=lambda: 1)
+        self.assertEqual(facts['ini'], 'alternative 1')
+        self.assertEqual(facts['video_settings'], {'MiSTer': {'vrr_mode': '2'}, 'MisterZine Plex Core': {'video_mode': '8'}})
+        self.assertEqual(facts['plex_video'], {'vrr_mode': '2', 'video_mode': '8', 'vrr': 'forced'})
+        self.assertNotIn('Bench', json.dumps(facts))
+        facts = manager.system_facts(self.root, [], self.proc.parent, altcfg=lambda: None)
+        self.assertEqual(facts['ini'], 'unknown')
+        self.assertEqual(facts['plex_video'], {'video_mode': '8', 'fb_terminal': '1', 'vrr': 'off'})   # MiSTer.ini stands in
+
+
+class DisplayCheckTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.card = Path(self.temp.name)
+
+    def check(self, text, altcfg=lambda: 0):
+        (self.card / 'MiSTer.ini').write_text(text)
+        return manager.display_check(self.card, altcfg)
+
+    def test_the_plex_section_overrides_the_global_setting(self):
+        self.assertEqual(self.check('[MiSTer]\nvrr_mode=2\n'), {'ini': 'MiSTer.ini', 'vrr': 'forced', 'vrr_mode': 2})
+        self.assertEqual(self.check('[MiSTer]\nvrr_mode=2\n[MisterZine Plex Core]\nvrr_mode=0\n')['vrr'], 'off')
+        # main reads top to bottom: a [MiSTer] section after the core's wins
+        self.assertEqual(self.check('[misterzine plex core]\nvrr_mode=0\n[MiSTer]\nvrr_mode=3\n')['vrr'], 'forced')
+        self.assertEqual(self.check('[SNES]\nvrr_mode=2\n[MiSTer]\nvideo_mode=8\n')['vrr'], 'off')
+        # what the app's note suggests: a second Plex section at the end
+        self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=8\n[MiSTer]\nvrr_mode=2\n'
+                                    '[MisterZine Plex Core]\nvrr_mode=0\n')['vrr'], 'off')
+
+    def test_main_drops_vrr_with_vsync_adjust_or_direct_video(self):
+        self.assertEqual(self.check('[MiSTer]\nvrr_mode=2\nvsync_adjust=1\n')['vrr'], 'off')
+        self.assertEqual(self.check('[MiSTer]\nvrr_mode=4\ndirect_video=1\n')['vrr'], 'off')
+        self.assertEqual(self.check('[MiSTer]\nvrr_mode=1\n')['vrr'], 'auto')
+        self.assertEqual(self.check('[MiSTer]\nvideo_mode=8\n')['vrr'], 'off')
+
+    def test_lines_are_read_as_main_reads_them(self):
+        self.assertEqual(self.check('﻿[MiSTer]\r\n  vrr_mode = 2 ; forced\r\n')['vrr_mode'], 2)
+        self.assertEqual(self.check('vrr_mode=2\n[MiSTer]\n')['vrr'], 'off')           # before any section
+        self.assertEqual(self.check('[MiSTer]\n;vrr_mode=2\n')['vrr'], 'off')
+        self.assertEqual(self.check('[MisterZine*]\nvrr_mode=2\n')['vrr'], 'forced')
+        self.assertEqual(self.check('[Genesis]\n+MisterZine Plex Core\nvrr_mode=2\n')['vrr'], 'forced')
+        self.assertEqual(self.check('[MiSTer]\nvrr_mode=9\n')['vrr_mode'], 4)            # clamped
+        self.assertEqual(self.check('[MiSTer]\nvrr_mode=0x2\n')['vrr_mode'], 2)
+        self.assertEqual(self.check('[MiSTer]\nvrr_mode=on\n')['vrr'], 'off')
+
+    def test_the_ini_main_chose_is_the_one_read(self):
+        for name in ('MiSTer_zeta.ini', 'MiSTer_Alpha.ini', 'notes.ini'):
+            (self.card / name).write_text('[MiSTer]\nvrr_mode=2\n')
+        self.assertEqual(self.check('[MiSTer]\n', altcfg=lambda: 2), {'ini': 'MiSTer_zeta.ini', 'vrr': 'forced', 'vrr_mode': 2})
+        self.assertEqual(self.check('[MiSTer]\n', altcfg=lambda: 0)['vrr'], 'off')
+        self.assertEqual(self.check('[MiSTer]\n', altcfg=lambda: 7)['ini'], 'MiSTer.ini')
+        self.assertEqual(self.check('[MiSTer]\n', altcfg=lambda: 3), {'ini': '', 'vrr': 'unknown'})
+        self.assertEqual(self.check('[MiSTer]\n', altcfg=lambda: None), {'ini': '', 'vrr': 'unknown'})
+
+    def test_without_alternatives_main_memory_is_not_read(self):
+        self.assertEqual(self.check('[MiSTer]\nvrr_mode=2\n', altcfg=mock.Mock(side_effect=AssertionError))['vrr'], 'forced')
+        (self.card / 'MiSTer.ini').unlink()
+        self.assertEqual(manager.display_check(self.card, lambda: 0), {'ini': 'MiSTer.ini', 'vrr': 'off', 'vrr_mode': 0})
+
+    def test_altcfg_reads_main_signature(self):
+        mem = self.card / 'mem'
+        page = bytearray(4096)
+        mem.write_bytes(bytes(page))
+        self.assertEqual(manager.read_altcfg(str(mem), address=0), 0)
+        page[0xF04:0xF08] = b'\x34\x99\xba\x02'
+        mem.write_bytes(bytes(page))
+        self.assertEqual(manager.read_altcfg(str(mem), address=0), 2)
+        self.assertIsNone(manager.read_altcfg(str(self.card / 'missing')))
+
+    def test_display_env_never_fails(self):
+        with mock.patch.object(manager, 'display_check', side_effect=RuntimeError('boom')), \
+                mock.patch.object(manager, 'trace') as trace:
+            self.assertEqual(manager.display_env(self.card), '')
+        trace.assert_called_once_with('display check failed: RuntimeError')
+        (self.card / 'MiSTer.ini').write_text('[MiSTer]\nvrr_mode=2\n')
+        with mock.patch.object(manager, 'trace'):
+            self.assertEqual(json.loads(manager.display_env(self.card)), {'ini': 'MiSTer.ini', 'vrr': 'forced', 'vrr_mode': 2})
+
 
 if __name__ == '__main__':
     unittest.main()

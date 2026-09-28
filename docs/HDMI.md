@@ -89,6 +89,11 @@ badly while 30 fps video stayed smooth, and turning it off fixed every file.
 Keep `vrr_mode=0` in the Plex section above. MiSTer also switches VRR off
 whenever `vsync_adjust` is 1 or 2.
 
+When the INI MiSTer read for Plex forces VRR on (`vrr_mode` 2, 3 or 4, with
+`vsync_adjust=0`), **Options** shows **HDMI VRR: Forced on**. Select it to see
+which file to change and the lines to add. The automatic setting
+(`vrr_mode=1`) depends on what the display reports, so Options don't flag it.
+
 With VRR off, films can still look slightly uneven: that is the three-two
 pattern above. Some displays smooth it with a film-mode or motion setting,
 which game modes often disable.

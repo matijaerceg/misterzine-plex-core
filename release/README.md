@@ -39,6 +39,8 @@ video. The default is 3 Mbps; higher settings are experimental.
 On HDMI, if films (24 fps) stutter but 30 fps shows play smoothly, turn off
 variable refresh rate for Plex: add `vrr_mode=0` to the Plex section of your
 MiSTer INI, as shown in [HDMI setup](https://github.com/matijaerceg/misterzine-plex-core/blob/main/docs/HDMI.md#variable-refresh-rate-vrr-freesync).
+When your INI forces VRR on, **Options** shows **HDMI VRR: Forced on**; select
+it for the lines to add.
 
 ### The picture looks wrong
 
@@ -68,7 +70,7 @@ It keeps your settings by default; removing all Plex data requires typing REMOVE
 
 **Options > Send a report** in the app describes your MiSTer to the developer and
 shows a short code, such as `K7M4`, to post wherever you asked for help. The
-report holds the app and launcher logs, the video settings read from MiSTer.ini,
+report holds the app and launcher logs, the video settings read from the MiSTer INI,
 which MiSTer main is running and the framebuffer state. It can name media titles
 and playback details; sign-in tokens, the server address and account files are
 never included. Reports go to `api.misterzine.fyi`, which keeps nothing about who

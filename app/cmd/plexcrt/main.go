@@ -163,6 +163,7 @@ func run() int {
 	defer close(watching)
 	app.Cfg = cfg
 	app.Version, app.Build = version, build
+	app.Display = ui.ParseDisplayCheck(os.Getenv("MISTERZINE_PLEX_DISPLAY"))
 	app.SetCacheDir(*cache)
 	player.Reap()
 	defer player.Reap()

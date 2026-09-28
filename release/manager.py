@@ -748,6 +748,152 @@ def ini_video_settings(text):
     return found
 
 
+# The core's name in its OSD (CONF_STR in core/PlexCRT.sv), which MiSTer main
+# matches INI sections against.
+CORE_NAME = 'MisterZine Plex Core'
+# MiSTer main keeps the INI chosen in its menu in reserved memory (altcfg() in
+# its user_io.cpp): a signature, then 0 for MiSTer.ini or 1-3 for the
+# alternatives.
+ALTCFG_ADDRESS, ALTCFG_OFFSET, ALTCFG_SIGNATURE = 0x1FFFF000, 0xF04, b'\x34\x99\xba'
+# What main keeps of an INI line besides blanks (CHAR_IS_VALID in its cfg.cpp).
+INI_CHARS = frozenset('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789[]()-+/=#$@_,.!*:~')
+
+
+def alt_ini_names(card):
+    """The alternative INIs MiSTer's menu offers, in its order: the first three
+    MiSTer_*.ini files the directory lists, sorted ignoring case (cfg_get_name)."""
+    names = [name for name in os.listdir(card) if name.lower().startswith('mister_') and name.lower().endswith('.ini')]
+    return sorted(names[:3], key=str.lower)
+
+
+def read_altcfg(mem='/dev/mem', address=ALTCFG_ADDRESS):
+    """The INI number MiSTer main last chose; 0 without its signature, as main
+    reads it, and None when the memory cannot be read."""
+    try:
+        fd = os.open(mem, os.O_RDONLY | getattr(os, 'O_SYNC', 0))
+    except OSError:
+        return None
+    try:
+        with mmap.mmap(fd, 4096, mmap.MAP_SHARED, mmap.PROT_READ, offset=address) as page:
+            data = page[ALTCFG_OFFSET:ALTCFG_OFFSET + 4]
+    except (OSError, ValueError):
+        return None
+    finally:
+        os.close(fd)
+    return data[3] if data[:3] == ALTCFG_SIGNATURE else 0
+
+
+def active_ini(card, altcfg=read_altcfg):
+    """The INI MiSTer main read for the running core, and its number (0 for
+    MiSTer.ini). (None, None) when that cannot be told: an alternative exists
+    but main's choice is unreadable, or the choice names no file."""
+    try:
+        alts = alt_ini_names(card)
+    except OSError:
+        return None, None
+    number = altcfg() if alts else 0
+    if number is None:
+        return None, None
+    if not 1 <= number <= 3:        # main uses MiSTer.ini for anything else
+        return card / 'MiSTer.ini', 0
+    return (card / alts[number - 1], number) if number <= len(alts) else (None, None)
+
+
+def ini_line(raw):
+    """A line as MiSTer main keeps it (ini_getline): leading blanks, a comment
+    and characters it does not accept dropped, trailing blanks trimmed."""
+    kept, leading = [], True
+    for c in raw:
+        if c == ';':
+            break
+        if c not in ' \t':
+            leading = False
+        if not leading and (c in ' \t' or c in INI_CHARS):
+            kept.append(c)
+    return ''.join(kept).rstrip(' \t')
+
+
+def section_applies(header, core=CORE_NAME):
+    """Whether main applies a section to this core (ini_get_section): [MiSTer],
+    the core's name, or a prefix of it ending in '*'. Arcade and video mode
+    sections are not matched here."""
+    name = header.split(']', 1)[0]
+    if name.lower() == 'mister':
+        return True
+    star = name.rfind('*')
+    return core.lower().startswith(name[:star].lower()) if star >= 0 else name.lower() == core.lower()
+
+
+def core_ini_values(text, core=CORE_NAME):
+    """The values main applies to the core, by lower-case key: lines under
+    [MiSTer] and the core's own sections (or a '+name' line that includes it),
+    in file order, so a later value wins."""
+    values, applies = {}, False
+    for raw in text.split('\n'):
+        line = ini_line(raw)
+        if line.startswith('['):
+            applies = section_applies(line[1:], core)
+        elif line.startswith('+') and not applies:
+            applies = section_applies(line[1:], core)
+        elif applies:
+            match = re.match(r'([^=\s]+)[=\s]', line)
+            if match:
+                values[match.group(1).lower()] = line[match.end():].lstrip('= \t')
+    return values
+
+
+def ini_number(text, low, high):
+    """An unsigned value as main reads it: strtoul with base 0, clamped."""
+    match = re.match(r'\s*([+-]?)(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)', text)
+    if not match:
+        return low
+    digits = match.group(2)
+    value = int(digits, 16) if digits[:2].lower() == '0x' else int(digits, 8) if digits[0] == '0' else int(digits)
+    if match.group(1) == '-' and value:
+        value = high                # a negative number wraps to a huge one
+    return max(low, min(high, value))
+
+
+def vrr_state(values):
+    """'forced' when main turns variable refresh rate on for the core whatever
+    the display reports, 'auto' when only a display that reports support gets
+    it, 'off' otherwise. Main drops VRR with vsync_adjust or direct video
+    (set_vrr_mode and video_set_mode in its video.cpp)."""
+    mode = ini_number(values.get('vrr_mode', ''), 0, 4)
+    if not mode or ini_number(values.get('vsync_adjust', ''), 0, 2) or ini_number(values.get('direct_video', ''), 0, 2):
+        return 'off'
+    return 'auto' if mode == 1 else 'forced'
+
+
+def display_check(card, altcfg=read_altcfg):
+    """What the app's Options show about the MiSTer INI: which file main
+    read, whether VRR is on for Plex and the vrr_mode behind it."""
+    path, number = active_ini(card, altcfg)
+    if path is None:
+        return {'ini': '', 'vrr': 'unknown'}
+    try:
+        values = core_ini_values(path.read_text(errors='replace'))
+    except FileNotFoundError:
+        values = {}                 # main runs on its defaults
+    except OSError:
+        return {'ini': path.name, 'vrr': 'unknown'}
+    return {'ini': path.name, 'vrr': vrr_state(values), 'vrr_mode': ini_number(values.get('vrr_mode', ''), 0, 4)}
+
+
+def display_env(card):
+    """display_check for the app's environment (MISTERZINE_PLEX_DISPLAY),
+    taken once the core is loaded, when main has read the INI for it. A check
+    that fails is logged and leaves the variable empty: the app then shows
+    nothing about the INI. Older apps ignore the variable."""
+    try:
+        check = display_check(card)
+    except Exception as exc:        # never in the way of starting the app
+        trace('display check failed: %s' % type(exc).__name__)
+        return ''
+    trace('display check: vrr %s' % check['vrr'])
+    return json.dumps(check)
+
+
 def defines_launcher(path, ident='misterzine-plex'):
     """Whether a Zaparoo TOML file has a [[launchers.custom]] table with this
     id. Tables and keys only; comments do not count."""
@@ -795,13 +941,20 @@ def zaparoo_facts(root, version=None):
     return facts
 
 
-def system_facts(root, secrets, proc_root=Path('/proc')):
+def system_facts(root, secrets, proc_root=Path('/proc'), altcfg=read_altcfg):
     """Facts about the board that decide whether a launch or a picture can
     work, gathered read-only. Each is best-effort and absent when unreadable."""
     facts = {}
     card = root.parent
+    # The INI main read, by number only: an alternative's file name is the
+    # player's own. MiSTer.ini stands in when main's choice is unreadable.
+    ini, number = active_ini(card, altcfg)
+    facts['ini'] = 'unknown' if ini is None else 'MiSTer.ini' if not number else 'alternative %d' % number
     try:
-        facts['video_settings'] = ini_video_settings((card / 'MiSTer.ini').read_text(errors='replace'))
+        text = (ini or card / 'MiSTer.ini').read_text(errors='replace')
+        facts['video_settings'] = ini_video_settings(text)
+        values = core_ini_values(text)
+        facts['plex_video'] = dict({key: values[key][:40] for key in VIDEO_KEYS if key in values}, vrr=vrr_state(values))
     except OSError:
         pass
     try:
@@ -1458,10 +1611,11 @@ def run(root):
         # Before anything is paused or switched, so a stop at any point unwinds.
         signal.signal(signal.SIGTERM, interrupted)
         to_menu = False
+        env = dict(os.environ, MISTERZINE_PLEX_DISPLAY=display_env(root.parent))
         with screen_to_ourselves() as screen, open('/tmp/misterzine-plex.log', 'wb') as log:
             child = None
             try:
-                child = subprocess.Popen(args, stdout=log, stderr=log)
+                child = subprocess.Popen(args, stdout=log, stderr=log, env=env)
                 trace('app started, pid %d' % child.pid)
                 ticks = 0
                 while child.poll() is None:
