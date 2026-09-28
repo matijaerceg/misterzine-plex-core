@@ -114,12 +114,21 @@ func TestCalibrateMovesEachEdgeTheWayItIsPushed(t *testing.T) {
 
 func TestCalibrateKeepsLeftAndRightEdgesPastTheBlankedLineEnds(t *testing.T) {
 	a, s := calibrateApp(t) // 480i: the core blanks the line ends
-	if s.g.Left != LineEndLeft || s.g.Right != LineEndRight || s.g.Top != 0 {
-		t.Fatalf("opened at %+v", s.g)
+	shown := Geometry{Left: LineEndLeft, Right: LineEndRight, Width: 1000}
+	if s.g != (Geometry{Width: 1000}) || s.pastEnds(s.g) != shown {
+		t.Fatalf("opened at %+v, shown as %+v", s.g, s.pastEnds(s.g))
 	}
+	// nothing moved: the saved geometry stays, and 480p still gets every pixel
+	a.key(input.Event{Key: input.Back}, time.Now())
+	a.Cfg.Progressive = true
+	if got := a.VideoGeometry(); got != "0,0,0,0,1000" {
+		t.Fatalf("an untouched calibration saved %q", got)
+	}
+	a.Cfg.Progressive = false
+	s = NewCalibrate(a)
 	press(s, input.Enter, input.Right, input.Right, input.Left) // right: out stops at the end, then in 2
 	press(s, input.Enter, input.Enter, input.Left, input.Right) // left: out stops at the end, then in 2
-	if s.g.Right != LineEndRight+2 || s.g.Left != LineEndLeft+2 {
+	if s.g != (Geometry{Left: LineEndLeft + 2, Right: LineEndRight + 2, Width: 1000}) {
 		t.Fatalf("edges at %+v", s.g)
 	}
 	// an area saved further in opens as it was
@@ -127,10 +136,12 @@ func TestCalibrateKeepsLeftAndRightEdgesPastTheBlankedLineEnds(t *testing.T) {
 	if g := NewCalibrate(a).g; g.Left != 30 || g.Right != 20 {
 		t.Fatalf("saved 30/20 opened at %+v", g)
 	}
-	// 480p keeps every pixel
-	a.Cfg.Geometry, a.Cfg.Progressive = Geometry{}, true
-	if g := NewCalibrate(a).g; g.Left != 0 || g.Right != 0 {
-		t.Fatalf("480p opened at %+v", g)
+	// 480p keeps every pixel: its edges go out to the raster's
+	a.Cfg.Geometry, a.Cfg.Progressive = Geometry{Left: 4}, true
+	s = NewCalibrate(a)
+	press(s, input.Enter, input.Enter, input.Enter, input.Left, input.Left)
+	if s.g.Left != 0 || s.pastEnds(s.g).Right != 0 {
+		t.Fatalf("480p edges at %+v", s.g)
 	}
 }
 
