@@ -33,7 +33,7 @@ checking the output profile guard and verifying on appropriate hardware.
 ```sh
 python3 release/build_presenter.py
 cp core/output_files/PlexCRT.rbf core/PlexCRT.rbf
-python3 release/build_package.py --core-tree core --id source-build --version 0.1.0-beta.12
+python3 release/build_package.py --core-tree core --id source-build --version 0.1.0-beta.13
 ```
 
 build_presenter.py runs `arm-linux-gnueabihf-gcc -O2 -static -march=armv7-a
