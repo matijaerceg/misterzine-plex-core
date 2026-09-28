@@ -27,6 +27,9 @@ Primary output is NTSC 15 kHz 480i. Component/Y-C profiles enforce 480i; RGB-onl
 CRTs require Safe 480i in the OSD. HDMI 480p requires confirmation. PAL and HDMI
 full-height scaling refinements remain incomplete. Sources of 45 fps and up
 (50 and 60 fps video) are requested at half their frame rate, every other
-frame, because the board cannot decode the full rate. The artwork/theme cache
+frame, because the board cannot decode the full rate. Output always refreshes
+at 59.94 Hz and never follows the video's frame rate, so 24 and 25 fps video is
+shown with an uneven frame cadence and HDMI variable refresh rate adds nothing;
+see [HDMI setup](HDMI.md#variable-refresh-rate-vrr-freesync). The artwork/theme cache
 has no disk quota. Show transitions can miss
 their target cadence; no universal 60 fps guarantee is made.

@@ -182,7 +182,7 @@ Plex draws across the full width. Each playback starts with this setting;
 **More > Crop** in the playback controls changes it for that playback,
 including the episodes that follow it, and the change shows at once.
 
-For HDMI scaling and aspect settings, see [HDMI setup](HDMI.md).
+For HDMI scaling, aspect and variable refresh rate settings, see [HDMI setup](HDMI.md).
 PAL is not yet supported. RGB-only CRTs are not detected automatically.
 
 ## MisterZine Plex Core - Patreon beta access

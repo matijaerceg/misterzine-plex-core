@@ -15,7 +15,9 @@ uneven text strokes. Side bars are normal on a widescreen display.
    Older cores have an **HDMI aspect** choice instead; select **Original 4:3**.
 3. Add or update this section in the **active MiSTer INI**, preserving other
    settings. If you use an alternate configuration, edit that file rather than
-   assuming `MiSTer.ini` is active. Reload the core after saving.
+   assuming `MiSTer.ini` is active. Keep the section below the `[MiSTer]`
+   settings: MiSTer reads the file from top to bottom, and later values win.
+   Reload the core after saving.
 
    ```ini
    [MisterZine Plex Core]
@@ -23,10 +25,13 @@ uneven text strokes. Side bars are normal on a widescreen display.
    direct_video=0
    vscale_mode=0
    vscale_border=0
+   vrr_mode=0
    ```
 
    This selects 1920x1080 at 60 Hz, scaled HDMI output and full-height scaling
-   without an added border. These settings are scoped to Plex.
+   without an added border, and turns variable refresh rate off (see
+   [below](#variable-refresh-rate-vrr-freesync)). These settings are scoped to
+   Plex; other cores keep your global settings.
 4. In **Video Processing**, set the horizontal filter to **From file** and choose
    **Interpolation (Sharp).txt**. Set the vertical filter to **From file** and
    choose the same file. Select an actual file; an empty selection is not this
@@ -70,12 +75,32 @@ flowchart TD
   when Normal is selected. The **HDMI setup help** submenu explains these settings; its notes are guidance,
   not live INI values. The dimmed **HDMI aspect: 4:3** row is fixed information.
 
+## Variable refresh rate (VRR, FreeSync)
+
+Plex's picture always refreshes at the NTSC rate, about 59.94 times a second,
+whatever the video's own frame rate. A 30 fps video holds every frame for two
+refreshes. A 24 fps film holds its frames for three and two refreshes in turn,
+and 25 fps video (including 50 fps sources, which play at half rate) uses a
+similar uneven pattern. VRR lets the display follow a core whose refresh rate
+changes; this one never changes, so VRR gives Plex no benefit.
+
+Forcing FreeSync (`vrr_mode=2`) has been reported to make 24 fps films play
+badly while 30 fps video stayed smooth, and turning it off fixed every file.
+Keep `vrr_mode=0` in the Plex section above. MiSTer also switches VRR off
+whenever `vsync_adjust` is 1 or 2.
+
+With VRR off, films can still look slightly uneven: that is the three-two
+pattern above. Some displays smooth it with a film-mode or motion setting,
+which game modes often disable.
+
 ## What has been checked
 
 These recommendations come from DE10-Nano testing on a 4K monitor, with HDMI
 capture used to verify 1080p and genuine 1920x1440 output. The monitor also
 scales the incoming signal. Native 1080p and 720p panels still need separate
 validation; this is a starting point rather than a guarantee for every display.
+Variable refresh rate has not been tested on a VRR display yet; the advice
+above follows from the fixed output rate and that report.
 When comparing captures, view them at actual size so preview resizing does not
 introduce another scaling artifact.
 

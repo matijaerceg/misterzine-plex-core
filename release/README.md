@@ -36,6 +36,10 @@ Older builds may have different script names; follow their included instructions
 Try 1.5 or 2 Mbps in Options, and check that your Plex server can transcode the
 video. The default is 3 Mbps; higher settings are experimental.
 
+On HDMI, if films (24 fps) stutter but 30 fps shows play smoothly, turn off
+variable refresh rate for Plex: add `vrr_mode=0` to the Plex section of your
+MiSTer INI, as shown in [HDMI setup](https://github.com/matijaerceg/misterzine-plex-core/blob/main/docs/HDMI.md#variable-refresh-rate-vrr-freesync).
+
 ### The picture looks wrong
 
 CRT output uses NTSC 480i. For RGB-only CRT profiles, choose **Safe 480i** in the
