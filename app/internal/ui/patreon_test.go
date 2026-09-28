@@ -163,6 +163,18 @@ func TestPatreonPreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	render("patreon-supporter", NewPatreon(a))
+	// made-up names, as long as the longest on the site's list (21 letters)
+	first := []string{"Alexandra", "Ben", "Casimir", "Dana", "Evangeline", "Finn", "Gwendolyn", "Hal"}
+	last := []string{"Example", "Placeholder", "Sample", "Testington", "Fixture"}
+	for i := 0; i < 39; i++ {
+		a.supporters.list.Current = append(a.supporters.list.Current, Supporter{Name: first[i%len(first)] + " " + last[i%len(last)]})
+	}
+	a.supporters.list.Past = []Supporter{{Name: "Sam Sample"}, {Name: "Quinn Quartermaine-Ox"}}
+	render("patreon-supporter-list", NewPatreon(a))
+	sp := NewSupportersPage(a)
+	render("supporters-top", sp)
+	sp.top = len(a.creditLines()) - creditsRows
+	render("supporters-end", sp)
 	beta.Channel = "public"
 	render("patreon-public", NewPatreon(a))
 }

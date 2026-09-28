@@ -85,6 +85,7 @@ func (a *App) pollUpdates(now time.Time) {
 		return
 	}
 	a.checkUpdates(false, now)
+	a.checkSupporters(now)
 	if a.updates.reading || now.Before(a.updates.nextStatus) {
 		return
 	}

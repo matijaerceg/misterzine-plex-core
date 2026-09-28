@@ -30,7 +30,10 @@ Detailed behavior and display settings. For everyday help, see the
 - The menu lists Home, Search, the movie and TV libraries, Options, Exit to
   MiSTer menu and Patreon. A long list of libraries scrolls, and the menu opens
   on the library visited last. Patreon says what membership gets you and holds
-  **Beta access**; on an unlocked beta it thanks you instead.
+  **Beta access**; on an unlocked beta it thanks you instead. Its supporters
+  row lists the Patreon supporters, current then past. The list is the one the
+  MisterZine app shows: it is fetched from `misterzine.fyi` with each release
+  check and kept in the cache folder for when the MiSTer is offline.
 - Options contains video mode, video geometry and crop, theme music, navigation
   taps, autoplay, bitrate, downmix boost, the 4:3 filter, server selection and
   sign-out. A scrollbar on the right shows where the list is. The 4:3 filter

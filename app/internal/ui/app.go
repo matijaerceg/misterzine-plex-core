@@ -61,14 +61,15 @@ type Screen interface {
 
 // App owns the screens, the canvas and the services.
 type App struct {
-	updates updateState
-	Plex    *plex.Client
-	Art     *Art
-	F       Fonts
-	Out     Presenter
-	Player  *Player
-	Log     *log.Logger
-	T       *gfx.TextCache
+	updates    updateState
+	supporters supporterState
+	Plex       *plex.Client
+	Art        *Art
+	F          Fonts
+	Out        Presenter
+	Player     *Player
+	Log        *log.Logger
+	T          *gfx.TextCache
 
 	// Wake is signalled by background fetches (art, pages) to request a redraw.
 	Wake chan struct{}
