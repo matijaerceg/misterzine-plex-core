@@ -921,6 +921,37 @@ class UpdateTests(unittest.TestCase):
         child.wait(10)
         self.assertIn('after the watcher went', log.read_text())
 
+    def test_watcher_stops_a_boot_check_that_holds_the_locks_too_long(self):
+        import menu_launcher
+        (self.root / 'manager.py').write_text(
+            'import fcntl, os, sys, time\n'
+            'lock = open(' + repr(str(self.root / 'manager.lock')) + ', "a")\n'
+            'fcntl.flock(lock, fcntl.LOCK_EX)\n'
+            'open(' + repr(str(self.card / 'held')) + ', "w").write(str(os.getpid()))\n'
+            'time.sleep(30)\n')
+        with patch.object(menu_launcher, 'MAINTAIN_LOG', str(self.card / 'maintain.log')):
+            started = time.monotonic()
+            self.assertIsNone(menu_launcher.start_upkeep(self.card, self.root, patience=1))
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertTrue((self.card / 'held').exists())
+        with manager.locked(self.root):                 # stopped, so the lock is free for a launch
+            pass
+
+    def test_a_zaparoo_reload_is_pending_from_before_it_runs(self):
+        self.installed()
+        script = self.card / 'Scripts/zaparoo.sh'
+        seen = self.card / 'seen'
+        script.write_text('#!/bin/sh\ncat ' + str(self.root / manager.MAINTENANCE) + ' > ' + str(seen) + '\n')
+        script.chmod(0o755)
+        self.assertEqual(manager.reload_zaparoo(self.card), 'ok')
+        self.assertTrue(json.loads(seen.read_text())['zaparoo_pending'])
+        self.assertFalse(manager.noted(self.root)['zaparoo_pending'])
+        # A changed entry is pending as soon as it is written, before any reload.
+        (self.card / 'zaparoo/launchers' / manager.ZAPAROO_ENTRY).unlink()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(manager.reconcile(self.card))
+        self.assertTrue(manager.noted(self.root)['zaparoo_pending'])
+
     def test_unattended_pinned_install_does_not_fetch_latest_or_prompt(self):
         release, _, _ = self.release()
         request = self.fixture/'request.json'

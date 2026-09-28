@@ -23,7 +23,8 @@ def start_upkeep(card, root, patience=20):
     Plex locks, which it signals by closing its stdout, so the app is never
     launched into a held lock. A pick made meanwhile is launched after, since
     the watch compares the core name's time stamp. A Zaparoo reload can go on
-    after that; the caller reaps the child."""
+    after that; the caller reaps the child. A check still holding on after
+    `patience` seconds is stopped, which frees its locks, and None returned."""
     try:
         with open(MAINTAIN_LOG, 'wb') as log:
             child = subprocess.Popen([sys.executable, str(root / 'manager.py'), 'maintain', '--card', str(card)],
@@ -33,7 +34,10 @@ def start_upkeep(card, root, patience=20):
     with child.stdout:
         if select.select([child.stdout], [], [], patience)[0]:
             child.stdout.read(1)        # end of file: the locks are free
-    return child
+            return child
+    child.kill()
+    child.wait()
+    return None
 
 
 def main():

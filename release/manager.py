@@ -108,6 +108,8 @@ def reload_zaparoo(card):
     if not script.is_file():
         outcome = 'no script'
     else:
+        # Recorded first: a check stopped mid-reload leaves the retry due.
+        note(card / 'misterzine-plex', zaparoo_pending=True)
         try:
             done = subprocess.run([str(script), '-reload'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                   stderr=subprocess.DEVNULL, timeout=15)
@@ -308,17 +310,20 @@ def reconcile(card):
         zaparoo = zaparoo_entry(card, reload=lambda card: None)
     except Exception as exc:
         errors['zaparoo'] = type(exc).__name__
-    if zaparoo in ('written', 'removed'):
+    changed = zaparoo in ('written', 'removed')
+    if changed:
         wrote.append('zaparoo entry')
     fields = {'release': read_state(root).get('current'), 'skipped': None, 'errors': errors,
               'zaparoo_entry': {'written': 'current', 'removed': 'none'}.get(zaparoo, zaparoo)}
+    if changed:
+        fields['zaparoo_pending'] = True        # until a reload succeeds, whatever stops this process
     if wrote:
         fields.update(repaired=wrote, repaired_at=int(time.time()))
         print(time.strftime('%H:%M:%S') + ' upkeep: put right: ' + ', '.join(wrote), flush=True)
     if errors:
         print(time.strftime('%H:%M:%S') + ' upkeep: failed: ' + ', '.join(k + ' (' + v + ')' for k, v in errors.items()), flush=True)
     note(root, **fields)
-    return zaparoo in ('written', 'removed')
+    return changed
 
 
 @contextlib.contextmanager
