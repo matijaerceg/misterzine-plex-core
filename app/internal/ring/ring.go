@@ -63,6 +63,17 @@ func Open() (*Ring, error) {
 		return nil, err
 	}
 	defer f.Close()
+	// Look for the core through one page, which any mode maps, before
+	// enlarging the mode: the write clears main's menu wallpaper as well.
+	head, err := syscall.Mmap(int(f.Fd()), 0, 4096, syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		return nil, err
+	}
+	running := (&Ring{hdr: (*[32]uint32)(unsafe.Pointer(&head[0])), stat: (*[4]uint32)(unsafe.Pointer(&head[statOff]))}).CoreRunning(2 * time.Second)
+	syscall.Munmap(head)
+	if !running {
+		return nil, errNotRunning
+	}
 	var mem []byte
 	for try := 0; ; try++ {
 		from, werr := enlargeMode()
@@ -82,18 +93,31 @@ func Open() (*Ring, error) {
 	r := &Ring{mem: mem}
 	r.hdr = (*[32]uint32)(unsafe.Pointer(&mem[0]))
 	r.stat = (*[4]uint32)(unsafe.Pointer(&mem[statOff]))
-	// A matching status signature and advancing field counter identify a live core.
-	before := r.Field()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		_, _, supported := r.VideoStatus()
-		if supported && r.Field() != before {
-			return r, nil
+	return r, nil
+}
+
+var errNotRunning = errors.New("MisterZine Plex Core is not running; launch MisterZine Plex Core from Scripts")
+
+// CoreRunning reports whether the core is still scanning the ring: within
+// the given time its field counter moves on to a nonzero value beside its
+// status signature. A framebuffer mode write zeroes both until the core's
+// next vsync (every 16.7 ms), and any other core leaves the last values
+// alone, so neither a wipe nor a stale counter reads as running. Once the
+// core has gone, this memory is MiSTer main's again.
+func (r *Ring) CoreRunning(within time.Duration) bool {
+	start := r.Field()
+	deadline := time.Now().Add(within)
+	for {
+		if f := r.Field(); f != start && f != 0 {
+			if _, _, ok := r.VideoStatus(); ok {
+				return true
+			}
 		}
-		time.Sleep(20 * time.Millisecond)
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(2 * time.Millisecond)
 	}
-	syscall.Munmap(mem)
-	return nil, errors.New("MisterZine Plex Core is not running; launch MisterZine Plex Core from Scripts")
 }
 
 // Close unmaps the ring (the published frame stays on screen).

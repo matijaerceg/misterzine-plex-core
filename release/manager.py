@@ -959,6 +959,20 @@ def screen_to_ourselves(holders=fb_holders, console=GraphicsConsole):
                 signal.signal(signal.SIGTERM, previous)
 
 
+def lost_core_status(mem, recheck=0.1, sleep=time.sleep):
+    """The ring's status word when it no longer carries the Plex core's
+    signature, else None. A framebuffer mode write zeroes it until the core's
+    next vsync, so a bad reading counts only if it is still bad a few fields
+    later."""
+    for attempt in range(2):
+        status = struct.unpack_from('<I', mem, 0x6c)[0]
+        if status & 0xfffffff0 == 0x56500000:
+            return None
+        if attempt == 0:
+            sleep(recheck)
+    return status
+
+
 def fb_mode(parameters=Path('/sys/module/MiSTer_fb/parameters')):
     try:
         return (parameters / 'mode').read_text().strip()
@@ -1034,11 +1048,11 @@ def run(root):
                     ticks += 1
                     if ticks % 2 == 0:
                         screen.check()
-                    field = struct.unpack_from('<I', mem, 0x40)[0]
-                    status = struct.unpack_from('<I', mem, 0x6c)[0]
-                    if status & 0xfffffff0 != 0x56500000:
-                        trace('core status changed to %08x; stopping the app' % status)
+                    lost = lost_core_status(mem)
+                    if lost is not None:
+                        trace('core status changed to %08x; stopping the app' % lost)
                         break
+                    field = struct.unpack_from('<I', mem, 0x40)[0]
                     if field != last:
                         last, changed = field, time.monotonic()
                     elif time.monotonic() - changed > 2:

@@ -169,7 +169,11 @@ func main() {
 	go func() { <-sig; close(stop) }()
 	events := merge(input.Poll(r, stop), input.Sim("/tmp/plexcrt.ctl", stop), stop)
 	app.Run(events, stop)
-	r.Blank()
+	// Leave our core on black, but once MiSTer main has loaded another core
+	// or the menu, this memory is main's picture.
+	if r.CoreRunning(100 * time.Millisecond) {
+		r.Blank()
+	}
 }
 
 // merge joins the pad and the simulation FIFO into one stream.

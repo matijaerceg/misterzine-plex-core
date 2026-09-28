@@ -10,7 +10,7 @@ import (
 
 func fakeRing() *Ring {
 	mem := make([]byte, mapSize)
-	return &Ring{mem: mem, hdr: (*[32]uint32)(unsafe.Pointer(&mem[0]))}
+	return &Ring{mem: mem, hdr: (*[32]uint32)(unsafe.Pointer(&mem[0])), stat: (*[4]uint32)(unsafe.Pointer(&mem[statOff]))}
 }
 
 func TestCanariesTellClearFromPainter(t *testing.T) {

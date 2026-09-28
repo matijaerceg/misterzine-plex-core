@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+import struct
 import tempfile
 import unittest
 from unittest import mock
@@ -160,6 +161,18 @@ class InstallerTests(unittest.TestCase):
         mode.write_text(original)
         manager.prepare_framebuffer(params)
         self.assertEqual(mode.read_text(), original)
+
+    def test_core_status_wiped_for_a_field_is_not_a_lost_core(self):
+        mem = bytearray(4096)
+        struct.pack_into('<I', mem, 0x6c, 0x56500001)
+        self.assertIsNone(manager.lost_core_status(mem, sleep=self.fail))
+        # A framebuffer mode write clears the word until the core's next vsync.
+        struct.pack_into('<I', mem, 0x6c, 0)
+        rewritten = lambda _: struct.pack_into('<I', mem, 0x6c, 0x56500002)
+        self.assertIsNone(manager.lost_core_status(mem, sleep=rewritten))
+        # Another core never writes it back.
+        struct.pack_into('<I', mem, 0x6c, 0)
+        self.assertEqual(manager.lost_core_status(mem, sleep=lambda _: None), 0)
 
     def test_reject_path_escape(self):
         self.root.mkdir(parents=True)

@@ -16,12 +16,31 @@ import (
 // called so the app redraws at once: MiSTer main wipes this memory whenever
 // the framebuffer mode is written, and a redraw is what brings the picture
 // back. A mode that maps less than the ring is put back to 1920x1080, so the
-// presenter started for each playback can still map it. It stops when stop
-// is closed.
+// presenter started for each playback can still map it. Both only while the
+// core runs: a short Reboot from the OSD loads the menu with this app still
+// up, and main's next mode write then belongs to the menu. Rewriting it would
+// clear the top of the menu's wallpaper, which begins 94 KB before the end
+// of the memory each mode write clears. It stops when stop is closed.
 func (r *Ring) Watch(logf func(string, ...any), wake func(), stop <-chan struct{}) {
+	// A running core answers within a field; asked only after a wipe or a
+	// mode change, so the wait is rare.
+	gone := false
+	running := func() bool {
+		if r.CoreRunning(100 * time.Millisecond) {
+			gone = false
+			return true
+		}
+		if !gone {
+			gone = true
+			logf("watch: the core has stopped (field counter %d); leaving the framebuffer to MiSTer main", r.Field())
+		}
+		return false
+	}
 	mode := readMode()
 	logf("watch: framebuffer mode %q, console %s", mode, consoleState())
-	mode = keepRingMapped(logf, mode)
+	if running() {
+		mode = keepRingMapped(logf, mode)
+	}
 	phys, fromDriver := ringPhys()
 	source := "as the framebuffer driver reports it"
 	if !fromDriver {
@@ -49,9 +68,11 @@ func (r *Ring) Watch(logf func(string, ...any), wake func(), stop <-chan struct{
 		if lost {
 			header = r.headerWords() // as found, before the redraw replaces it
 			lostHeader++
-			r.writeBrightness() // a dimmed screen stays dimmed
-			if wake != nil {
-				wake()
+			if running() {
+				r.writeBrightness() // a dimmed screen stays dimmed
+				if wake != nil {
+					wake()
+				}
 			}
 		}
 		// Our own publish moves seq between two samples; a stranger's leaves
@@ -96,7 +117,10 @@ func (r *Ring) Watch(logf func(string, ...any), wake func(), stop <-chan struct{
 		if n%10 == 0 {
 			if m := readMode(); m != mode {
 				logf("watch: framebuffer mode changed from %q to %q", mode, m)
-				mode = keepRingMapped(logf, m)
+				mode = m
+				if running() {
+					mode = keepRingMapped(logf, m)
+				}
 			}
 		}
 		if time.Since(report) >= 5*time.Second {
