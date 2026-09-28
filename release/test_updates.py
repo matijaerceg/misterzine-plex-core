@@ -62,6 +62,27 @@ class ProcessTests(unittest.TestCase):
                 with patch.object(service.time, 'sleep', lambda s: real_sleep(min(s, .6))):
                     self.assertEqual(service.start_and_check(root, timeout=10), started)
 
+    def test_an_update_launch_writes_the_menu_run_log(self):
+        real_sleep = time.sleep
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'misterzine-plex'
+            (root / 'updates').mkdir(parents=True)
+            (root / 'manager.py').write_text(
+                'import os, sys\n'
+                'print("launch: app started", flush=True)\n'
+                'print("MisterZine Plex Core: failed", file=sys.stderr, flush=True)\n'
+                'open(os.environ["MISTERZINE_PLEX_READY_FILE"], "w").write("ready")\n'
+                'sys.exit(%d)\n' % manager.EXIT_TO_MENU)
+            log = Path(tmp) / 'menu-run.log'
+            log.write_text('the launch before the update\n')
+            for path, written in ((log, True), (Path(tmp) / 'missing/menu-run.log', False)):
+                with self.subTest(written=written), patch.object(service, 'LAUNCH_LOG', str(path)), \
+                        patch.object(service.time, 'sleep', lambda s: real_sleep(min(s, .6))):
+                    # A log that cannot be opened is no reason to leave Plex stopped.
+                    self.assertTrue(service.start_and_check(root, timeout=10))
+            self.assertEqual(log.read_text(), 'launch: app started\nMisterZine Plex Core: failed\n')
+            self.assertEqual(Path(str(log) + '.1').read_text(), 'the launch before the update\n')
+
     def test_an_older_updaters_start_check_survives_an_exit(self):
         def legacy_start_check(root, timeout=10):
             # start_and_check as releases up to 73924e1 have it: the update
@@ -1135,6 +1156,20 @@ class FailureReasonTests(UpdateTests):
         self.assertEqual(s['message'], 'Could not restart Plex: The new release did not start. The previous release was restored.')
         self.assertEqual(manager.read_state(self.root)['current'], 'old')
         self.assertFalse((self.root / 'updates/activation.json').exists())
+
+    def test_the_restored_release_starts_with_a_launch_log_too(self):
+        self.prepared()
+        starts = []
+        class Exited:
+            def poll(self):
+                return 1
+        def start(root, env=None):
+            starts.append((manager.read_state(root)['current'], env is not None))
+            return Exited()
+        with patch.object(service, 'start_manager', start), self.assertRaises(RuntimeError):
+            service.activate(self.card)
+        # The new release with its readiness marker, then the previous one without.
+        self.assertEqual(starts, [('new', True), ('old', False)])
 
     def test_failed_restore_keeps_the_journal_and_says_so(self):
         self.prepared()

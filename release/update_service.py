@@ -488,13 +488,29 @@ def stop_manager(root):
         time.sleep(.1)
 
 
+# The log a launch from the MiSTer menu writes (menu_launcher.py).
+LAUNCH_LOG = '/tmp/misterzine-plex-menu-run.log'
+
+
+def start_manager(root, env=None):
+    """Start `manager.py run` as a menu launch does, its launch story in
+    LAUNCH_LOG and the previous launch's kept as `.1`, so a report after
+    Restart now tells why the app did or did not start."""
+    manager.rotate_log(LAUNCH_LOG)
+    try:
+        log = open(LAUNCH_LOG, 'wb')
+    except OSError:
+        # A missing log is no reason to leave Plex stopped.
+        log = open(os.devnull, 'wb')
+    with log:
+        return subprocess.Popen([sys.executable, str(root / 'manager.py'), 'run', '--card', str(root.parent)],
+                                stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, env=env)
+
+
 def start_and_check(root, timeout=25):
     ready = root / 'updates/started'
     ready.unlink(missing_ok=True)
-    env = dict(os.environ, MISTERZINE_PLEX_READY_FILE=str(ready))
-    child = subprocess.Popen([sys.executable, str(root / 'manager.py'), 'run', '--card', str(root.parent)],
-                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             start_new_session=True, env=env)
+    child = start_manager(root, dict(os.environ, MISTERZINE_PLEX_READY_FILE=str(ready)))
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         started = ready.is_file()
@@ -601,9 +617,7 @@ def activate(card, launch=start_and_check):
                 if launch is start_and_check:
                     # Older releases do not emit a readiness marker. Restore them
                     # without terminating a healthy app for lacking that marker.
-                    subprocess.Popen([sys.executable, str(root / 'manager.py'), 'run', '--card', str(card)],
-                                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                     stderr=subprocess.DEVNULL, start_new_session=True)
+                    start_manager(root)
                 else:
                     launch(root)
             raise
