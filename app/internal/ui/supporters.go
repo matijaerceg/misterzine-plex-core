@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"plexcrt/internal/plex"
@@ -71,36 +72,62 @@ func DecodeSupporters(b []byte) (Supporters, error) {
 	return Supporters{Current: clean(*raw.Current), Past: clean(raw.Past)}, nil
 }
 
-// supportersStale is how long a check may stay out. The fetch gives up
-// within 20 s, so a check older than this lost its result on the way back
-// (Later drops a closure when its queue is full) and counts as failed.
-const supportersStale = time.Minute
-
+// supporterState is the render thread's, except the slot, where the one
+// check that is ever out leaves what it found. Later is not used: it drops
+// a closure when its queue is full, and a lost result would hold the next
+// check back for good.
 type supporterState struct {
 	list      Supporters
 	checking  bool
-	since     time.Time // when the check that is out started
 	nextCheck time.Time
 	cacheRead bool // the cached copy has been tried, once per run
+
+	mu   sync.Mutex
+	slot supporterSlot
+}
+
+type supporterSlot struct {
+	cached  *Supporters // the cached copy, read at the start of a run
+	done    bool        // the check has finished: fetched or err
+	fetched Supporters
+	err     error
 }
 
 // checkSupporters refreshes the list alongside the release check, every six
-// hours, sooner after a failure. The first check of a run puts the cached
-// copy up while the fetch is out, so the list is there offline too.
+// hours, sooner after a failure. It runs on the render thread on every pass
+// of the loop, so it also takes up what a finished check left. The first
+// check of a run puts the cached copy up while the fetch is out, so the
+// list is there offline too.
 func (a *App) checkSupporters(now time.Time) {
 	st := &a.supporters
-	if st.checking {
-		if now.Sub(st.since) < supportersStale {
-			return
-		}
-		st.checking = false // its result never came back: try again now
-		st.nextCheck = time.Time{}
+	st.mu.Lock()
+	slot := st.slot
+	if slot.done {
+		st.slot = supporterSlot{}
+	} else {
+		st.slot.cached = nil
 	}
-	if SupportersURL == "" || now.Before(st.nextCheck) {
+	st.mu.Unlock()
+	if slot.cached != nil && st.list.Current == nil && st.list.Past == nil {
+		st.list = *slot.cached // unless a list is up already
+		a.dirty = true
+	}
+	if slot.done {
+		st.checking = false
+		if slot.err != nil {
+			st.nextCheck = now.Add(5 * time.Minute)
+			if a.Log != nil {
+				a.Log.Printf("supporters: %v", slot.err)
+			}
+		} else {
+			st.list = slot.fetched
+			a.dirty = true
+		}
+	}
+	if SupportersURL == "" || st.checking || now.Before(st.nextCheck) {
 		return
 	}
 	st.checking = true
-	st.since = now
 	st.nextCheck = now.Add(6 * time.Hour)
 	cache := ""
 	if a.cacheDir != "" {
@@ -113,11 +140,10 @@ func (a *App) checkSupporters(now time.Time) {
 		if readCache && cache != "" {
 			if b, err := os.ReadFile(cache); err == nil {
 				if s, err := DecodeSupporters(b); err == nil {
-					a.Later(func() {
-						if st.list.Current == nil && st.list.Past == nil {
-							st.list = s // unless a list is up already
-						}
-					})
+					st.mu.Lock()
+					st.slot.cached = &s
+					st.mu.Unlock()
+					a.WakeUp()
 				}
 			}
 		}
@@ -127,22 +153,15 @@ func (a *App) checkSupporters(now time.Time) {
 			s, err = DecodeSupporters(b)
 		}
 		if err == nil && cache != "" {
-			tmp := cache + ".tmp"
+			tmp := cache + ".tmp" // one check at a time: the name is this one's
 			if os.WriteFile(tmp, b, 0o600) == nil {
 				_ = os.Rename(tmp, cache)
 			}
 		}
-		a.Later(func() {
-			st.checking = false
-			if err != nil {
-				st.nextCheck = time.Now().Add(5 * time.Minute)
-				if a.Log != nil {
-					a.Log.Printf("supporters: %v", err)
-				}
-				return
-			}
-			st.list = s
-		})
+		st.mu.Lock()
+		st.slot.done, st.slot.fetched, st.slot.err = true, s, err
+		st.mu.Unlock()
+		a.WakeUp()
 	}()
 }
 

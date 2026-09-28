@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -75,10 +76,11 @@ func TestErrorReplyKeepsTheListAndItsCache(t *testing.T) {
 	if err := os.WriteFile(path, []byte(supportersFixture), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	a := &App{later: make(chan func(), 8)}
+	a := &App{}
 	a.SetCacheDir(cache)
-	a.checkSupporters(time.Now())
-	drainLater(t, a, 2) // the cache, then the reply
+	now := time.Now()
+	a.checkSupporters(now)
+	settleSupporters(t, a, now) // the cache, then the reply
 	if n := len(a.supporters.list.Current); n != 2 {
 		t.Fatalf("%d current supporters after an error reply", n)
 	}
@@ -87,43 +89,51 @@ func TestErrorReplyKeepsTheListAndItsCache(t *testing.T) {
 	}
 }
 
-func TestLostSupportersResultDoesNotStopTheChecks(t *testing.T) {
+func TestSupportersChecksNeverOverlapAndAlwaysLand(t *testing.T) {
 	var hits atomic.Int32
+	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
+		<-release // a slow site: the check stays out
 		w.Write([]byte(supportersFixture))
 	}))
+	var once sync.Once
+	free := func() { once.Do(func() { close(release) }) }
 	defer srv.Close()
+	defer free() // before Close, which waits for the handler
 	t.Cleanup(func() { SupportersURL = "" })
 	SupportersURL = srv.URL
-	a := &App{later: make(chan func())} // nothing receives: every result is dropped
+	a := &App{later: make(chan func())} // Later's queue is always full: nothing may rely on it
 	now := time.Now()
 	a.checkSupporters(now)
-	a.checkSupporters(now.Add(supportersStale / 2))
-	waitHits := func(want int32) {
-		t.Helper()
-		for end := time.Now().Add(5 * time.Second); hits.Load() < want && time.Now().Before(end); {
-			time.Sleep(10 * time.Millisecond)
-		}
-		if got := hits.Load(); got != want {
-			t.Fatalf("%d fetches, want %d", got, want)
-		}
+	for end := time.Now().Add(5 * time.Second); hits.Load() == 0 && time.Now().Before(end); {
+		time.Sleep(5 * time.Millisecond)
 	}
-	waitHits(1) // a check still out holds the next one back
-	a.checkSupporters(now.Add(supportersStale + time.Second))
-	waitHits(2) // until its result is plainly lost
+	for _, later := range []time.Duration{time.Minute, time.Hour, 7 * time.Hour} {
+		a.checkSupporters(now.Add(later))
+	}
+	time.Sleep(50 * time.Millisecond)
+	if n := hits.Load(); n != 1 {
+		t.Fatalf("%d fetches while the first was out", n)
+	}
+	free()
+	settleSupporters(t, a, now)
+	if n := len(a.supporters.list.Current); n != 2 || hits.Load() != 1 {
+		t.Fatalf("%d supporters after %d fetches", n, hits.Load())
+	}
 }
 
-// drainLater runs what the background work handed back, until want calls
-// have come or it gives up.
-func drainLater(t *testing.T, a *App, want int) {
+// settleSupporters plays the render thread until the check that is out
+// has finished and its result has been taken up.
+func settleSupporters(t *testing.T, a *App, now time.Time) {
 	t.Helper()
-	for i := 0; i < want; i++ {
-		select {
-		case f := <-a.later:
-			f()
-		case <-time.After(5 * time.Second):
-			t.Fatalf("%d of %d results came back", i, want)
+	for end := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		a.checkSupporters(now)
+		if !a.supporters.checking {
+			return
+		}
+		if time.Now().After(end) {
+			t.Fatal("the check did not finish")
 		}
 	}
 }
@@ -135,12 +145,12 @@ func TestSupportersFetchedCachedAndKeptOffline(t *testing.T) {
 	t.Cleanup(func() { SupportersURL = "" })
 	SupportersURL = srv.URL + "/supporters.json"
 	cache := t.TempDir()
-	a := &App{later: make(chan func(), 8)}
+	a := &App{}
 	a.SetCacheDir(cache)
 	now := time.Now()
 	a.checkSupporters(now)
-	drainLater(t, a, 1) // no cache yet: the fetch only
-	if n := len(a.supporters.list.Current); n != 2 || a.supporters.checking {
+	settleSupporters(t, a, now) // no cache yet: the fetch only
+	if n := len(a.supporters.list.Current); n != 2 {
 		t.Fatalf("%d current supporters after the fetch", n)
 	}
 	if _, err := os.Stat(filepath.Join(cache, "supporters.json")); err != nil {
@@ -152,10 +162,10 @@ func TestSupportersFetchedCachedAndKeptOffline(t *testing.T) {
 	}
 
 	srv.Close() // offline: the next run shows the cached list
-	b := &App{later: make(chan func(), 8)}
+	b := &App{}
 	b.SetCacheDir(cache)
 	b.checkSupporters(now)
-	drainLater(t, b, 2) // the cache, then the failed fetch
+	settleSupporters(t, b, now) // the cache, then the failed fetch
 	if n := len(b.supporters.list.Current); n != 2 {
 		t.Fatalf("%d current supporters offline", n)
 	}
