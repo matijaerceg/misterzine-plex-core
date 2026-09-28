@@ -816,20 +816,27 @@ def ini_line(raw):
 def section_scope(header, core=CORE_NAME):
     """Whether main applies a section to this core (ini_get_section): 'MiSTer'
     for [MiSTer], 'core' for the core's name or a prefix of it ending in '*',
-    else None. Arcade and video mode sections are not matched here."""
+    'video' for a video mode section ([video=720x480@59.9]), else None. Main
+    applies a video section when it names the core's current mode, which it
+    measures once the core's video runs, so which ones apply is not known
+    here. Arcade sections never apply to this core."""
     name = header.split(']', 1)[0]
     if name.lower() == 'mister':
         return 'MiSTer'
     star = name.rfind('*')
     own = core.lower().startswith(name[:star].lower()) if star >= 0 else name.lower() == core.lower()
-    return 'core' if own else None
+    if own:
+        return 'core'
+    equals = name.rfind('=')
+    # strncasecmp(name, "video", equals): any start of "video" before the '='
+    return 'video' if 0 <= equals <= 5 and 'video'.startswith(name[:equals].lower()) else None
 
 
 def parse_core_ini(text, core=CORE_NAME):
     """What main applies to the core from an INI: (scope, key, value) for each
-    line under [MiSTer] and the core's own sections (or a '+name' line that
-    includes it), in file order, keys in lower case; and whether the file has
-    a section of the core's own."""
+    line under [MiSTer], the core's own sections (or a '+name' line that
+    includes it) and video mode sections, in file order, keys in lower case;
+    and whether the file has a section of the core's own."""
     entries, scope, own = [], None, False
     for raw in text.split('\n'):
         line = ini_line(raw)
@@ -841,17 +848,6 @@ def parse_core_ini(text, core=CORE_NAME):
             if match:
                 entries.append((scope, match.group(1).lower(), line[match.end():].lstrip('= \t')))
     return entries, own
-
-
-def overridden_keys(entries):
-    """Keys the core's own section sets that a later [MiSTer] line changes, so
-    main never uses the core's value."""
-    own, final = {}, {}
-    for scope, key, value in entries:
-        final[key] = value
-        if scope == 'core':
-            own[key] = value
-    return sorted(key for key, value in own.items() if final[key] != value)
 
 
 def ini_number(text, low, high):
@@ -866,21 +862,63 @@ def ini_number(text, low, high):
     return max(low, min(high, value))
 
 
-def direct_video(values):
-    """Whether main sends the core's own timing over HDMI. direct_video=2
-    turns it on only for a known VGA converter; an HDMI display, the setup
-    these checks are about, gets the scaler as with 0 (video_mode_load)."""
-    return ini_number(values.get('direct_video', ''), 0, 2) == 1
+DECIMAL = re.compile(r'\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?')
+
+
+def ini_float(text, low, high):
+    """A decimal value as main reads it: strtof, clamped."""
+    match = DECIMAL.match(text)
+    return max(low, min(high, float(match.group(0)) if match else 0.0))
+
+
+# The settings these checks compare, with main's ranges (ini_vars in its
+# cfg.cpp); video modes are kept as text. Anything else a section sets is
+# not looked at.
+NUMBER_KEYS = {'vrr_mode': (0, 4), 'vsync_adjust': (0, 2), 'direct_video': (0, 2), 'dvi_mode': (0, 1),
+               'vscale_mode': (0, 5), 'vscale_border': (0, 399), 'vga_scaler': (0, 1), 'forced_scandoubler': (0, 1),
+               'ypbpr': (0, 1), 'composite_sync': (0, 1), 'hdmi_limited': (0, 2), 'menu_pal': (0, 1)}
+FLOAT_KEYS = {'refresh_min': (0, 150), 'refresh_max': (0, 150)}
+TEXT_KEYS = frozenset({'video_mode', 'video_mode_ntsc', 'video_mode_pal'})
+VRR_KEYS = ('vrr_mode', 'vsync_adjust', 'direct_video')
+REFRESH_KEYS = VRR_KEYS + ('video_mode', 'video_mode_ntsc', 'video_mode_pal', 'refresh_min', 'refresh_max')
+
+
+def setting(key, value):
+    """A known setting's value as main stores it, so two spellings compare."""
+    if key in NUMBER_KEYS:
+        return ini_number(value, *NUMBER_KEYS[key])
+    if key in FLOAT_KEYS:
+        return ini_float(value, *FLOAT_KEYS[key])
+    return value
+
+
+def overridden_keys(entries):
+    """Known settings the core's own section sets that a later [MiSTer] line
+    changes, so main never uses the core's value. Settings a video mode
+    section touches are left out: whether it applies is not known."""
+    own, final = {}, {}
+    for scope, key, value in entries:
+        if key in NUMBER_KEYS or key in FLOAT_KEYS or key in TEXT_KEYS:
+            final[key] = setting(key, value)
+            if scope == 'core':
+                own[key] = final[key]
+    conditional = {key for scope, key, _ in entries if scope == 'video'}
+    return sorted(key for key, value in own.items() if final[key] != value and key not in conditional)
 
 
 def vrr_state(values):
     """'forced' when main turns variable refresh rate on for the core whatever
     the display reports, 'auto' when only a display that reports support gets
-    it, 'off' otherwise. Main drops VRR with vsync_adjust or direct video
-    (set_vrr_mode and video_set_mode in its video.cpp)."""
+    it, 'off' otherwise (set_vrr_mode and video_set_mode in its video.cpp):
+    main drops VRR with vsync_adjust or direct video. 'unknown' with
+    direct_video=2, which main resolves at start-up: direct video for a VGA
+    converter it recognises, the scaler for anything else."""
     mode = ini_number(values.get('vrr_mode', ''), 0, 4)
-    if not mode or ini_number(values.get('vsync_adjust', ''), 0, 2) or direct_video(values):
+    video = ini_number(values.get('direct_video', ''), 0, 2)
+    if not mode or ini_number(values.get('vsync_adjust', ''), 0, 2) or video == 1:
         return 'off'
+    if video == 2:
+        return 'unknown'
     return 'auto' if mode == 1 else 'forced'
 
 
@@ -888,7 +926,8 @@ def vrr_state(values):
 # other number, including ones past the table, which main reads as 0, is 60 Hz.
 FIFTY_HZ_MODES = frozenset({3, 7, 9})
 VIDEO_MODE_FLAGS = frozenset({'+vsync', '-vsync', '+hsync', '-hsync', 'cvt', 'cvtrb', 'pr'})
-DECIMAL = re.compile(r'\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?')
+# The Plex core's refresh rate (rtl/crt480i.v), whatever it plays.
+CORE_HZ = 59.94
 
 
 def whole_number(token):
@@ -900,14 +939,13 @@ def whole_number(token):
     return int(digits, 16) if digits[:2].lower() == '0x' else int(digits, 8) if digits[0] == '0' else int(digits)
 
 
-def video_mode_refresh(value):
-    """The refresh rate of a video_mode value, read as main reads it
-    (parse_custom_video_mode): a mode number, width,height,rate, or the full
-    timing with the pixel clock in kHz. A value main rejects gets its 60 Hz
-    fallback mode. None for an empty value, where main takes the display's own
-    mode, and for the raw register form."""
+def parse_video_mode(value):
+    """A video mode value as main parses it (parse_custom_video_mode): a mode
+    number, width,height,rate, or the full timing with the pixel clock in kHz.
+    (accepted, refresh): accepted is False for an empty value or one main
+    rejects; refresh is None when it cannot be told (the raw register form)."""
     if not value:
-        return None
+        return False, None
     tokens = value.split(',')
     numbers = []
     for token in tokens:
@@ -919,36 +957,70 @@ def video_mode_refresh(value):
     if len(numbers) == 2 and len(tokens) > 2 and DECIMAL.fullmatch(tokens[2]):
         rate = float(tokens[2])     # strtod: 59.94, say
     if any(flag.lower() not in VIDEO_MODE_FLAGS for flag in tokens[len(numbers) + (rate is not None):]):
-        return 60.0
+        return False, None
     if len(numbers) == 1:
-        return 50.0 if numbers[0] in FIFTY_HZ_MODES else 60.0
+        return True, 50.0 if numbers[0] in FIFTY_HZ_MODES else 60.0
     if rate is not None:
-        return rate
+        return True, rate
     if len(numbers) == 3:
-        return float(numbers[2])
+        return True, float(numbers[2])
     if len(numbers) in (9, 11):
         total = sum(numbers[0:4]) * sum(numbers[4:8])
-        return round(numbers[8] * 1000.0 / total, 2) if total else None
-    return None if len(numbers) >= 21 else 60.0
+        return True, round(numbers[8] * 1000.0 / total, 2) if total else None
+    return (True, None) if len(numbers) >= 21 else (False, None)
+
+
+def video_mode_refresh(value):
+    """The refresh rate of the default mode for a video_mode value: a value
+    main rejects, or none at all when it cannot use the display's own mode,
+    gives its 60 Hz fallback (store_custom_video_mode)."""
+    accepted, refresh = parse_video_mode(value)
+    return refresh if accepted else 60.0
 
 
 def fixed_hdmi_refresh(values):
-    """The rate HDMI runs at whatever the core does, from video_mode. None
-    when HDMI follows the core instead (vsync_adjust, direct video, forced VRR)
-    or main takes the display's own mode."""
-    if ini_number(values.get('vsync_adjust', ''), 0, 2) or direct_video(values) or vrr_state(values) == 'forced':
-        return None
-    return video_mode_refresh(values.get('video_mode', ''))
+    """The rate HDMI keeps whatever the core does and the setting that picks
+    that mode ('video_mode', say), or (None, '') when HDMI follows the core or
+    it cannot be told (video_mode_load, video_mode_select and video_mode_adjust
+    in main's video.cpp). HDMI follows the core with forced VRR, and with
+    vsync_adjust, unless refresh_min or refresh_max leaves out Plex's 59.94 Hz
+    or only a PAL mode is given. Direct video sends the core's own timing;
+    direct_video=2 is resolved at start-up. With no video mode at all, main
+    takes the display's own."""
+    if ini_number(values.get('direct_video', ''), 0, 2) or vrr_state(values) == 'forced':
+        return None, ''
+    video, pal, ntsc = (values.get(key, '') for key in ('video_mode', 'video_mode_pal', 'video_mode_ntsc'))
+    if not (video or pal or ntsc):
+        return None, ''
+    if not ini_number(values.get('vsync_adjust', ''), 0, 2):
+        return video_mode_refresh(video), 'video_mode'
+    (pal_set, pal_hz), (ntsc_set, ntsc_hz) = parse_video_mode(pal), parse_video_mode(ntsc)
+    if pal_set and not ntsc_set:
+        return pal_hz, 'video_mode_pal'     # "NTSC mode cannot be used": the PAL mode, never adjusted
+    low, high = (ini_float(values.get(key, ''), *FLOAT_KEYS[key]) for key in ('refresh_min', 'refresh_max'))
+    if (low and CORE_HZ < low) or (high and CORE_HZ > high):
+        # main cancels the adjustment
+        return (ntsc_hz, 'video_mode_ntsc') if ntsc_set else (video_mode_refresh(video), 'video_mode')
+    return None, ''
 
 
 def ini_findings(entries):
     """What Options and reports say about the INI main read for the core:
     VRR, the fixed HDMI rate, DVI mode (no HDMI sound) and core settings a
-    later [MiSTer] section undoes."""
-    values = {key: value for _, key, value in entries}
-    return {'vrr': vrr_state(values), 'vrr_mode': ini_number(values.get('vrr_mode', ''), 0, 4),
-            'hdmi_hz': fixed_hdmi_refresh(values), 'video_mode': values.get('video_mode', '')[:40],
-            'dvi': ini_number(values.get('dvi_mode', ''), 0, 1) == 1, 'overridden': overridden_keys(entries)}
+    later [MiSTer] section undoes. A finding that depends on a setting some
+    video mode section changes is left unknown ('unknown', None), since that
+    section may or may not apply."""
+    values = {key: value for scope, key, value in entries if scope != 'video'}
+    conditional = sorted({key for scope, key, _ in entries if scope == 'video'})
+    def known(keys):
+        return not set(conditional).intersection(keys)
+    hz, mode = fixed_hdmi_refresh(values) if known(REFRESH_KEYS) else (None, '')
+    return {'vrr': vrr_state(values) if known(VRR_KEYS) else 'unknown',
+            'vrr_mode': ini_number(values.get('vrr_mode', ''), 0, 4),
+            'vsync_adjust': ini_number(values.get('vsync_adjust', ''), 0, 2),
+            'hdmi_hz': hz, 'hdmi_mode': (mode + '=' + values.get(mode, ''))[:60] if mode and values.get(mode) else '',
+            'dvi': ini_number(values.get('dvi_mode', ''), 0, 1) == 1 if known(('dvi_mode',)) else None,
+            'overridden': overridden_keys(entries), 'conditional': conditional}
 
 
 def section_elsewhere(card, active):
@@ -1076,7 +1148,7 @@ def system_facts(root, secrets, proc_root=Path('/proc'), altcfg=read_altcfg):
         entries, own = parse_core_ini(text)
         values = {key: value for _, key, value in entries}
         findings = ini_findings(entries)
-        for key in ('video_mode', 'vrr_mode'):     # the raw values below say it
+        for key in ('vrr_mode', 'vsync_adjust'):   # the raw values below say it
             del findings[key]
         facts['plex_video'] = {key: values[key][:40] for key in VIDEO_KEYS if key in values}
         elsewhere = '' if own else section_elsewhere(card, ini or card / 'MiSTer.ini')

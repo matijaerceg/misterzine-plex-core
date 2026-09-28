@@ -19,12 +19,14 @@ type DisplayCheck struct {
 	VRR     string `json:"vrr"`      // "forced", "auto", "off" or "unknown"
 	VRRMode int    `json:"vrr_mode"` // 2 FreeSync, 3 VESA VRR, 4 MiSTer VRR
 	// HDMIHz is the rate HDMI runs at whatever the core does; 0 when it
-	// follows the core or main takes the display's own mode.
-	HDMIHz     float64  `json:"hdmi_hz"`
-	VideoMode  string   `json:"video_mode"`
-	DVI        bool     `json:"dvi"`        // dvi_mode=1: no sound over HDMI
-	Overridden []string `json:"overridden"` // Plex settings a later [MiSTer] section changes
-	SectionIn  string   `json:"section_in"` // another INI with the Plex section this one lacks
+	// follows the core or that cannot be told. HDMIMode is the setting that
+	// picks it, "video_mode=9" say.
+	HDMIHz      float64  `json:"hdmi_hz"`
+	HDMIMode    string   `json:"hdmi_mode"`
+	VsyncAdjust int      `json:"vsync_adjust"`
+	DVI         bool     `json:"dvi"`        // dvi_mode=1: no sound over HDMI
+	Overridden  []string `json:"overridden"` // Plex settings a later [MiSTer] section changes
+	SectionIn   string   `json:"section_in"` // another INI with the Plex section this one lacks
 }
 
 // ParseDisplayCheck reads the launcher's variable; anything unreadable is
@@ -94,13 +96,19 @@ func (d DisplayCheck) Warnings() []displayWarning {
 			judder += ", unless your display uses VRR"
 		}
 		mode := ""
-		if d.VideoMode != "" {
-			mode = " (video_mode=" + d.VideoMode + ")"
+		if d.HDMIMode != "" {
+			mode = " (" + d.HDMIMode + ")"
+		}
+		// With vsync_adjust off, video_mode alone picks the mode: whatever
+		// kept vsync_adjust from following Plex no longer matters.
+		lines := []string{"video_mode=8"}
+		if d.VsyncAdjust != 0 {
+			lines = append(lines, "vsync_adjust=0")
 		}
 		blocks := append([]noteBlock{
 			{text: "HDMI runs at " + hz + " in " + file + mode + "."},
 			{text: judder + "."},
-		}, addLines("For Plex only,", "video_mode=8")...)
+		}, addLines("For Plex only,", lines...)...)
 		ws = append(ws, displayWarning{label: "HDMI refresh", value: hz, title: "HDMI refresh",
 			blocks: append(blocks, noteBlock{text: "video_mode=8 is 1920x1080 at 60 Hz. Use 0 for 1280x720."})})
 	}

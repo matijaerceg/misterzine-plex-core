@@ -374,7 +374,8 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(facts['ini'], 'alternative 1')
         self.assertEqual(facts['video_settings'], {'MiSTer': {'vrr_mode': '2'}, 'MisterZine Plex Core': {'video_mode': '8'}})
         self.assertEqual(facts['plex_video'], {'vrr_mode': '2', 'video_mode': '8', 'vrr': 'forced', 'hdmi_hz': None,
-                                               'dvi': False, 'overridden': [], 'own_section': True, 'section_in': ''})
+                                               'hdmi_mode': '', 'dvi': False, 'overridden': [], 'conditional': [],
+                                               'own_section': True, 'section_in': ''})
         self.assertNotIn('Bench', json.dumps(facts))
         facts = manager.system_facts(self.root, [], self.proc.parent, altcfg=lambda: None)
         self.assertEqual(facts['ini'], 'unknown')
@@ -409,8 +410,9 @@ class DisplayCheckTests(unittest.TestCase):
     def test_main_drops_vrr_with_vsync_adjust_or_direct_video(self):
         self.assertEqual(self.check('[MiSTer]\nvrr_mode=2\nvsync_adjust=1\n')['vrr'], 'off')
         self.assertEqual(self.check('[MiSTer]\nvrr_mode=4\ndirect_video=1\n')['vrr'], 'off')
-        # direct_video=2 is direct video only for a known VGA converter
-        self.assertEqual(self.check('[MiSTer]\nvrr_mode=2\ndirect_video=2\n')['vrr'], 'forced')
+        # direct_video=2 is direct video only for a VGA converter main recognises at start-up
+        self.assertEqual(self.check('[MiSTer]\nvrr_mode=2\ndirect_video=2\n')['vrr'], 'unknown')
+        self.assertEqual(self.check('[MiSTer]\nvrr_mode=2\ndirect_video=2\nvsync_adjust=1\n')['vrr'], 'off')
         self.assertEqual(self.check('[MiSTer]\nvrr_mode=1\n')['vrr'], 'auto')
         self.assertEqual(self.check('[MiSTer]\nvideo_mode=8\n')['vrr'], 'off')
 
@@ -437,8 +439,8 @@ class DisplayCheckTests(unittest.TestCase):
         self.assertEqual(self.check('[MiSTer]\nvrr_mode=2\n', altcfg=mock.Mock(side_effect=AssertionError))['vrr'], 'forced')
         (self.card / 'MiSTer.ini').unlink()
         self.assertEqual(manager.display_check(self.card, lambda: 0),
-                         {'ini': 'MiSTer.ini', 'vrr': 'off', 'vrr_mode': 0, 'hdmi_hz': None, 'video_mode': '',
-                          'dvi': False, 'overridden': [], 'section_in': ''})
+                         {'ini': 'MiSTer.ini', 'vrr': 'off', 'vrr_mode': 0, 'vsync_adjust': 0, 'hdmi_hz': None,
+                          'hdmi_mode': '', 'dvi': False, 'overridden': [], 'conditional': [], 'section_in': ''})
 
     def test_video_mode_refresh_follows_main_parsing(self):
         refresh = manager.video_mode_refresh
@@ -450,17 +452,41 @@ class DisplayCheckTests(unittest.TestCase):
         self.assertEqual(refresh('1920,528,44,148,1080,4,5,36,148500'), 50.0)
         self.assertEqual(refresh('9,oops'), 60.0)           # main rejects it and falls back to 60 Hz
         self.assertEqual(refresh('1920,1080'), 60.0)
-        self.assertIsNone(refresh(''))                      # the display's own mode
         self.assertIsNone(refresh(','.join(['1'] * 21)))
+        self.assertEqual(manager.parse_video_mode(''), (False, None))
+        self.assertEqual(manager.parse_video_mode('9,oops'), (False, None))
 
     def test_fixed_hdmi_refresh(self):
-        self.assertFound(self.check('[MiSTer]\nvideo_mode=9\n'), hdmi_hz=50.0, video_mode='9')
+        hz = lambda text: self.check('[MiSTer]\n' + text)['hdmi_hz']
+        self.assertFound(self.check('[MiSTer]\nvideo_mode=9\n'), hdmi_hz=50.0, hdmi_mode='video_mode=9', vsync_adjust=0)
+        self.assertFound(self.check('[MiSTer]\nvideo_mode=8\nvsync_adjust=1\nvideo_mode_pal=9\n'),
+                         hdmi_hz=50.0, hdmi_mode='video_mode_pal=9', vsync_adjust=1)
         self.assertEqual(self.check('[MiSTer]\nvideo_mode=9\n[MisterZine Plex Core]\nvideo_mode=8\n')['hdmi_hz'], 60.0)
-        # HDMI follows the core with vsync_adjust, direct video or forced VRR
+        # HDMI follows the core with vsync_adjust or forced VRR; direct video is the core's own timing
         for extra in ('vsync_adjust=1', 'direct_video=1', 'vrr_mode=2'):
-            self.assertIsNone(self.check('[MiSTer]\nvideo_mode=9\n' + extra + '\n')['hdmi_hz'], extra)
-        self.assertEqual(self.check('[MiSTer]\nvideo_mode=9\nvrr_mode=1\n')['hdmi_hz'], 50.0)
-        self.assertIsNone(self.check('[MiSTer]\nvscale_mode=0\n')['hdmi_hz'])
+            self.assertIsNone(hz('video_mode=9\n' + extra + '\n'), extra)
+        self.assertIsNone(hz('video_mode=9\ndirect_video=2\n'))            # decided at start-up
+        self.assertEqual(hz('video_mode=9\nvrr_mode=1\n'), 50.0)             # the note hedges this one
+        self.assertIsNone(hz('vscale_mode=0\n'))                             # the display's own mode
+        self.assertEqual(hz('video_mode_ntsc=8\n'), 60.0)                    # main's default mode
+        # vsync_adjust gives up when the refresh bounds leave out 59.94 Hz
+        self.assertEqual(hz('video_mode=9\nvsync_adjust=1\nrefresh_max=55\n'), 50.0)
+        self.assertEqual(hz('video_mode=9\nvsync_adjust=1\nrefresh_min=60.5\n'), 50.0)
+        self.assertIsNone(hz('video_mode=9\nvsync_adjust=1\nrefresh_min=50\nrefresh_max=61\n'))
+        # a PAL mode without an NTSC one is used for a 60 Hz core as it is
+        self.assertEqual(hz('video_mode=8\nvsync_adjust=1\nvideo_mode_pal=9\n'), 50.0)
+        self.assertIsNone(hz('video_mode=8\nvsync_adjust=1\nvideo_mode_pal=9\nvideo_mode_ntsc=8\n'))
+        self.assertEqual(hz('video_mode=8\nvsync_adjust=2\nvideo_mode_ntsc=7\nrefresh_max=55\n'), 50.0)
+
+    def test_video_mode_sections_make_findings_unknown(self):
+        # main applies [video=...] by the core's measured mode, not known before its video runs
+        found = self.check('[MiSTer]\nvrr_mode=2\nvideo_mode=9\ndvi_mode=1\n[video=720x480@59.9]\nvrr_mode=0\n')
+        self.assertFound(found, vrr='unknown', hdmi_hz=None, dvi=True, conditional=['vrr_mode'])
+        found = self.check('[MiSTer]\ndvi_mode=1\nvideo_mode=9\n[Video=720x480]\ndvi_mode=0\n')
+        self.assertFound(found, dvi=None, hdmi_hz=50.0, conditional=['dvi_mode'])
+        self.assertEqual(manager.section_scope('vid=640x480]'), 'video')     # strncasecmp up to the '='
+        self.assertIsNone(manager.section_scope('videos=640x480]'))
+        self.assertIsNone(manager.section_scope('SNES]'))
 
     def test_dvi_mode(self):
         self.assertTrue(self.check('[MiSTer]\ndvi_mode=1\n')['dvi'])
@@ -472,8 +498,17 @@ class DisplayCheckTests(unittest.TestCase):
                 '[MiSTer]\nvideo_mode=9\nvrr_mode=0\nvrr_mode=2\n')
         self.assertFound(self.check(text), overridden=['video_mode', 'vrr_mode'], hdmi_hz=None, vrr='forced')
         self.assertEqual(self.check('[MiSTer]\nvideo_mode=9\n[MisterZine Plex Core]\nvideo_mode=8\n')['overridden'], [])
-        # the same value again is no override
+        # the same value again is no override, however it is spelled
         self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=8\n[MiSTer]\nvideo_mode=8\n')['overridden'], [])
+        self.assertEqual(self.check('[MisterZine Plex Core]\nvrr_mode=0x2\nrefresh_max=61\n'
+                                    '[MiSTer]\nvrr_mode=2\nrefresh_max=61.0\n')['overridden'], [])
+        self.assertEqual(self.check('[MisterZine Plex Core]\nvrr_mode=9\n[MiSTer]\nvrr_mode=4\n')['overridden'], [])
+        # settings main does not know, or these checks do not use, are not flagged
+        self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mdoe=8\nbootscreen=0\n'
+                                    '[MiSTer]\nvideo_mdoe=9\nbootscreen=1\n')['overridden'], [])
+        # nor ones a video mode section may change again
+        self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=8\n[MiSTer]\nvideo_mode=9\n'
+                                    '[video=720x480]\nvideo_mode=8\n')['overridden'], [])
 
     def test_plex_section_in_another_ini(self):
         (self.card / 'MiSTer_crt.ini').write_text('[MiSTer]\nvideo_mode=9\n')

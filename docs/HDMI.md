@@ -104,19 +104,26 @@ file to change and what to add.
 - **HDMI VRR: Forced on**: `vrr_mode` is 2, 3 or 4 with `vsync_adjust=0`. The
   automatic setting (`vrr_mode=1`) depends on what the display reports, so it
   is not flagged.
-- **HDMI refresh** (for example **50 Hz**): with `vsync_adjust=0`, HDMI keeps
-  the rate of `video_mode`. At 50 Hz, or any rate well away from 60 Hz, frames
-  are dropped or repeated and motion judders. Modes 3, 7 and 9 are 50 Hz.
+- **HDMI refresh** (for example **50 Hz**): HDMI keeps a fixed rate well away
+  from 60 Hz, so frames are dropped or repeated and motion judders. Modes 3, 7
+  and 9 are 50 Hz. With `vsync_adjust=0` the rate is `video_mode`'s. With
+  `vsync_adjust` 1 or 2, MiSTer follows Plex instead, unless `refresh_min` or
+  `refresh_max` leaves out 59.94 Hz, or a `video_mode_pal` is set without a
+  `video_mode_ntsc`. With `vrr_mode=1` a display that uses VRR may follow Plex
+  anyway, and the note says so.
 - **HDMI sound: Off (DVI mode)**: `dvi_mode=1` sends no sound over HDMI. Sound
   still plays from the analog audio output.
 - **Plex INI section: Overridden**: a `[MiSTer]` section further down the file
-  changes a setting the Plex section sets. Move the Plex section to the end.
+  changes a video setting the Plex section sets to a different value. Move the
+  Plex section to the end.
 - **Plex INI section: In another INI**: the INI MiSTer loaded has no Plex
   section, but another INI does.
 
-`direct_video=1` sends the core's own timing, so the VRR and refresh rows do
-not apply to it; `direct_video=2` counts as off unless MiSTer detects a VGA
-converter.
+Some settings are only resolved while MiSTer runs, so rows that depend on them
+stay hidden. `direct_video=1` sends the core's own timing, and with
+`direct_video=2` MiSTer decides at start-up whether a VGA converter is
+attached. A `[video=...]` section applies only when it names the core's
+current video mode, which MiSTer measures once the core runs.
 
 ## What has been checked
 

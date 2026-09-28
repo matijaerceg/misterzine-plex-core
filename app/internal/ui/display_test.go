@@ -16,9 +16,9 @@ import (
 )
 
 func TestParseDisplayCheck(t *testing.T) {
-	d := ParseDisplayCheck(`{"ini": "MiSTer_alt_1.ini", "vrr": "forced", "vrr_mode": 2, "hdmi_hz": null, "video_mode": "8",
-		"dvi": true, "overridden": ["video_mode"], "section_in": "MiSTer.ini"}`)
-	want := DisplayCheck{INI: "MiSTer_alt_1.ini", VRR: "forced", VRRMode: 2, VideoMode: "8", DVI: true,
+	d := ParseDisplayCheck(`{"ini": "MiSTer_alt_1.ini", "vrr": "forced", "vrr_mode": 2, "vsync_adjust": 0, "hdmi_hz": null,
+		"hdmi_mode": "", "dvi": true, "overridden": ["video_mode"], "conditional": [], "section_in": "MiSTer.ini"}`)
+	want := DisplayCheck{INI: "MiSTer_alt_1.ini", VRR: "forced", VRRMode: 2, DVI: true,
 		Overridden: []string{"video_mode"}, SectionIn: "MiSTer.ini"}
 	if !reflect.DeepEqual(d, want) || !d.VRRForced() {
 		t.Fatalf("forced: %+v", d)
@@ -47,7 +47,8 @@ func TestDisplayWarnings(t *testing.T) {
 	}{
 		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", HDMIHz: 60}, nil},
 		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", HDMIHz: 59.94}, nil},
-		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", HDMIHz: 50, VideoMode: "9"}, []string{"HDMI refresh: 50 Hz"}},
+		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", HDMIHz: 50, HDMIMode: "video_mode=9"}, []string{"HDMI refresh: 50 Hz"}},
+		{DisplayCheck{INI: "MiSTer.ini", VRR: "unknown", DVI: true}, []string{"HDMI sound: Off (DVI mode)"}},
 		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", HDMIHz: 75}, []string{"HDMI refresh: 75 Hz"}},
 		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", DVI: true}, []string{"HDMI sound: Off (DVI mode)"}},
 		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", Overridden: []string{"video_mode"}}, []string{"Plex INI section: Overridden"}},
@@ -66,11 +67,16 @@ func TestDisplayWarnings(t *testing.T) {
 		}
 		return strings.Join(parts, "\n")
 	}
-	refresh := DisplayCheck{INI: "MiSTer.ini", VRR: "auto", HDMIHz: 50, VideoMode: "9"}.Warnings()[0]
-	for _, s := range []string{"HDMI runs at 50 Hz in MiSTer.ini (video_mode=9).", "unless your display uses VRR", "[MisterZine Plex Core]\nvideo_mode=8"} {
+	refresh := DisplayCheck{INI: "MiSTer.ini", VRR: "auto", HDMIHz: 50, HDMIMode: "video_mode=9"}.Warnings()[0]
+	for _, s := range []string{"HDMI runs at 50 Hz in MiSTer.ini (video_mode=9).", "unless your display uses VRR", "[MisterZine Plex Core]\nvideo_mode=8\nvideo_mode=8 is"} {
 		if !strings.Contains(text(refresh), s) {
 			t.Errorf("refresh note lacks %q:\n%s", s, text(refresh))
 		}
+	}
+	// a PAL mode vsync_adjust cannot use: turning vsync_adjust off lets video_mode pick
+	pal := DisplayCheck{INI: "MiSTer.ini", VRR: "off", HDMIHz: 50, HDMIMode: "video_mode_pal=9", VsyncAdjust: 1}.Warnings()[0]
+	if s := "(video_mode_pal=9).\n"; !strings.Contains(text(pal), s) || !strings.Contains(text(pal), "video_mode=8\nvsync_adjust=0\n") {
+		t.Errorf("PAL note:\n%s", text(pal))
 	}
 	many := DisplayCheck{Overridden: []string{"a", "b", "c", "d", "e", "f"}}.Warnings()[0]
 	if !strings.Contains(text(many), "your MiSTer INI changes what the Plex section sets: a, b, c, d, and 2 more.") {
@@ -128,7 +134,7 @@ func TestOptionsShowForcedVRROnly(t *testing.T) {
 
 func TestOptionsWarningRowsOpenTheirOwnNotes(t *testing.T) {
 	a := cropApp(t)
-	a.Display = DisplayCheck{INI: "MiSTer.ini", VRR: "off", HDMIHz: 50, VideoMode: "9", DVI: true}
+	a.Display = DisplayCheck{INI: "MiSTer.ini", VRR: "off", HDMIHz: 50, HDMIMode: "video_mode=9", DVI: true}
 	o := NewOptions(a)
 	a.Push(o)
 	crop := optionRow(o, "Video crop")
@@ -169,7 +175,7 @@ func TestDisplayPreview(t *testing.T) {
 		shots[strings.ReplaceAll(strings.ToLower(w.label+" "+w.value), " ", "-")] = draw(NewDisplayNote(a, w))
 	}
 	for _, d := range []DisplayCheck{
-		{INI: "MiSTer.ini", VRR: "auto", HDMIHz: 50, VideoMode: "9"},
+		{INI: "MiSTer.ini", VRR: "off", HDMIHz: 50, HDMIMode: "video_mode_pal=9", VsyncAdjust: 1},
 		{INI: "MiSTer_alt_1.ini", VRR: "off", SectionIn: "MiSTer.ini"},
 	} {
 		w := d.Warnings()[0]
