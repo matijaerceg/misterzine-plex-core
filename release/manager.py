@@ -914,9 +914,10 @@ def setting(key, value):
         return ('mode', numbers[0] if numbers[0] < 15 else 0, hpol, vpol)
     if rate is not None or len(numbers) == 3:   # width,height,rate: 60 and 60.0 alike
         return ('rate', numbers[0], numbers[1], rate if rate is not None else float(numbers[2]), hpol, vpol, rb, pr)
+    # A timing keeps its blanking flag: vscale_mode 4 and 5 recalculate it.
     if len(numbers) == 11:          # the last two numbers set the polarities
-        return ('timing', tuple(numbers), pr)
-    return ('timing', tuple(numbers), hpol, vpol, pr)
+        return ('timing', tuple(numbers), rb, pr)
+    return ('timing', tuple(numbers), hpol, vpol, rb, pr)
 
 
 def last_scopes(entries):

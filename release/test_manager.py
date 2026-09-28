@@ -525,6 +525,10 @@ class DisplayCheckTests(unittest.TestCase):
                              ['overridden'], [], (own, later))
         self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=9,+hsync\n[MiSTer]\nvideo_mode=9\n')['overridden'],
                          ['video_mode'])
+        # a timing keeps its blanking flag, which vscale_mode 4 and 5 use
+        timing = '1280,110,40,220,720,5,5,20,74250'
+        self.assertEqual(self.check('[MisterZine Plex Core]\nvscale_mode=4\nvideo_mode=%s,cvt\n[MiSTer]\nvideo_mode=%s,cvtrb\n'
+                                    % (timing, timing))['overridden'], ['video_mode'])
         self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=1920,1080,60\n'
                                     '[MiSTer]\nvideo_mode=1920,1080,50\n')['overridden'], ['video_mode'])
         # settings main does not know, or these checks do not use, are not flagged
