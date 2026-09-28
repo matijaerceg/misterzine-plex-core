@@ -1,6 +1,7 @@
 # build outputs
 app/dist/
 arm/plexfb
+arm/plexfb.build.json
 arm/plexui
 arm/__pycache__/
 core/db/

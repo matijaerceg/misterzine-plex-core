@@ -20,10 +20,13 @@ Build a beta application with an explicitly selected batch:
 
 ```sh
 python release/beta_release.py build --channel beta --batch example-beta --version 0.2.0-beta.1 --id beta-example-1
+python3 release/build_presenter.py     # on Linux, or inside WSL on Windows
 python release/build_package.py --core-tree core --version 0.2.0-beta.1 --id beta-example-1
 ```
 
-Use the same version and unique release ID in both commands. Match the version in
+Use the same version and unique release ID in the app and package commands. The
+package is refused unless the presenter was built from the current source
+([build from source](BUILD.md)). Match the version in
 the Patreon post title. Reuse the batch for as many releases as desired and repeat
 its code in each post. To require a new code, generate and select a new batch.
 Version changes alone do not rotate access. The binary embeds the code's SHA-256

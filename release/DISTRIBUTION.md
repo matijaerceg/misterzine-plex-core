@@ -15,6 +15,8 @@ overrides global filters without rewriting the user's configuration.
 ## Prepare a release
 
 1. Build the core and presenter from the matching source using `docs/BUILD.md`.
+   Build the presenter with `build_presenter.py`: `build_package.py` refuses one
+   that was not built from the current `arm/plexfb.c`.
 2. Build the app with `beta_release.py build`, explicitly selecting public or beta,
    version and release ID. For beta, select an existing private batch or manually
    create a new one as described in [beta release preparation](../docs/BETA_RELEASES.md). No automatic rotation occurs.

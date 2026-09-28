@@ -31,10 +31,18 @@ checking the output profile guard and verifying on appropriate hardware.
 ## Presenter and package
 
 ```sh
-arm-linux-gnueabihf-gcc -O2 -static -march=armv7-a -mfpu=neon -mfloat-abi=hard -pthread -o arm/plexfb arm/plexfb.c -lm
+python3 release/build_presenter.py
 cp core/output_files/PlexCRT.rbf core/PlexCRT.rbf
 python3 release/build_package.py --core-tree core --id source-build --version 0.1.0-beta.12
 ```
+
+build_presenter.py runs `arm-linux-gnueabihf-gcc -O2 -static -march=armv7-a
+-mfpu=neon -mfloat-abi=hard -pthread -o arm/plexfb arm/plexfb.c -lm` from the
+repository root (the source path is embedded in the binary; `--cc` selects another
+compiler name) and records the SHA-256 of the source and the binary in
+arm/plexfb.build.json. On Windows, run it inside WSL. build_package.py refuses a
+presenter without that record, one built from a different arm/plexfb.c, or one
+replaced after its build, so rebuild the presenter whenever its source changes.
 
 The packaged presenter uses glibc; preserve its LGPL terms and relinking/source
 obligations. The reference toolchain is GCC 13 with glibc 2.39. Generated release

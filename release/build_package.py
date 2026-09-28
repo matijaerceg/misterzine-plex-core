@@ -7,6 +7,8 @@ import shutil
 import tempfile
 import zipfile
 
+import build_presenter
+
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_EXTENSIONS = {'.v', '.sv', '.vh', '.vhd', '.qip', '.sdc', '.tcl', '.mif', '.hex'}
 
@@ -16,6 +18,9 @@ def sha(path):
 
 
 def build(out, core_tree, ident, version='0.1.0-beta.12'):
+    # Before anything is written: nothing else would notice a presenter
+    # binary left over from older source.
+    build_presenter.check(ROOT)
     out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='misterzine-package-') as tmp:
         stage = Path(tmp)
