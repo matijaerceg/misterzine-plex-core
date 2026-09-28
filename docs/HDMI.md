@@ -89,14 +89,34 @@ badly while 30 fps video stayed smooth, and turning it off fixed every file.
 Keep `vrr_mode=0` in the Plex section above. MiSTer also switches VRR off
 whenever `vsync_adjust` is 1 or 2.
 
-When the INI MiSTer read for Plex forces VRR on (`vrr_mode` 2, 3 or 4, with
-`vsync_adjust=0`), **Options** shows **HDMI VRR: Forced on**. Select it to see
-which file to change and the lines to add. The automatic setting
-(`vrr_mode=1`) depends on what the display reports, so Options don't flag it.
-
 With VRR off, films can still look slightly uneven: that is the three-two
 pattern above. Some displays smooth it with a film-mode or motion setting,
 which game modes often disable.
+
+## Settings Options warn about
+
+When Plex starts, it reads the INI MiSTer loaded for it, including an
+alternative INI chosen in the MiSTer menu, and applies MiSTer's own section
+rules. It reads the file, not live values. **Options** then shows a row, below
+**Video crop**, for each setting that hurts Plex. Select a row to see which
+file to change and what to add.
+
+- **HDMI VRR: Forced on**: `vrr_mode` is 2, 3 or 4 with `vsync_adjust=0`. The
+  automatic setting (`vrr_mode=1`) depends on what the display reports, so it
+  is not flagged.
+- **HDMI refresh** (for example **50 Hz**): with `vsync_adjust=0`, HDMI keeps
+  the rate of `video_mode`. At 50 Hz, or any rate well away from 60 Hz, frames
+  are dropped or repeated and motion judders. Modes 3, 7 and 9 are 50 Hz.
+- **HDMI sound: Off (DVI mode)**: `dvi_mode=1` sends no sound over HDMI. Sound
+  still plays from the analog audio output.
+- **Plex INI section: Overridden**: a `[MiSTer]` section further down the file
+  changes a setting the Plex section sets. Move the Plex section to the end.
+- **Plex INI section: In another INI**: the INI MiSTer loaded has no Plex
+  section, but another INI does.
+
+`direct_video=1` sends the core's own timing, so the VRR and refresh rows do
+not apply to it; `direct_video=2` counts as off unless MiSTer detects a VGA
+converter.
 
 ## What has been checked
 

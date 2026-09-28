@@ -373,11 +373,14 @@ class ReportTests(unittest.TestCase):
         facts = manager.system_facts(self.root, [], self.proc.parent, altcfg=lambda: 1)
         self.assertEqual(facts['ini'], 'alternative 1')
         self.assertEqual(facts['video_settings'], {'MiSTer': {'vrr_mode': '2'}, 'MisterZine Plex Core': {'video_mode': '8'}})
-        self.assertEqual(facts['plex_video'], {'vrr_mode': '2', 'video_mode': '8', 'vrr': 'forced'})
+        self.assertEqual(facts['plex_video'], {'vrr_mode': '2', 'video_mode': '8', 'vrr': 'forced', 'hdmi_hz': None,
+                                               'dvi': False, 'overridden': [], 'own_section': True, 'section_in': ''})
         self.assertNotIn('Bench', json.dumps(facts))
         facts = manager.system_facts(self.root, [], self.proc.parent, altcfg=lambda: None)
         self.assertEqual(facts['ini'], 'unknown')
-        self.assertEqual(facts['plex_video'], {'video_mode': '8', 'fb_terminal': '1', 'vrr': 'off'})   # MiSTer.ini stands in
+        self.assertEqual(facts['plex_video']['hdmi_hz'], 60.0)          # MiSTer.ini stands in
+        self.assertEqual(facts['plex_video']['section_in'], 'alternative 1')
+        self.assertNotIn('Bench', json.dumps(facts))
 
 
 class DisplayCheckTests(unittest.TestCase):
@@ -390,19 +393,24 @@ class DisplayCheckTests(unittest.TestCase):
         (self.card / 'MiSTer.ini').write_text(text)
         return manager.display_check(self.card, altcfg)
 
+    def assertFound(self, check, **expected):
+        self.assertEqual({key: check.get(key) for key in expected}, expected)
+
     def test_the_plex_section_overrides_the_global_setting(self):
-        self.assertEqual(self.check('[MiSTer]\nvrr_mode=2\n'), {'ini': 'MiSTer.ini', 'vrr': 'forced', 'vrr_mode': 2})
+        self.assertFound(self.check('[MiSTer]\nvrr_mode=2\n'), ini='MiSTer.ini', vrr='forced', vrr_mode=2)
         self.assertEqual(self.check('[MiSTer]\nvrr_mode=2\n[MisterZine Plex Core]\nvrr_mode=0\n')['vrr'], 'off')
         # main reads top to bottom: a [MiSTer] section after the core's wins
         self.assertEqual(self.check('[misterzine plex core]\nvrr_mode=0\n[MiSTer]\nvrr_mode=3\n')['vrr'], 'forced')
         self.assertEqual(self.check('[SNES]\nvrr_mode=2\n[MiSTer]\nvideo_mode=8\n')['vrr'], 'off')
-        # what the app's note suggests: a second Plex section at the end
+        # what the app's notes suggest: a second Plex section at the end
         self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=8\n[MiSTer]\nvrr_mode=2\n'
                                     '[MisterZine Plex Core]\nvrr_mode=0\n')['vrr'], 'off')
 
     def test_main_drops_vrr_with_vsync_adjust_or_direct_video(self):
         self.assertEqual(self.check('[MiSTer]\nvrr_mode=2\nvsync_adjust=1\n')['vrr'], 'off')
         self.assertEqual(self.check('[MiSTer]\nvrr_mode=4\ndirect_video=1\n')['vrr'], 'off')
+        # direct_video=2 is direct video only for a known VGA converter
+        self.assertEqual(self.check('[MiSTer]\nvrr_mode=2\ndirect_video=2\n')['vrr'], 'forced')
         self.assertEqual(self.check('[MiSTer]\nvrr_mode=1\n')['vrr'], 'auto')
         self.assertEqual(self.check('[MiSTer]\nvideo_mode=8\n')['vrr'], 'off')
 
@@ -419,7 +427,7 @@ class DisplayCheckTests(unittest.TestCase):
     def test_the_ini_main_chose_is_the_one_read(self):
         for name in ('MiSTer_zeta.ini', 'MiSTer_Alpha.ini', 'notes.ini'):
             (self.card / name).write_text('[MiSTer]\nvrr_mode=2\n')
-        self.assertEqual(self.check('[MiSTer]\n', altcfg=lambda: 2), {'ini': 'MiSTer_zeta.ini', 'vrr': 'forced', 'vrr_mode': 2})
+        self.assertFound(self.check('[MiSTer]\n', altcfg=lambda: 2), ini='MiSTer_zeta.ini', vrr='forced', vrr_mode=2)
         self.assertEqual(self.check('[MiSTer]\n', altcfg=lambda: 0)['vrr'], 'off')
         self.assertEqual(self.check('[MiSTer]\n', altcfg=lambda: 7)['ini'], 'MiSTer.ini')
         self.assertEqual(self.check('[MiSTer]\n', altcfg=lambda: 3), {'ini': '', 'vrr': 'unknown'})
@@ -428,7 +436,53 @@ class DisplayCheckTests(unittest.TestCase):
     def test_without_alternatives_main_memory_is_not_read(self):
         self.assertEqual(self.check('[MiSTer]\nvrr_mode=2\n', altcfg=mock.Mock(side_effect=AssertionError))['vrr'], 'forced')
         (self.card / 'MiSTer.ini').unlink()
-        self.assertEqual(manager.display_check(self.card, lambda: 0), {'ini': 'MiSTer.ini', 'vrr': 'off', 'vrr_mode': 0})
+        self.assertEqual(manager.display_check(self.card, lambda: 0),
+                         {'ini': 'MiSTer.ini', 'vrr': 'off', 'vrr_mode': 0, 'hdmi_hz': None, 'video_mode': '',
+                          'dvi': False, 'overridden': [], 'section_in': ''})
+
+    def test_video_mode_refresh_follows_main_parsing(self):
+        refresh = manager.video_mode_refresh
+        self.assertEqual([refresh(v) for v in ('8', '9', '3', '7', '12', '99', '0x9', '9,pr')],
+                         [60.0, 50.0, 50.0, 50.0, 60.0, 60.0, 50.0, 50.0])
+        self.assertEqual(refresh('1920,1080,50'), 50.0)
+        self.assertEqual(refresh('1920,1080,59.94,cvt'), 59.94)
+        self.assertEqual(refresh('1280,110,40,220,720,5,5,20,74250,+hsync,-vsync'), 60.0)
+        self.assertEqual(refresh('1920,528,44,148,1080,4,5,36,148500'), 50.0)
+        self.assertEqual(refresh('9,oops'), 60.0)           # main rejects it and falls back to 60 Hz
+        self.assertEqual(refresh('1920,1080'), 60.0)
+        self.assertIsNone(refresh(''))                      # the display's own mode
+        self.assertIsNone(refresh(','.join(['1'] * 21)))
+
+    def test_fixed_hdmi_refresh(self):
+        self.assertFound(self.check('[MiSTer]\nvideo_mode=9\n'), hdmi_hz=50.0, video_mode='9')
+        self.assertEqual(self.check('[MiSTer]\nvideo_mode=9\n[MisterZine Plex Core]\nvideo_mode=8\n')['hdmi_hz'], 60.0)
+        # HDMI follows the core with vsync_adjust, direct video or forced VRR
+        for extra in ('vsync_adjust=1', 'direct_video=1', 'vrr_mode=2'):
+            self.assertIsNone(self.check('[MiSTer]\nvideo_mode=9\n' + extra + '\n')['hdmi_hz'], extra)
+        self.assertEqual(self.check('[MiSTer]\nvideo_mode=9\nvrr_mode=1\n')['hdmi_hz'], 50.0)
+        self.assertIsNone(self.check('[MiSTer]\nvscale_mode=0\n')['hdmi_hz'])
+
+    def test_dvi_mode(self):
+        self.assertTrue(self.check('[MiSTer]\ndvi_mode=1\n')['dvi'])
+        self.assertFalse(self.check('[MiSTer]\ndvi_mode=1\n[MisterZine Plex Core]\ndvi_mode=0\n')['dvi'])
+        self.assertFalse(self.check('[MiSTer]\n;dvi_mode=1\n')['dvi'])
+
+    def test_plex_settings_a_later_mister_section_undoes(self):
+        text = ('[MisterZine Plex Core]\nvideo_mode=8\nvrr_mode=0\nvscale_mode=0\n'
+                '[MiSTer]\nvideo_mode=9\nvrr_mode=0\nvrr_mode=2\n')
+        self.assertFound(self.check(text), overridden=['video_mode', 'vrr_mode'], hdmi_hz=None, vrr='forced')
+        self.assertEqual(self.check('[MiSTer]\nvideo_mode=9\n[MisterZine Plex Core]\nvideo_mode=8\n')['overridden'], [])
+        # the same value again is no override
+        self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=8\n[MiSTer]\nvideo_mode=8\n')['overridden'], [])
+
+    def test_plex_section_in_another_ini(self):
+        (self.card / 'MiSTer_crt.ini').write_text('[MiSTer]\nvideo_mode=9\n')
+        self.assertEqual(self.check('[MiSTer]\n[MisterZine Plex Core]\nvideo_mode=8\n', altcfg=lambda: 1)['section_in'], 'MiSTer.ini')
+        self.assertEqual(self.check('[MiSTer]\nvideo_mode=8\n', altcfg=lambda: 1)['section_in'], '')
+        (self.card / 'MiSTer_crt.ini').write_text('[MiSTer]\n[MisterZine Plex Core]\nvideo_mode=8\n')
+        self.assertEqual(self.check('[MiSTer]\n', altcfg=lambda: 0)['section_in'], 'MiSTer_crt.ini')
+        self.assertEqual(self.check('[MiSTer]\n[MisterZine Plex Core]\n', altcfg=lambda: 0)['section_in'], '')
+        self.assertEqual(manager.ini_label(self.card, 'MiSTer_crt.ini'), 'alternative 1')
 
     def test_altcfg_reads_main_signature(self):
         mem = self.card / 'mem'
@@ -446,8 +500,9 @@ class DisplayCheckTests(unittest.TestCase):
             self.assertEqual(manager.display_env(self.card), '')
         trace.assert_called_once_with('display check failed: RuntimeError')
         (self.card / 'MiSTer.ini').write_text('[MiSTer]\nvrr_mode=2\n')
-        with mock.patch.object(manager, 'trace'):
-            self.assertEqual(json.loads(manager.display_env(self.card)), {'ini': 'MiSTer.ini', 'vrr': 'forced', 'vrr_mode': 2})
+        with mock.patch.object(manager, 'trace') as trace:
+            self.assertFound(json.loads(manager.display_env(self.card)), ini='MiSTer.ini', vrr='forced', vrr_mode=2)
+        trace.assert_called_once_with('display check: vrr forced, hdmi None Hz, dvi False, overridden none, section elsewhere False')
 
 
 if __name__ == '__main__':

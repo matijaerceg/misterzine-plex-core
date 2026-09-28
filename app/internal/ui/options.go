@@ -74,8 +74,8 @@ func (o *Options) items() []option {
 			cfg.Crop = Crops[max(0, min(len(Crops)-1, cfg.Crop.index()+d))].Mode
 		}},
 	}
-	if o.app.Display.VRRForced() {
-		items = append(items, option{label: "HDMI VRR", val: func() string { return "Forced on" }, do: func() { o.app.Push(NewVRRNote(o.app)) }})
+	for _, w := range o.app.Display.Warnings() {
+		items = append(items, option{label: w.label, val: func() string { return w.value }, do: func() { o.app.Push(NewDisplayNote(o.app, w)) }})
 	}
 	items = append(items, []option{
 		{label: "Theme music", get: func() bool { return !cfg.NoTheme }, set: func(v bool) { cfg.NoTheme = !v }, after: o.app.syncTheme},

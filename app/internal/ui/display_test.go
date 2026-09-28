@@ -6,6 +6,8 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,14 +16,65 @@ import (
 )
 
 func TestParseDisplayCheck(t *testing.T) {
-	d := ParseDisplayCheck(`{"ini": "MiSTer_alt_1.ini", "vrr": "forced", "vrr_mode": 2}`)
-	if d != (DisplayCheck{INI: "MiSTer_alt_1.ini", VRR: "forced", VRRMode: 2}) || !d.VRRForced() {
+	d := ParseDisplayCheck(`{"ini": "MiSTer_alt_1.ini", "vrr": "forced", "vrr_mode": 2, "hdmi_hz": null, "video_mode": "8",
+		"dvi": true, "overridden": ["video_mode"], "section_in": "MiSTer.ini"}`)
+	want := DisplayCheck{INI: "MiSTer_alt_1.ini", VRR: "forced", VRRMode: 2, VideoMode: "8", DVI: true,
+		Overridden: []string{"video_mode"}, SectionIn: "MiSTer.ini"}
+	if !reflect.DeepEqual(d, want) || !d.VRRForced() {
 		t.Fatalf("forced: %+v", d)
 	}
 	for _, s := range []string{"", "not json", `{"vrr": "auto", "vrr_mode": 1}`, `{"ini": "", "vrr": "unknown"}`} {
-		if ParseDisplayCheck(s).VRRForced() {
-			t.Fatalf("%q reads as forced", s)
+		if len(ParseDisplayCheck(s).Warnings()) != 0 {
+			t.Fatalf("%q warns", s)
 		}
+	}
+	// an older launcher's check: VRR only
+	if ws := ParseDisplayCheck(`{"ini": "MiSTer.ini", "vrr": "forced", "vrr_mode": 2}`).Warnings(); len(ws) != 1 || ws[0].label != "HDMI VRR" {
+		t.Fatalf("VRR-only check: %+v", ws)
+	}
+}
+
+func TestDisplayWarnings(t *testing.T) {
+	labels := func(d DisplayCheck) (out []string) {
+		for _, w := range d.Warnings() {
+			out = append(out, w.label+": "+w.value)
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		d    DisplayCheck
+		want []string
+	}{
+		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", HDMIHz: 60}, nil},
+		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", HDMIHz: 59.94}, nil},
+		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", HDMIHz: 50, VideoMode: "9"}, []string{"HDMI refresh: 50 Hz"}},
+		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", HDMIHz: 75}, []string{"HDMI refresh: 75 Hz"}},
+		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", DVI: true}, []string{"HDMI sound: Off (DVI mode)"}},
+		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", Overridden: []string{"video_mode"}}, []string{"Plex INI section: Overridden"}},
+		{DisplayCheck{INI: "MiSTer_alt_1.ini", VRR: "off", SectionIn: "MiSTer.ini"}, []string{"Plex INI section: In another INI"}},
+		{DisplayCheck{INI: "MiSTer.ini", VRR: "forced", VRRMode: 2, DVI: true, Overridden: []string{"vrr_mode"}},
+			[]string{"HDMI VRR: Forced on", "HDMI sound: Off (DVI mode)", "Plex INI section: Overridden"}},
+	} {
+		if got := labels(tc.d); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%+v: %q, want %q", tc.d, got, tc.want)
+		}
+	}
+	text := func(w displayWarning) string {
+		var parts []string
+		for _, b := range w.blocks {
+			parts = append(parts, b.text)
+		}
+		return strings.Join(parts, "\n")
+	}
+	refresh := DisplayCheck{INI: "MiSTer.ini", VRR: "auto", HDMIHz: 50, VideoMode: "9"}.Warnings()[0]
+	for _, s := range []string{"HDMI runs at 50 Hz in MiSTer.ini (video_mode=9).", "unless your display uses VRR", "[MisterZine Plex Core]\nvideo_mode=8"} {
+		if !strings.Contains(text(refresh), s) {
+			t.Errorf("refresh note lacks %q:\n%s", s, text(refresh))
+		}
+	}
+	many := DisplayCheck{Overridden: []string{"a", "b", "c", "d", "e", "f"}}.Warnings()[0]
+	if !strings.Contains(text(many), "your MiSTer INI changes what the Plex section sets: a, b, c, d, and 2 more.") {
+		t.Errorf("long override list:\n%s", text(many))
 	}
 }
 
@@ -60,8 +113,8 @@ func TestOptionsShowForcedVRROnly(t *testing.T) {
 		t.Fatal("Right opened something")
 	}
 	o.Key(input.Event{Key: input.Enter}, now)
-	note, ok := a.top().(*VRRNote)
-	if !ok {
+	note, ok := a.top().(*DisplayNote)
+	if !ok || note.w.title != "HDMI VRR" {
 		t.Fatalf("OK opened %T", a.top())
 	}
 	note.Key(input.Event{Key: input.Enter}, now)
@@ -70,6 +123,23 @@ func TestOptionsShowForcedVRROnly(t *testing.T) {
 	}
 	if optionRow(o, "Version") != len(o.items())-1 {
 		t.Fatal("Version is no longer the last row")
+	}
+}
+
+func TestOptionsWarningRowsOpenTheirOwnNotes(t *testing.T) {
+	a := cropApp(t)
+	a.Display = DisplayCheck{INI: "MiSTer.ini", VRR: "off", HDMIHz: 50, VideoMode: "9", DVI: true}
+	o := NewOptions(a)
+	a.Push(o)
+	crop := optionRow(o, "Video crop")
+	for i, title := range []string{"HDMI refresh", "HDMI sound"} {
+		o.cur = crop + 1 + i
+		o.Key(input.Event{Key: input.Enter}, time.Now())
+		note, ok := a.top().(*DisplayNote)
+		if !ok || note.w.title != title {
+			t.Fatalf("row %d opened %T %+v, want %s", o.cur, a.top(), note, title)
+		}
+		note.Back()
 	}
 }
 
@@ -83,7 +153,7 @@ func TestDisplayPreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := cropApp(t)
-	a.Display = DisplayCheck{INI: "MiSTer_alt_1.ini", VRR: "forced", VRRMode: 2}
+	a.Display = DisplayCheck{INI: "MiSTer_alt_1.ini", VRR: "forced", VRRMode: 2, DVI: true, Overridden: []string{"video_mode", "vrr_mode"}}
 	o := NewOptions(a)
 	o.cur = optionRow(o, "HDMI VRR")
 	draw := func(s Screen) *gfx.Canvas {
@@ -94,7 +164,18 @@ func TestDisplayPreview(t *testing.T) {
 		}
 		return c
 	}
-	for name, c := range map[string]*gfx.Canvas{"options": draw(o), "note": draw(NewVRRNote(a))} {
+	shots := map[string]*gfx.Canvas{"options": draw(o)}
+	for _, w := range a.Display.Warnings() {
+		shots[strings.ReplaceAll(strings.ToLower(w.label+" "+w.value), " ", "-")] = draw(NewDisplayNote(a, w))
+	}
+	for _, d := range []DisplayCheck{
+		{INI: "MiSTer.ini", VRR: "auto", HDMIHz: 50, VideoMode: "9"},
+		{INI: "MiSTer_alt_1.ini", VRR: "off", SectionIn: "MiSTer.ini"},
+	} {
+		w := d.Warnings()[0]
+		shots[strings.ReplaceAll(strings.ToLower(w.label+" "+w.value), " ", "-")] = draw(NewDisplayNote(a, w))
+	}
+	for name, c := range shots {
 		// 720 source pixels occupy a 640-wide 4:3 display.
 		out := image.NewRGBA(image.Rect(0, 0, 640, 480))
 		for y := 0; y < 480; y++ {
@@ -103,7 +184,7 @@ func TestDisplayPreview(t *testing.T) {
 				out.SetRGBA(x, y, color.RGBA{c.Pix[p+2], c.Pix[p+1], c.Pix[p], 255})
 			}
 		}
-		file, err := os.Create(filepath.Join(dir, "vrr-"+name+".png"))
+		file, err := os.Create(filepath.Join(dir, "display-"+strings.NewReplacer("(", "", ")", "").Replace(name)+".png"))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -727,7 +727,7 @@ def safe_log(text, secrets):
 
 VIDEO_KEYS = ('main', 'direct_video', 'vga_scaler', 'forced_scandoubler', 'ypbpr', 'composite_sync', 'vga_sog',
               'vsync_adjust', 'vscale_mode', 'vscale_border', 'video_mode', 'video_mode_ntsc', 'video_mode_pal',
-              'menu_pal', 'hdmi_limited', 'vrr_mode', 'fb_terminal')
+              'menu_pal', 'hdmi_limited', 'vrr_mode', 'fb_terminal', 'dvi_mode')
 
 
 def ini_video_settings(text):
@@ -813,33 +813,45 @@ def ini_line(raw):
     return ''.join(kept).rstrip(' \t')
 
 
-def section_applies(header, core=CORE_NAME):
-    """Whether main applies a section to this core (ini_get_section): [MiSTer],
-    the core's name, or a prefix of it ending in '*'. Arcade and video mode
-    sections are not matched here."""
+def section_scope(header, core=CORE_NAME):
+    """Whether main applies a section to this core (ini_get_section): 'MiSTer'
+    for [MiSTer], 'core' for the core's name or a prefix of it ending in '*',
+    else None. Arcade and video mode sections are not matched here."""
     name = header.split(']', 1)[0]
     if name.lower() == 'mister':
-        return True
+        return 'MiSTer'
     star = name.rfind('*')
-    return core.lower().startswith(name[:star].lower()) if star >= 0 else name.lower() == core.lower()
+    own = core.lower().startswith(name[:star].lower()) if star >= 0 else name.lower() == core.lower()
+    return 'core' if own else None
 
 
-def core_ini_values(text, core=CORE_NAME):
-    """The values main applies to the core, by lower-case key: lines under
-    [MiSTer] and the core's own sections (or a '+name' line that includes it),
-    in file order, so a later value wins."""
-    values, applies = {}, False
+def parse_core_ini(text, core=CORE_NAME):
+    """What main applies to the core from an INI: (scope, key, value) for each
+    line under [MiSTer] and the core's own sections (or a '+name' line that
+    includes it), in file order, keys in lower case; and whether the file has
+    a section of the core's own."""
+    entries, scope, own = [], None, False
     for raw in text.split('\n'):
         line = ini_line(raw)
-        if line.startswith('['):
-            applies = section_applies(line[1:], core)
-        elif line.startswith('+') and not applies:
-            applies = section_applies(line[1:], core)
-        elif applies:
+        if line.startswith('[') or (line.startswith('+') and scope is None):
+            scope = section_scope(line[1:], core)
+            own = own or scope == 'core'
+        elif scope:
             match = re.match(r'([^=\s]+)[=\s]', line)
             if match:
-                values[match.group(1).lower()] = line[match.end():].lstrip('= \t')
-    return values
+                entries.append((scope, match.group(1).lower(), line[match.end():].lstrip('= \t')))
+    return entries, own
+
+
+def overridden_keys(entries):
+    """Keys the core's own section sets that a later [MiSTer] line changes, so
+    main never uses the core's value."""
+    own, final = {}, {}
+    for scope, key, value in entries:
+        final[key] = value
+        if scope == 'core':
+            own[key] = value
+    return sorted(key for key, value in own.items() if final[key] != value)
 
 
 def ini_number(text, low, high):
@@ -854,30 +866,124 @@ def ini_number(text, low, high):
     return max(low, min(high, value))
 
 
+def direct_video(values):
+    """Whether main sends the core's own timing over HDMI. direct_video=2
+    turns it on only for a known VGA converter; an HDMI display, the setup
+    these checks are about, gets the scaler as with 0 (video_mode_load)."""
+    return ini_number(values.get('direct_video', ''), 0, 2) == 1
+
+
 def vrr_state(values):
     """'forced' when main turns variable refresh rate on for the core whatever
     the display reports, 'auto' when only a display that reports support gets
     it, 'off' otherwise. Main drops VRR with vsync_adjust or direct video
     (set_vrr_mode and video_set_mode in its video.cpp)."""
     mode = ini_number(values.get('vrr_mode', ''), 0, 4)
-    if not mode or ini_number(values.get('vsync_adjust', ''), 0, 2) or ini_number(values.get('direct_video', ''), 0, 2):
+    if not mode or ini_number(values.get('vsync_adjust', ''), 0, 2) or direct_video(values):
         return 'off'
     return 'auto' if mode == 1 else 'forced'
 
 
+# video_mode numbers that run at 50 Hz (vmodes[] in main's video.cpp); every
+# other number, including ones past the table, which main reads as 0, is 60 Hz.
+FIFTY_HZ_MODES = frozenset({3, 7, 9})
+VIDEO_MODE_FLAGS = frozenset({'+vsync', '-vsync', '+hsync', '-hsync', 'cvt', 'cvtrb', 'pr'})
+DECIMAL = re.compile(r'\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?')
+
+
+def whole_number(token):
+    """A token strtoul reads to its end with base 0, else None."""
+    match = re.fullmatch(r'\s*\+?(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)', token)
+    if not match:
+        return None
+    digits = match.group(1)
+    return int(digits, 16) if digits[:2].lower() == '0x' else int(digits, 8) if digits[0] == '0' else int(digits)
+
+
+def video_mode_refresh(value):
+    """The refresh rate of a video_mode value, read as main reads it
+    (parse_custom_video_mode): a mode number, width,height,rate, or the full
+    timing with the pixel clock in kHz. A value main rejects gets its 60 Hz
+    fallback mode. None for an empty value, where main takes the display's own
+    mode, and for the raw register form."""
+    if not value:
+        return None
+    tokens = value.split(',')
+    numbers = []
+    for token in tokens:
+        number = whole_number(token)
+        if number is None:
+            break
+        numbers.append(number)
+    rate = None
+    if len(numbers) == 2 and len(tokens) > 2 and DECIMAL.fullmatch(tokens[2]):
+        rate = float(tokens[2])     # strtod: 59.94, say
+    if any(flag.lower() not in VIDEO_MODE_FLAGS for flag in tokens[len(numbers) + (rate is not None):]):
+        return 60.0
+    if len(numbers) == 1:
+        return 50.0 if numbers[0] in FIFTY_HZ_MODES else 60.0
+    if rate is not None:
+        return rate
+    if len(numbers) == 3:
+        return float(numbers[2])
+    if len(numbers) in (9, 11):
+        total = sum(numbers[0:4]) * sum(numbers[4:8])
+        return round(numbers[8] * 1000.0 / total, 2) if total else None
+    return None if len(numbers) >= 21 else 60.0
+
+
+def fixed_hdmi_refresh(values):
+    """The rate HDMI runs at whatever the core does, from video_mode. None
+    when HDMI follows the core instead (vsync_adjust, direct video, forced VRR)
+    or main takes the display's own mode."""
+    if ini_number(values.get('vsync_adjust', ''), 0, 2) or direct_video(values) or vrr_state(values) == 'forced':
+        return None
+    return video_mode_refresh(values.get('video_mode', ''))
+
+
+def ini_findings(entries):
+    """What Options and reports say about the INI main read for the core:
+    VRR, the fixed HDMI rate, DVI mode (no HDMI sound) and core settings a
+    later [MiSTer] section undoes."""
+    values = {key: value for _, key, value in entries}
+    return {'vrr': vrr_state(values), 'vrr_mode': ini_number(values.get('vrr_mode', ''), 0, 4),
+            'hdmi_hz': fixed_hdmi_refresh(values), 'video_mode': values.get('video_mode', '')[:40],
+            'dvi': ini_number(values.get('dvi_mode', ''), 0, 1) == 1, 'overridden': overridden_keys(entries)}
+
+
+def section_elsewhere(card, active):
+    """Another INI main could read that has the core's own section, for when
+    the active one has none: MiSTer.ini first, then the alternatives."""
+    try:
+        names = ['MiSTer.ini'] + alt_ini_names(card)
+    except OSError:
+        return ''
+    for name in names:
+        if name.lower() == active.name.lower():
+            continue
+        try:
+            if parse_core_ini((card / name).read_text(errors='replace'))[1]:
+                return name
+        except OSError:
+            continue
+    return ''
+
+
 def display_check(card, altcfg=read_altcfg):
-    """What the app's Options show about the MiSTer INI: which file main
-    read, whether VRR is on for Plex and the vrr_mode behind it."""
+    """What the app's Options show about the MiSTer INI: which file main read
+    for Plex, ini_findings for it, and another INI holding the Plex section
+    this one lacks ('section_in'). vrr is 'unknown' when the file main read
+    cannot be told or read."""
     path, number = active_ini(card, altcfg)
     if path is None:
         return {'ini': '', 'vrr': 'unknown'}
     try:
-        values = core_ini_values(path.read_text(errors='replace'))
+        entries, own = parse_core_ini(path.read_text(errors='replace'))
     except FileNotFoundError:
-        values = {}                 # main runs on its defaults
+        entries, own = [], False    # main runs on its defaults
     except OSError:
         return {'ini': path.name, 'vrr': 'unknown'}
-    return {'ini': path.name, 'vrr': vrr_state(values), 'vrr_mode': ini_number(values.get('vrr_mode', ''), 0, 4)}
+    return dict(ini_findings(entries), ini=path.name, section_in='' if own else section_elsewhere(card, path))
 
 
 def display_env(card):
@@ -890,8 +996,22 @@ def display_env(card):
     except Exception as exc:        # never in the way of starting the app
         trace('display check failed: %s' % type(exc).__name__)
         return ''
-    trace('display check: vrr %s' % check['vrr'])
+    trace('display check: vrr %s, hdmi %s Hz, dvi %s, overridden %s, section elsewhere %s' % (
+        check['vrr'], check.get('hdmi_hz'), check.get('dvi'), ','.join(check.get('overridden', [])) or 'none',
+        bool(check.get('section_in'))))
     return json.dumps(check)
+
+
+def ini_label(card, name):
+    """An INI as a report names it: MiSTer.ini, or an alternative by its
+    number in MiSTer's menu, since its file name is the player's own."""
+    if not name or name.lower() == 'mister.ini':
+        return name
+    try:
+        alts = [alt.lower() for alt in alt_ini_names(card)]
+    except OSError:
+        alts = []
+    return 'alternative %d' % (alts.index(name.lower()) + 1) if name.lower() in alts else 'another INI'
 
 
 def defines_launcher(path, ident='misterzine-plex'):
@@ -953,8 +1073,14 @@ def system_facts(root, secrets, proc_root=Path('/proc'), altcfg=read_altcfg):
     try:
         text = (ini or card / 'MiSTer.ini').read_text(errors='replace')
         facts['video_settings'] = ini_video_settings(text)
-        values = core_ini_values(text)
-        facts['plex_video'] = dict({key: values[key][:40] for key in VIDEO_KEYS if key in values}, vrr=vrr_state(values))
+        entries, own = parse_core_ini(text)
+        values = {key: value for _, key, value in entries}
+        findings = ini_findings(entries)
+        for key in ('video_mode', 'vrr_mode'):     # the raw values below say it
+            del findings[key]
+        facts['plex_video'] = {key: values[key][:40] for key in VIDEO_KEYS if key in values}
+        elsewhere = '' if own else section_elsewhere(card, ini or card / 'MiSTer.ini')
+        facts['plex_video'].update(findings, own_section=own, section_in=ini_label(card, elsewhere))
     except OSError:
         pass
     try:
