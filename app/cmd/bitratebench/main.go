@@ -18,7 +18,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer r.Close()
-	defer r.StartVideo(0)()
+	defer r.StartVideo(0, nil)()
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop

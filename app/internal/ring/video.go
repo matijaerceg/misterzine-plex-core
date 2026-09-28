@@ -1,8 +1,10 @@
 package ring
 
 import (
+	"runtime"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -14,35 +16,74 @@ type VideoControl struct {
 	deadline       time.Time
 }
 
-func (r *Ring) StartVideo(mode uint32) func() {
+// The core shows ring video, and keeps the requested mode, only while the
+// lease moves at least every 120 fields (2 s). plexplay runs ffmpeg and
+// plexfb near nice -15, and a renewal thread left at nice 0 could miss that
+// under heavy decoding: the picture went black for a couple of seconds with
+// the sound playing on (a patron's report). So the lease runs on a thread of
+// its own at the player's priority and sleeps in the kernel, not on the Go
+// scheduler's timers, which other nice 0 threads serve.
+const (
+	leaseEvery = 250 * time.Millisecond
+	leaseLate  = 500 * time.Millisecond // a renewal further apart than this is logged
+	leaseNice  = -15
+)
+
+// StartVideo keeps the lease until the returned function is called. logf,
+// when not nil, hears about late renewals, at most one line every 5 s.
+func (r *Ring) StartVideo(mode uint32, logf func(string, ...any)) func() {
 	r.SetVideo(mode)
-	stop, done := make(chan struct{}), make(chan struct{})
+	var stopping atomic.Bool
+	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		tick := time.NewTicker(250 * time.Millisecond)
-		defer tick.Stop()
-		for {
-			r.video.mu.Lock()
-			if !r.video.deadline.IsZero() && !time.Now().Before(r.video.deadline) {
-				r.video.mode = r.video.previous
-				r.video.deadline = time.Time{}
+		// Never unlocked: the thread ends with the loop, and its priority with it.
+		runtime.LockOSThread()
+		syscall.Setpriority(syscall.PRIO_PROCESS, 0, leaseNice) // this thread only, on Linux; needs root
+		var last, noted time.Time
+		var late int
+		var worst time.Duration
+		for !stopping.Load() {
+			now := time.Now()
+			if gap := now.Sub(last); !last.IsZero() && gap > leaseLate {
+				late++
+				worst = max(worst, gap)
 			}
-			mode := r.video.mode
-			r.video.mu.Unlock()
-			seq := (atomic.LoadUint32(&r.hdr[28]) + 2) &^ 1
-			atomic.StoreUint32(&r.hdr[28], seq|1)
-			atomic.StoreUint32(&r.hdr[29], 0x56500000|mode)
-			atomic.StoreUint32(&r.hdr[30], seq)
-			atomic.StoreUint32(&r.hdr[28], seq)
-			r.writeBrightness()
-			select {
-			case <-tick.C:
-			case <-stop:
-				return
+			if late > 0 && logf != nil && now.Sub(noted) >= 5*time.Second {
+				// off this thread: a log write can wait on the SD card
+				go logf("video lease: %d late renewal(s), the longest %.2f s after the one before (the core blanks the picture at 2 s)", late, worst.Seconds())
+				late, worst, noted = 0, 0, now
 			}
+			last = now
+			r.renewVideo()
+			sleep(leaseEvery)
 		}
 	}()
-	return func() { close(stop); <-done; atomic.StoreUint32(&r.hdr[29], 0); r.clearBrightness() }
+	return func() { stopping.Store(true); <-done; atomic.StoreUint32(&r.hdr[29], 0); r.clearBrightness() }
+}
+
+// renewVideo publishes the current request with a new lease sequence.
+func (r *Ring) renewVideo() {
+	r.video.mu.Lock()
+	if !r.video.deadline.IsZero() && !time.Now().Before(r.video.deadline) {
+		r.video.mode = r.video.previous
+		r.video.deadline = time.Time{}
+	}
+	mode := r.video.mode
+	r.video.mu.Unlock()
+	seq := (atomic.LoadUint32(&r.hdr[28]) + 2) &^ 1
+	atomic.StoreUint32(&r.hdr[28], seq|1)
+	atomic.StoreUint32(&r.hdr[29], 0x56500000|mode)
+	atomic.StoreUint32(&r.hdr[30], seq)
+	atomic.StoreUint32(&r.hdr[28], seq)
+	r.writeBrightness()
+}
+
+// sleep waits in the kernel, finishing the time a signal interrupted.
+func sleep(d time.Duration) {
+	ts := syscall.NsecToTimespec(int64(d))
+	for syscall.Nanosleep(&ts, &ts) == syscall.EINTR {
+	}
 }
 
 // SetVideo restores a known preference without starting another trial.

@@ -25,7 +25,7 @@ func TestBrightnessSurvivesWipeAndClearsOnStop(t *testing.T) {
 	r := fakeRing()
 	word := func() uint32 { return atomic.LoadUint32(r.word(brightOff)) }
 	r.SetBrightness(64)
-	stop := r.StartVideo(0)
+	stop := r.StartVideo(0, nil)
 	atomic.StoreUint32(r.word(brightOff), 0) // the framebuffer driver clears the ring
 	time.Sleep(350 * time.Millisecond)
 	if word() != brightTag|64 {

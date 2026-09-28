@@ -855,7 +855,7 @@ func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
 		if a.Cfg.Progressive {
 			mode = 2
 		}
-		defer r.StartVideo(mode)()
+		defer r.StartVideo(mode, a.Log.Printf)()
 	}
 	a.events = events
 	a.dirty = true
