@@ -8,7 +8,7 @@ wire ce=(divider==0);
 reg [10:0] hc=850;
 reg [9:0] vc=0;
 wire [7:0] r,g,b;
-integer x,y,bank,word,byteidx,value,expected,checked=0;
+integer x,y,bank,word,byteidx,value,expected,checked=0,rgb=0,er,eg,eb,d;
 ddr_scanout dut(.clk(clk),.reset(reset),.DDRAM_BUSY(1'b0),.DDRAM_DOUT(64'd0),.DDRAM_DOUT_READY(1'b0),
  .ce_pix(ce),.hc(hc),.vc(vc),.next_row(vc+10'd1),.active(hc<720),.vs(1'b0),
  .joy0(16'd0),.joy1(16'd0),.ps2_key(11'd0),.scan_status({2'b0,mode}),.r(r),.g(g),.b(b));
@@ -21,27 +21,43 @@ always @(posedge clk) if(!reset) begin
 end
 always @(posedge clk) if(!reset && ce && vc>0 && hc<720) begin
  x=hc;y=vc;
- value=16+((x*13+(y%2)*37)%220);
- expected=((value-16)*298+128)>>8;
- if(expected>255)expected=255;
- if(expected<=252)expected=expected+(((x%2)^(y%2))*2+(y%2));else expected=255;
- if(mode<2 && (x<12 || x>=712)) expected=0;   // the 15 kHz line ends leave black
+ d=((x%2)^(y%2))*2+(y%2);
+ if(rgb) begin                                 // xRGB: every pixel its own colour
+  er=chan(x,y%2,7);eg=chan(x,y%2,13);eb=chan(x,y%2,29);
+ end else begin
+  value=16+((x*13+(y%2)*37)%220);
+  expected=((value-16)*298+128)>>8;
+  if(expected>255)expected=255;
+  er=expected;eg=expected;eb=expected;
+ end
+ er=dith(er);eg=dith(eg);eb=dith(eb);
+ if(mode<2 && (x<12 || x>=712)) begin er=0;eg=0;eb=0; end   // the 15 kHz line ends leave black
  #1;
- if(r!==expected || g!==expected || b!==expected)
-  $fatal(1,"mode=%d pixel (%d,%d) got %d,%d,%d expected %d",mode,x,y,r,g,b,expected);
+ if(r!==er || g!==eg || b!==eb)
+  $fatal(1,"mode=%0d rgb=%0d pixel (%0d,%0d) got %0d,%0d,%0d expected %0d,%0d,%0d",mode,rgb,x,y,r,g,b,er,eg,eb);
  checked=checked+1;
 end
+function integer chan(input integer x, input integer bank, input integer k);
+ chan=(x*k+bank*71+k)%256;
+endfunction
+function integer dith(input integer v);
+ dith=(v<=252)?v+d:255;
+endfunction
 task setup;
 begin
  reset=1;hc=850;vc=0;divider=0;
- force dut.st=0;force dut.valid=1;force dut.h_yuv=1;force dut.h_width=720;force dut.h_height=480;
+ force dut.st=0;force dut.valid=1;force dut.h_yuv=!rgb;force dut.h_width=720;force dut.h_height=480;
  dut.rd_half=0;dut.wr_half=1;
  for(bank=0;bank<2;bank=bank+1) begin
   for(word=0;word<512;word=word+1) begin
    dut.lb0[bank*512+word]=0;
    dut.lb3[bank*512+word]=0;
-   for(byteidx=0;byteidx<8;byteidx=byteidx+1)
-    dut.lb0[bank*512+word][byteidx*8+:8]=16+(((word*8+byteidx)*13+bank*37)%220);
+   if(rgb) begin
+    for(byteidx=0;byteidx<2;byteidx=byteidx+1)   // two pixels a word, low one first
+     dut.lb0[bank*512+word][byteidx*32+:32]={8'd0,8'(chan(word*2+byteidx,bank,7)),8'(chan(word*2+byteidx,bank,13)),8'(chan(word*2+byteidx,bank,29))};
+   end else
+    for(byteidx=0;byteidx<8;byteidx=byteidx+1)
+     dut.lb0[bank*512+word][byteidx*8+:8]=16+(((word*8+byteidx)*13+bank*37)%220);
   end
   for(word=0;word<64;word=word+1) begin
    dut.lb1[bank*64+word]=(word<45)?64'h8080808080808080:0;
@@ -54,8 +70,9 @@ end
 endtask
 initial begin
  setup();mode=0;setup();mode=1;setup();
- if(checked!=6480)$fatal(1,"coverage %d",checked);
- $display("PASS all 720 YUV columns, word boundaries and alternating row banks at both pixel clocks; 12/8 black line ends in 480i and 240p only");
+ rgb=1;mode=2;setup();mode=0;setup();mode=1;setup();
+ if(checked!=12960)$fatal(1,"coverage %d",checked);
+ $display("PASS all 720 YUV and xRGB columns, word boundaries and alternating row banks at both pixel clocks; 12/8 black line ends in 480i and 240p only");
  $finish;
 end
 endmodule
