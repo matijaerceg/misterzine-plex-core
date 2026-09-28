@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,9 +35,83 @@ func TestDecodeSupporters(t *testing.T) {
 	if len(s.Past) != 1 || s.Past[0].Name != "Sam Sample" {
 		t.Fatalf("past: %+v", s.Past)
 	}
-	if _, err := DecodeSupporters([]byte("<html>not found</html>")); err == nil {
-		t.Fatal("a page that is not the list was taken for one")
+	for _, reply := range []string{"<html>not found</html>", `{}`, `{"error":"temporary"}`, `{"current":null,"past":[]}`} {
+		if _, err := DecodeSupporters([]byte(reply)); err == nil {
+			t.Fatalf("%s was taken for a list", reply)
+		}
 	}
+	if s, err := DecodeSupporters([]byte(`{"current":[]}`)); err != nil || len(s.Current) != 0 {
+		t.Fatalf("an empty list: %+v, %v", s, err)
+	}
+}
+
+func TestRunawaySupporterNameIsCapped(t *testing.T) {
+	long := strings.Repeat("W", 200<<10)
+	s, err := DecodeSupporters([]byte(`{"current":[{"name":"` + long + `"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(s.Current[0].Name); n != maxSupporterName {
+		t.Fatalf("a %d-letter name kept %d", len(long), n)
+	}
+	a := betaTestApp(t)
+	a.supporters.list = s
+	start := time.Now()
+	NewSupportersPage(a).Draw(gfx.NewCanvas(720, 480), time.Now())
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("the page took %v to draw", d)
+	}
+}
+
+func TestErrorReplyKeepsTheListAndItsCache(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"error":"temporary"}`))
+	}))
+	defer srv.Close()
+	t.Cleanup(func() { SupportersURL = "" })
+	SupportersURL = srv.URL
+	cache := t.TempDir()
+	path := filepath.Join(cache, "supporters.json")
+	if err := os.WriteFile(path, []byte(supportersFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{later: make(chan func(), 8)}
+	a.SetCacheDir(cache)
+	a.checkSupporters(time.Now())
+	drainLater(t, a, 2) // the cache, then the reply
+	if n := len(a.supporters.list.Current); n != 2 {
+		t.Fatalf("%d current supporters after an error reply", n)
+	}
+	if b, _ := os.ReadFile(path); string(b) != supportersFixture {
+		t.Fatalf("the cache now holds %q", b)
+	}
+}
+
+func TestLostSupportersResultDoesNotStopTheChecks(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Write([]byte(supportersFixture))
+	}))
+	defer srv.Close()
+	t.Cleanup(func() { SupportersURL = "" })
+	SupportersURL = srv.URL
+	a := &App{later: make(chan func())} // nothing receives: every result is dropped
+	now := time.Now()
+	a.checkSupporters(now)
+	a.checkSupporters(now.Add(supportersStale / 2))
+	waitHits := func(want int32) {
+		t.Helper()
+		for end := time.Now().Add(5 * time.Second); hits.Load() < want && time.Now().Before(end); {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if got := hits.Load(); got != want {
+			t.Fatalf("%d fetches, want %d", got, want)
+		}
+	}
+	waitHits(1) // a check still out holds the next one back
+	a.checkSupporters(now.Add(supportersStale + time.Second))
+	waitHits(2) // until its result is plainly lost
 }
 
 // drainLater runs what the background work handed back, until want calls

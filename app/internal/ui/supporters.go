@@ -35,31 +35,51 @@ type Supporters struct {
 	Past    []Supporter `json:"past"`
 }
 
-// DecodeSupporters parses supporters.json. Names are folded to what the
-// fonts can draw and trimmed, and blank ones dropped, so a damaged file
-// cannot put an empty row on the page.
+// maxSupporterName caps a name: the longest on the list is 21 letters, and
+// a runaway one must not cost the page's text fitting its time.
+const maxSupporterName = 48
+
+// DecodeSupporters parses supporters.json. A file without the current list
+// is not one, whatever else it holds (an error reply, say), so it cannot
+// replace a good list or its cached copy. Names are folded to what the
+// fonts can draw, trimmed and capped, and blank ones dropped, so a damaged
+// file cannot put an empty row on the page.
 func DecodeSupporters(b []byte) (Supporters, error) {
-	var s Supporters
-	if err := json.Unmarshal(b, &s); err != nil {
+	var raw struct {
+		Current *[]Supporter `json:"current"`
+		Past    []Supporter  `json:"past"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
 		return Supporters{}, err
+	}
+	if raw.Current == nil {
+		return Supporters{}, fmt.Errorf("not a supporters list")
 	}
 	clean := func(in []Supporter) []Supporter {
 		var out []Supporter
 		for _, p := range in {
-			p.Name = strings.Join(strings.Fields(plex.Fold(p.Name)), " ")
-			if p.Name != "" && len(out) < 2000 {
-				out = append(out, p)
+			name := strings.Join(strings.Fields(plex.Fold(p.Name)), " ")
+			if len(name) > maxSupporterName { // folded to ASCII: bytes are letters
+				name = strings.TrimSpace(name[:maxSupporterName])
+			}
+			if name != "" && len(out) < 2000 {
+				out = append(out, Supporter{Name: name})
 			}
 		}
 		return out
 	}
-	s.Current, s.Past = clean(s.Current), clean(s.Past)
-	return s, nil
+	return Supporters{Current: clean(*raw.Current), Past: clean(raw.Past)}, nil
 }
+
+// supportersStale is how long a check may stay out. The fetch gives up
+// within 20 s, so a check older than this lost its result on the way back
+// (Later drops a closure when its queue is full) and counts as failed.
+const supportersStale = time.Minute
 
 type supporterState struct {
 	list      Supporters
 	checking  bool
+	since     time.Time // when the check that is out started
 	nextCheck time.Time
 	cacheRead bool // the cached copy has been tried, once per run
 }
@@ -69,10 +89,18 @@ type supporterState struct {
 // copy up while the fetch is out, so the list is there offline too.
 func (a *App) checkSupporters(now time.Time) {
 	st := &a.supporters
-	if SupportersURL == "" || st.checking || now.Before(st.nextCheck) {
+	if st.checking {
+		if now.Sub(st.since) < supportersStale {
+			return
+		}
+		st.checking = false // its result never came back: try again now
+		st.nextCheck = time.Time{}
+	}
+	if SupportersURL == "" || now.Before(st.nextCheck) {
 		return
 	}
 	st.checking = true
+	st.since = now
 	st.nextCheck = now.Add(6 * time.Hour)
 	cache := ""
 	if a.cacheDir != "" {
