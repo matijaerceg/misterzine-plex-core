@@ -13,10 +13,10 @@ import (
 	"time"
 )
 
-func TestRunningSeesAHeldWorkerLock(t *testing.T) {
+func TestLockHolderTellsAnUpdaterFromAQuickCheck(t *testing.T) {
 	root := t.TempDir()
-	if Running(root) {
-		t.Fatal("no lock file, yet running")
+	if LockHolder(root) != Nobody {
+		t.Fatal("no lock file, yet held")
 	}
 	os.MkdirAll(filepath.Join(root, "updates"), 0700)
 	f, err := os.OpenFile(filepath.Join(root, "updates/worker.lock"), os.O_CREATE|os.O_RDWR, 0600)
@@ -24,18 +24,19 @@ func TestRunningSeesAHeldWorkerLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	if Running(root) {
-		t.Fatal("a free lock taken for a running updater")
-	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		t.Fatal(err)
-	}
-	if !Running(root) {
-		t.Fatal("a held lock not seen")
-	}
-	syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	if Running(root) {
-		t.Fatal("a released lock still seen")
+	fd := int(f.Fd())
+	for _, c := range []struct {
+		how  int
+		want Holder
+	}{{-1, Nobody}, {syscall.LOCK_SH, Maintenance}, {syscall.LOCK_EX, Updater}, {syscall.LOCK_UN, Nobody}} {
+		if c.how >= 0 {
+			if err := syscall.Flock(fd, c.how|syscall.LOCK_NB); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := LockHolder(root); got != c.want {
+			t.Fatalf("lock %d: holder %d, want %d", c.how, got, c.want)
+		}
 	}
 }
 

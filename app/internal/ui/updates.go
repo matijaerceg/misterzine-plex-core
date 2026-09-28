@@ -19,7 +19,8 @@ type updateState struct {
 	nextStatus  time.Time
 	reading     bool
 	status      updates.Status
-	message     string // a choice was not saved, or another update runs
+	message     string    // a choice was not saved, or the updater's lock is taken
+	messageAt   time.Time // shown for a while, as the cause passes
 	// An update started and its updater has not written the status file
 	// since: the file still has the "updated" stamp it had then. No clock is
 	// compared (the board may set its clock at any time), and only the
@@ -121,6 +122,18 @@ func (a *App) pollUpdates(now time.Time) {
 			a.updates.status = s
 		})
 	}()
+}
+
+// note says something passing under the rows: a lock taken for a moment, a
+// choice not saved. It goes after a while, or with the next check or launch.
+func (a *App) note(message string) {
+	a.updates.message, a.updates.messageAt = message, time.Now()
+}
+func (a *App) updateNote(now time.Time) string {
+	if now.Sub(a.updates.messageAt) >= 10*time.Second {
+		return ""
+	}
+	return a.updates.message
 }
 
 // fail records a failure the updater did not write itself.
@@ -257,8 +270,12 @@ func (a *App) startUpdate(action string, r *updates.Release) {
 		a.updates.status = now // one is at work already: follow it
 		return
 	}
-	if updates.Running(root) {
-		a.updates.message = "Another update is already running. Try again when it has finished."
+	switch updates.LockHolder(root) {
+	case updates.Updater:
+		a.note("Another update is already running. Try again when it has finished.")
+		return
+	case updates.Maintenance:
+		a.note("Plex is checking its files. Try again in a moment.")
 		return
 	}
 	a.updates.launch++
@@ -380,7 +397,7 @@ func (u *Updates) view() (updateView, []updateAction) {
 			a.Cfg.EarlyAccessUpdates = !a.Cfg.EarlyAccessUpdates
 			if err := a.Cfg.Save(); err != nil {
 				a.Cfg.EarlyAccessUpdates = !a.Cfg.EarlyAccessUpdates
-				a.updates.message = "Could not save notification preference."
+				a.note("Could not save notification preference.")
 			}
 		}})
 	}
@@ -526,8 +543,8 @@ func (u *Updates) Draw(c *gfx.Canvas, now time.Time) bool {
 		a.text(c, MenuX, y, f.Body, col, f.Body.Fit(it.label, MenuWidth))
 		y += MenuRowH
 	}
-	if a.updates.message != "" && v != viewWorking {
-		note, noteDetail = a.updates.message, ""
+	if m := a.updateNote(now); m != "" && v != viewWorking {
+		note, noteDetail = m, ""
 	}
 	if note != "" {
 		const lines = 4

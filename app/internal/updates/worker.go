@@ -38,19 +38,32 @@ func ReadStatus(root string) Status {
 	return s
 }
 
-// Running reports that an updater holds the worker lock. A second one would
+// Holder is who holds the worker lock. An updater started meanwhile would
 // exit at once without a word, so this is asked before starting one.
-func Running(root string) bool {
+type Holder int
+
+const (
+	Nobody      Holder = iota
+	Maintenance        // the launcher's and manager's checks, shared and for moments
+	Updater            // an update at work, exclusive
+)
+
+func LockHolder(root string) Holder {
 	f, err := os.Open(filepath.Join(root, "updates/worker.lock"))
 	if err != nil {
-		return false
+		return Nobody
 	}
 	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		return err == syscall.EWOULDBLOCK
+	fd := int(f.Fd())
+	if syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+		syscall.Flock(fd, syscall.LOCK_UN)
+		return Nobody
 	}
-	syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	return false
+	if syscall.Flock(fd, syscall.LOCK_SH|syscall.LOCK_NB) == nil {
+		syscall.Flock(fd, syscall.LOCK_UN)
+		return Maintenance
+	}
+	return Updater
 }
 
 // Copy the worker before starting it: installing a new runtime must not change

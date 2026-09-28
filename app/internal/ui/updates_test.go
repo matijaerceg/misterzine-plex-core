@@ -292,12 +292,22 @@ func TestUpdateAlreadyRunningIsNotLaunchedAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		t.Fatal(err)
-	}
-	a.startUpdate("prepare", r)
-	if a.updates.launch != 0 || a.updates.waiting || !strings.Contains(a.updates.message, "already running") || a.failure() {
-		t.Fatalf("launched beside a running updater: %+v, %q", a.updates.status, a.updates.message)
+	for _, c := range []struct {
+		how  int
+		want string
+	}{{syscall.LOCK_EX, "already running"}, {syscall.LOCK_SH, "checking its files"}} {
+		if err := syscall.Flock(int(lock.Fd()), c.how|syscall.LOCK_NB); err != nil {
+			t.Fatal(err)
+		}
+		a.startUpdate("prepare", r)
+		note := a.updateNote(time.Now())
+		if a.updates.launch != 0 || a.updates.waiting || !strings.Contains(note, c.want) || a.failure() {
+			t.Fatalf("launched beside a lock holder: %+v, %q", a.updates.status, note)
+		}
+		// the holder lets go soon: so does the note
+		if a.updateNote(time.Now().Add(11*time.Second)) != "" {
+			t.Fatal("the note outlived its cause")
+		}
 	}
 }
 
