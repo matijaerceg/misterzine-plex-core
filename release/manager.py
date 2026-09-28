@@ -40,8 +40,9 @@ BOOT_END = '# END MISTERZINE PLEX LAUNCHER'
 REPORT_SERVICE = 'https://api.misterzine.fyi'
 REPORT_MAGIC = 'MisterZine report v1'
 REPORT_MAX_BYTES = 256 * 1024
-REPORT_LOGS = ('misterzine-plex-menu-run.log', 'misterzine-plex-menu-run.log.1', 'misterzine-plex.log',
-               'misterzine-plex.log.1', 'misterzine-plex-menu.log', 'misterzine-plex-maintain.log', 'plexplay.log')
+REPORT_LOGS = ('misterzine-plex-menu-run.log', 'misterzine-plex-menu-run.log.1', 'misterzine-plex-update-run.log',
+               'misterzine-plex-update-run.log.1', 'misterzine-plex.log', 'misterzine-plex.log.1',
+               'misterzine-plex-menu.log', 'misterzine-plex-maintain.log', 'plexplay.log')
 
 # The code running now. Entry checks stand down once the installed manager
 # differs from it (a recovery or rollback put another release's in place).
@@ -1587,7 +1588,8 @@ def rotate_log(path):
 
 
 def trace(message):
-    """One timestamped line of the launch story, into the menu-run log."""
+    """One timestamped line of the launch story, into the menu-run log (the
+    update-run log for a launch the updater started)."""
     print(time.strftime('%H:%M:%S') + ' launch: ' + message, flush=True)
 
 

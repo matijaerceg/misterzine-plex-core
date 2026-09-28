@@ -62,7 +62,12 @@ class ProcessTests(unittest.TestCase):
                 with patch.object(service.time, 'sleep', lambda s: real_sleep(min(s, .6))):
                     self.assertEqual(service.start_and_check(root, timeout=10), started)
 
-    def test_an_update_launch_writes_the_menu_run_log(self):
+    def test_an_update_launch_writes_a_log_of_its_own(self):
+        name = Path(service.LAUNCH_LOG).name
+        # Reports carry it, and the menu launcher's rotation never touches it.
+        self.assertIn(name, manager.REPORT_LOGS)
+        self.assertIn(name + '.1', manager.REPORT_LOGS)
+        self.assertNotIn(name, (Path(service.__file__).parent / 'menu_launcher.py').read_text())
         real_sleep = time.sleep
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'misterzine-plex'
@@ -73,15 +78,15 @@ class ProcessTests(unittest.TestCase):
                 'print("MisterZine Plex Core: failed", file=sys.stderr, flush=True)\n'
                 'open(os.environ["MISTERZINE_PLEX_READY_FILE"], "w").write("ready")\n'
                 'sys.exit(%d)\n' % manager.EXIT_TO_MENU)
-            log = Path(tmp) / 'menu-run.log'
-            log.write_text('the launch before the update\n')
-            for path, written in ((log, True), (Path(tmp) / 'missing/menu-run.log', False)):
+            log = Path(tmp) / 'update-run.log'
+            log.write_text('the launch before\n')
+            for path, written in ((log, True), (Path(tmp) / 'missing/update-run.log', False)):
                 with self.subTest(written=written), patch.object(service, 'LAUNCH_LOG', str(path)), \
                         patch.object(service.time, 'sleep', lambda s: real_sleep(min(s, .6))):
                     # A log that cannot be opened is no reason to leave Plex stopped.
                     self.assertTrue(service.start_and_check(root, timeout=10))
             self.assertEqual(log.read_text(), 'launch: app started\nMisterZine Plex Core: failed\n')
-            self.assertEqual(Path(str(log) + '.1').read_text(), 'the launch before the update\n')
+            self.assertEqual(Path(str(log) + '.1').read_text(), 'the launch before\n')
 
     def test_an_older_updaters_start_check_survives_an_exit(self):
         def legacy_start_check(root, timeout=10):

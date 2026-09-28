@@ -501,14 +501,17 @@ def stop_manager(root):
         time.sleep(.1)
 
 
-# The log a launch from the MiSTer menu writes (menu_launcher.py).
-LAUNCH_LOG = '/tmp/misterzine-plex-menu-run.log'
+# A launch of its own, beside the menu launcher's menu-run log: that launcher,
+# which the install restarts, can launch too as soon as this worker exits, and
+# its rotation of that log would push out the start that failed.
+LAUNCH_LOG = '/tmp/misterzine-plex-update-run.log'
 
 
 def start_manager(root, env=None):
     """Start `manager.py run` as a menu launch does, its launch story in
     LAUNCH_LOG and the previous launch's kept as `.1`, so a report after
-    Restart now tells why the app did or did not start."""
+    Restart now tells why the app did or did not start; after a failed
+    update, `.1` is the new release's start and LAUNCH_LOG the restore."""
     manager.rotate_log(LAUNCH_LOG)
     try:
         log = open(LAUNCH_LOG, 'wb')

@@ -308,6 +308,7 @@ class ReportTests(unittest.TestCase):
         (self.tmp / 'misterzine-plex.log').write_text('watch: header wiped 3 times\nGET https://10-0-0-2.abc.plex.direct:32400/x?X-Plex-Token=TESTtoken\n')
         (self.tmp / 'misterzine-plex.log.1').write_text('ring: no core\n')
         (self.tmp / 'misterzine-plex-menu-run.log').write_text('12:00:00 launch: CORENAME MENU\n')
+        (self.tmp / 'misterzine-plex-update-run.log.1').write_text('MisterZine Plex Core: operation failed\n')
 
     def report(self):
         return manager.build_report(self.root, self.proc.parent, self.tmp, now=0)
@@ -322,6 +323,7 @@ class ReportTests(unittest.TestCase):
         self.assertIn('startup_hooks: ["zaparoo"]', text)
         self.assertIn('== LOG misterzine-plex.log.1', text)
         self.assertIn('== LOG misterzine-plex-menu-run.log', text)
+        self.assertIn('== LOG misterzine-plex-update-run.log.1', text)
         self.assertIn('watch: header wiped 3 times', text)
         self.assertNotIn('TESTtoken', text)
         self.assertNotIn('10-0-0-2', text)
