@@ -477,6 +477,11 @@ class DisplayCheckTests(unittest.TestCase):
         self.assertEqual(hz('video_mode=8\nvsync_adjust=1\nvideo_mode_pal=9\n'), 50.0)
         self.assertIsNone(hz('video_mode=8\nvsync_adjust=1\nvideo_mode_pal=9\nvideo_mode_ntsc=8\n'))
         self.assertEqual(hz('video_mode=8\nvsync_adjust=2\nvideo_mode_ntsc=7\nrefresh_max=55\n'), 50.0)
+        # or when the pixel clock 59.94 Hz would take leaves 2-300 MHz: 2560 x 2031 lines needs 311.7 MHz
+        found = self.check('[MiSTer]\nvsync_adjust=1\nvideo_mode=1920,100,100,440,1800,50,50,131,259968\n')
+        self.assertFound(found, hdmi_hz=50.0, hdmi_mode='video_mode=1920,100,100,440,1800,50,50,131,259968')
+        self.assertIsNone(hz('vsync_adjust=1\nvideo_mode=1920,528,44,148,1080,4,5,36,148500\n'))
+        self.assertIsNone(hz('vsync_adjust=1\nvideo_mode=3840,2160,50\n'))   # CVT timing: not worked out here
 
     def test_video_mode_sections_make_findings_unknown(self):
         # main applies [video=...] by the core's measured mode, not known before its video runs
@@ -484,6 +489,10 @@ class DisplayCheckTests(unittest.TestCase):
         self.assertFound(found, vrr='unknown', hdmi_hz=None, dvi=True, conditional=['vrr_mode'])
         found = self.check('[MiSTer]\ndvi_mode=1\nvideo_mode=9\n[Video=720x480]\ndvi_mode=0\n')
         self.assertFound(found, dvi=None, hdmi_hz=50.0, conditional=['dvi_mode'])
+        # only the settings the checks use count, so junk cannot swell what the app is handed
+        found = self.check('[MiSTer]\nvrr_mode=2\n[video=720x480]\n' + 'k' * 5000 + '=1\nbootscreen=0\n')
+        self.assertFound(found, vrr='forced', conditional=[])
+        self.assertEqual(len(manager.ini_line('k' * 5000 + '=1')), 1023)          # main's line limit
         self.assertEqual(manager.section_scope('vid=640x480]'), 'video')     # strncasecmp up to the '='
         self.assertIsNone(manager.section_scope('videos=640x480]'))
         self.assertIsNone(manager.section_scope('SNES]'))
@@ -503,6 +512,11 @@ class DisplayCheckTests(unittest.TestCase):
         self.assertEqual(self.check('[MisterZine Plex Core]\nvrr_mode=0x2\nrefresh_max=61\n'
                                     '[MiSTer]\nvrr_mode=2\nrefresh_max=61.0\n')['overridden'], [])
         self.assertEqual(self.check('[MisterZine Plex Core]\nvrr_mode=9\n[MiSTer]\nvrr_mode=4\n')['overridden'], [])
+        self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=0x9\nvideo_mode_ntsc=1920,1080,60,CVT\n'
+                                    '[MiSTer]\nvideo_mode=9\nvideo_mode_ntsc=1920,1080,60.0,cvt\n')['overridden'], [])
+        self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=99\n[MiSTer]\nvideo_mode=0\n')['overridden'], [])
+        self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=1920,1080,60\n'
+                                    '[MiSTer]\nvideo_mode=1920,1080,50\n')['overridden'], ['video_mode'])
         # settings main does not know, or these checks do not use, are not flagged
         self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mdoe=8\nbootscreen=0\n'
                                     '[MiSTer]\nvideo_mdoe=9\nbootscreen=1\n')['overridden'], [])
@@ -538,6 +552,9 @@ class DisplayCheckTests(unittest.TestCase):
         with mock.patch.object(manager, 'trace') as trace:
             self.assertFound(json.loads(manager.display_env(self.card)), ini='MiSTer.ini', vrr='forced', vrr_mode=2)
         trace.assert_called_once_with('display check: vrr forced, hdmi None Hz, dvi False, overridden none, section elsewhere False')
+        with mock.patch.object(manager, 'trace') as trace, mock.patch.object(manager, 'DISPLAY_ENV_MAX', 20):
+            self.assertEqual(manager.display_env(self.card), '')
+        self.assertTrue(trace.call_args[0][0].startswith('display check left out: '))
 
 
 if __name__ == '__main__':

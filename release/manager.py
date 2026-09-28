@@ -804,7 +804,7 @@ def ini_line(raw):
     and characters it does not accept dropped, trailing blanks trimmed."""
     kept, leading = [], True
     for c in raw:
-        if c == ';':
+        if c == ';' or len(kept) >= 1023:   # INI_LINE_SIZE: the rest of a long line is dropped
             break
         if c not in ' \t':
             leading = False
@@ -883,13 +883,27 @@ VRR_KEYS = ('vrr_mode', 'vsync_adjust', 'direct_video')
 REFRESH_KEYS = VRR_KEYS + ('video_mode', 'video_mode_ntsc', 'video_mode_pal', 'refresh_min', 'refresh_max')
 
 
+KNOWN_KEYS = frozenset(NUMBER_KEYS) | frozenset(FLOAT_KEYS) | TEXT_KEYS
+
+
 def setting(key, value):
-    """A known setting's value as main stores it, so two spellings compare."""
+    """A known setting's value as main ends up with it, so two spellings of
+    the same value compare equal."""
     if key in NUMBER_KEYS:
         return ini_number(value, *NUMBER_KEYS[key])
     if key in FLOAT_KEYS:
         return ini_float(value, *FLOAT_KEYS[key])
-    return value
+    if not value:
+        return ''
+    parts = video_mode_parts(value)
+    if parts is None:
+        return 'rejected'           # any rejected value gets the same fallback mode
+    numbers, rate, flags = parts
+    if len(numbers) == 1:           # a number past main's table is mode 0
+        return ('mode', numbers[0] if numbers[0] < 15 else 0, tuple(flags))
+    if rate is not None or len(numbers) == 3:   # width,height,rate: 60 and 60.0 alike
+        return ('rate', numbers[0], numbers[1], rate if rate is not None else float(numbers[2]), tuple(flags))
+    return ('timing', tuple(numbers), tuple(flags))
 
 
 def overridden_keys(entries):
@@ -898,7 +912,7 @@ def overridden_keys(entries):
     section touches are left out: whether it applies is not known."""
     own, final = {}, {}
     for scope, key, value in entries:
-        if key in NUMBER_KEYS or key in FLOAT_KEYS or key in TEXT_KEYS:
+        if key in KNOWN_KEYS:
             final[key] = setting(key, value)
             if scope == 'core':
                 own[key] = final[key]
@@ -939,13 +953,14 @@ def whole_number(token):
     return int(digits, 16) if digits[:2].lower() == '0x' else int(digits, 8) if digits[0] == '0' else int(digits)
 
 
-def parse_video_mode(value):
-    """A video mode value as main parses it (parse_custom_video_mode): a mode
-    number, width,height,rate, or the full timing with the pixel clock in kHz.
-    (accepted, refresh): accepted is False for an empty value or one main
-    rejects; refresh is None when it cannot be told (the raw register form)."""
+def video_mode_parts(value):
+    """A video mode value as main parses it (parse_custom_video_mode): its
+    leading numbers, the rate of the width,height,rate form when that is a
+    decimal, and its flags in lower case; None when it is empty or main
+    rejects it. The numbers are a mode number, width,height,rate, the full
+    timing with the pixel clock in kHz (9 or 11), or raw registers (21+)."""
     if not value:
-        return False, None
+        return None
     tokens = value.split(',')
     numbers = []
     for token in tokens:
@@ -956,8 +971,22 @@ def parse_video_mode(value):
     rate = None
     if len(numbers) == 2 and len(tokens) > 2 and DECIMAL.fullmatch(tokens[2]):
         rate = float(tokens[2])     # strtod: 59.94, say
-    if any(flag.lower() not in VIDEO_MODE_FLAGS for flag in tokens[len(numbers) + (rate is not None):]):
+    flags = [flag.lower() for flag in tokens[len(numbers) + (rate is not None):]]
+    if any(flag not in VIDEO_MODE_FLAGS for flag in flags):
+        return None
+    if not (len(numbers) in (1, 3, 9, 11) or rate is not None or len(numbers) >= 21):
+        return None
+    return numbers, rate, flags
+
+
+def parse_video_mode(value):
+    """(accepted, refresh) for a video mode value: accepted is False for an
+    empty value or one main rejects; refresh is None when it cannot be told
+    (the raw register form)."""
+    parts = video_mode_parts(value)
+    if parts is None:
         return False, None
+    numbers, rate, _ = parts
     if len(numbers) == 1:
         return True, 50.0 if numbers[0] in FIFTY_HZ_MODES else 60.0
     if rate is not None:
@@ -967,7 +996,21 @@ def parse_video_mode(value):
     if len(numbers) in (9, 11):
         total = sum(numbers[0:4]) * sum(numbers[4:8])
         return True, round(numbers[8] * 1000.0 / total, 2) if total else None
-    return (True, None) if len(numbers) >= 21 else (False, None)
+    return True, None
+
+
+def clock_out_of_range(value):
+    """Whether main must give up following Plex in this mode because the pixel
+    clock it needs at 59.94 Hz is outside 2-300 MHz (video_mode_adjust). Only
+    the full timing form gives the totals; every numbered mode stays inside,
+    and the width,height,rate form counts as inside, which leaves its rate
+    unknown rather than wrongly fixed."""
+    parts = video_mode_parts(value)
+    if parts is None or len(parts[0]) not in (9, 11):
+        return False
+    numbers = parts[0]
+    clock = sum(numbers[0:4]) * sum(numbers[4:8]) * CORE_HZ / 1e6
+    return not 2 <= clock <= 300
 
 
 def video_mode_refresh(value):
@@ -997,10 +1040,10 @@ def fixed_hdmi_refresh(values):
     (pal_set, pal_hz), (ntsc_set, ntsc_hz) = parse_video_mode(pal), parse_video_mode(ntsc)
     if pal_set and not ntsc_set:
         return pal_hz, 'video_mode_pal'     # "NTSC mode cannot be used": the PAL mode, never adjusted
-    low, high = (ini_float(values.get(key, ''), *FLOAT_KEYS[key]) for key in ('refresh_min', 'refresh_max'))
-    if (low and CORE_HZ < low) or (high and CORE_HZ > high):
-        # main cancels the adjustment
-        return (ntsc_hz, 'video_mode_ntsc') if ntsc_set else (video_mode_refresh(video), 'video_mode')
+    base, key = (ntsc, 'video_mode_ntsc') if ntsc_set else (video, 'video_mode')
+    low, high = (ini_float(values.get(name, ''), *FLOAT_KEYS[name]) for name in ('refresh_min', 'refresh_max'))
+    if (low and CORE_HZ < low) or (high and CORE_HZ > high) or clock_out_of_range(base):
+        return (ntsc_hz if ntsc_set else video_mode_refresh(video)), key     # main cancels the adjustment
     return None, ''
 
 
@@ -1011,7 +1054,7 @@ def ini_findings(entries):
     video mode section changes is left unknown ('unknown', None), since that
     section may or may not apply."""
     values = {key: value for scope, key, value in entries if scope != 'video'}
-    conditional = sorted({key for scope, key, _ in entries if scope == 'video'})
+    conditional = sorted({key for scope, key, _ in entries if scope == 'video' and key in KNOWN_KEYS})
     def known(keys):
         return not set(conditional).intersection(keys)
     hz, mode = fixed_hdmi_refresh(values) if known(REFRESH_KEYS) else (None, '')
@@ -1058,6 +1101,9 @@ def display_check(card, altcfg=read_altcfg):
     return dict(ini_findings(entries), ini=path.name, section_in='' if own else section_elsewhere(card, path))
 
 
+DISPLAY_ENV_MAX = 4096
+
+
 def display_env(card):
     """display_check for the app's environment (MISTERZINE_PLEX_DISPLAY),
     taken once the core is loaded, when main has read the INI for it. A check
@@ -1071,7 +1117,13 @@ def display_env(card):
     trace('display check: vrr %s, hdmi %s Hz, dvi %s, overridden %s, section elsewhere %s' % (
         check['vrr'], check.get('hdmi_hz'), check.get('dvi'), ','.join(check.get('overridden', [])) or 'none',
         bool(check.get('section_in'))))
-    return json.dumps(check)
+    text = json.dumps(check)
+    # Only known keys and file names go in, but an environment string that
+    # is too long would stop the app starting at all.
+    if len(text) > DISPLAY_ENV_MAX:
+        trace('display check left out: %d bytes' % len(text))
+        return ''
+    return text
 
 
 def ini_label(card, name):
