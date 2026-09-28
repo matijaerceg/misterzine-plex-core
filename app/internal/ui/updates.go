@@ -12,14 +12,15 @@ import (
 )
 
 type updateState struct {
-	catalogue  updates.Catalogue
-	checking   bool
-	nextCheck  time.Time // of the automatic check
-	nextStatus time.Time
-	reading    bool
-	status     updates.Status
-	message    string
-	launched   time.Time
+	catalogue   updates.Catalogue
+	checking    bool
+	checkFailed bool      // the last check could not read the catalogue
+	nextCheck   time.Time // of the automatic check
+	nextStatus  time.Time
+	reading     bool
+	status      updates.Status
+	message     string // the updater could not start, or a choice was not saved
+	launched    time.Time
 }
 
 func (a *App) checkUpdates(manual bool, now time.Time) {
@@ -32,7 +33,7 @@ func (a *App) checkUpdates(manual bool, now time.Time) {
 	a.updates.checking = true
 	a.updates.nextCheck = now.Add(6 * time.Hour)
 	if manual {
-		a.updates.message = "Checking for updates..."
+		a.updates.message = ""
 	}
 	root := a.betaDir()
 	go func() {
@@ -53,6 +54,7 @@ func (a *App) checkUpdates(manual bool, now time.Time) {
 		}
 		a.Later(func() {
 			a.updates.checking = false
+			a.updates.checkFailed = err != nil
 			if err != nil {
 				// a failure is no check: the first one usually runs before
 				// the MiSTer has its network or its clock
@@ -60,15 +62,9 @@ func (a *App) checkUpdates(manual bool, now time.Time) {
 				if cacheErr == nil && a.updates.catalogue.Releases == nil {
 					a.updates.catalogue = cached
 				}
-				if manual {
-					a.updates.message = "Could not check for updates. Try again later."
-				}
 				return
 			}
 			a.updates.catalogue = c
-			if manual {
-				a.updates.message = "Release information is up to date."
-			}
 		})
 	}()
 }
@@ -98,25 +94,72 @@ func (a *App) pollUpdates(now time.Time) {
 		})
 	}()
 }
+
+// ownChannel is the channel whose releases come first: a development build
+// is told about releases as a public one is.
+func ownChannel() string {
+	if beta.Channel == "beta" {
+		return "beta"
+	}
+	return "public"
+}
+
+// channelName is what the screens call a channel.
+func channelName(channel string) string {
+	switch channel {
+	case "beta":
+		return "Beta"
+	case "public":
+		return "Stable"
+	}
+	return "Development"
+}
+
+// offered lists the releases Updates can install, own channel first: newer
+// than the running one, or the public release a beta build of the same
+// version is told about. The running release and older ones are never offered.
+func (a *App) offered() []updates.Release {
+	var out []updates.Release
+	own := ownChannel()
+	other := "beta"
+	if own == "beta" {
+		other = "public"
+	}
+	for _, channel := range []string{own, other} {
+		r, ok := a.updates.catalogue.Releases[channel]
+		if !ok || r.ID == a.Build {
+			continue
+		}
+		if newer, ok := updates.Compare(r.Version, a.Version); ok && newer > 0 || a.notifies(r) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+func (a *App) notifies(r updates.Release) bool {
+	return a.Cfg != nil && updates.Notify(r, a.Version, beta.Channel, a.Cfg.EarlyAccessUpdates)
+}
+
+// nextUpdate is the release Updates leads with and the UPDATE mark is about.
+// A newer release it does not notify about (a beta on a public build with
+// beta notifications off) is still offered, on a row of its own.
+func (a *App) nextUpdate() *updates.Release {
+	for _, r := range a.offered() {
+		if a.notifies(r) {
+			return &r
+		}
+	}
+	return nil
+}
 func (a *App) updateAvailable() bool {
-	if a.updates.status.Stage == "ready" {
-		return true
-	}
-	if a.Cfg == nil {
-		return false
-	}
-	for _, r := range a.updates.catalogue.Releases {
-		dismissed := false
-		for _, id := range a.Cfg.DismissedUpdates {
-			if id == r.ID {
-				dismissed = true
-			}
-		}
-		if !dismissed && updates.Notify(r, a.Version, beta.Channel, a.Cfg.EarlyAccessUpdates) {
-			return true
-		}
-	}
-	return false
+	return a.updates.status.Stage == "ready" || a.nextUpdate() != nil
+}
+
+// updateFailed reports that the last try at r failed. A failure that names
+// no release (the updater never started) belongs to whatever is offered.
+func (a *App) updateFailed(r updates.Release) bool {
+	s := a.updates.status
+	return s.Stage == "failed" && (s.Release == nil || s.Release.ID == r.ID)
 }
 func (a *App) startUpdate(action string, r *updates.Release) {
 	if a.updates.status.Busy() || !a.Starting.IsZero() {
@@ -132,73 +175,103 @@ func (a *App) startUpdate(action string, r *updates.Release) {
 	}
 	a.updates.launched = time.Now()
 	a.updates.message = ""
-	a.updates.status = updates.Status{Stage: stage, Message: "Starting...", Release: r}
+	a.updates.status = updates.Status{Stage: stage, Release: r}
 }
 
 // Updates is available on both public and beta builds; notifications are quieter
 // than the full catalogue so public users are not repeatedly offered paid betas.
+// The screen leads with where things stand and offers the one next step.
 type Updates struct {
 	app     *App
 	cur     int
-	release *updates.Release
-	confirm bool
+	release *updates.Release // needs a code this card does not hold
+	shown   updateView       // the view last drawn
 }
 type updateAction struct {
 	label string
 	do    func()
 }
+type updateView int
 
-func NewUpdates(a *App) *Updates { a.checkUpdates(true, time.Now()); return &Updates{app: a} }
-func (u *Updates) actions() []updateAction {
+const (
+	viewChecking updateView = iota
+	viewCheckFailed
+	viewCurrent
+	viewAvailable
+	viewWorking
+	viewReady
+	viewCode
+)
+
+func NewUpdates(a *App) *Updates {
+	a.checkUpdates(true, time.Now())
+	return &Updates{app: a, shown: -1}
+}
+
+// install starts r, or first asks for the code r needs.
+func (u *Updates) install(r updates.Release) {
 	a := u.app
-	if u.release != nil {
+	if r.Requirement().Check(a.betaDir()) != nil {
+		u.release = &r
+		return
+	}
+	a.startUpdate("prepare", &r)
+}
+
+// view says what the screen shows and the rows it offers there.
+func (u *Updates) view() (updateView, []updateAction) {
+	a := u.app
+	s := a.updates.status
+	switch {
+	case s.Busy():
+		return viewWorking, nil
+	case u.release != nil:
 		r := *u.release
-		if u.confirm {
-			return []updateAction{
-				{"Enter code and update", func() {
-					b := NewBetaAccess(a, func() { u.release = nil; u.confirm = false; u.cur = 0; a.startUpdate("prepare", &r) })
-					b.requirement = r.Requirement()
-					b.version = r.Version
-					a.Push(b)
-				}},
-				{"Install for browsing", func() { u.release = nil; u.confirm = false; u.cur = 0; a.startUpdate("prepare", &r) }},
-				{"Cancel", func() { u.confirm = false; u.cur = 0 }},
-			}
-		}
-		return []updateAction{
-			{"Install release", func() {
-				if r.Requirement().Check(a.betaDir()) != nil {
-					u.confirm = true
-					u.cur = 0
-					return
-				}
-				u.release = nil
-				u.cur = 0
-				a.startUpdate("prepare", &r)
+		return viewCode, []updateAction{
+			{"Enter code and update", func() {
+				b := NewBetaAccess(a, func() { u.release = nil; a.startUpdate("prepare", &r) })
+				b.requirement = r.Requirement()
+				b.version = r.Version
+				a.Push(b)
 			}},
-			{"Dismiss notification", func() {
-				before := append([]string(nil), a.Cfg.DismissedUpdates...)
-				a.Cfg.DismissedUpdates = append(a.Cfg.DismissedUpdates, r.ID)
-				if len(a.Cfg.DismissedUpdates) > 32 {
-					a.Cfg.DismissedUpdates = a.Cfg.DismissedUpdates[len(a.Cfg.DismissedUpdates)-32:]
-				}
-				if err := a.Cfg.Save(); err != nil {
-					a.Cfg.DismissedUpdates = before
-					a.updates.message = "Could not save notification preference."
-				}
-				u.release = nil
-				u.cur = 0
-			}},
-			{"Back", func() { u.release = nil; u.cur = 0 }},
+			{"Install for browsing", func() { u.release = nil; a.startUpdate("prepare", &r) }},
+			{"Cancel", func() { u.release = nil }},
 		}
+	case s.Stage == "ready":
+		return viewReady, []updateAction{{"Restart now", func() { a.startUpdate("activate", nil) }}, {"Later", func() { a.Pop() }}}
 	}
-	label := "Early-access notifications: Off"
-	if a.Cfg.EarlyAccessUpdates {
-		label = "Early-access notifications: On"
+	var v updateView
+	var rows []updateAction
+	next := a.nextUpdate()
+	switch {
+	case next != nil:
+		// an update known from an earlier check is offered while the next
+		// check runs, and when that check cannot reach the catalogue
+		r := *next
+		label := "Update now"
+		if a.updateFailed(r) {
+			label = "Try again"
+		}
+		v, rows = viewAvailable, []updateAction{{label, func() { u.install(r) }}}
+	case a.updates.checking:
+		v = viewChecking
+	case a.updates.checkFailed:
+		v, rows = viewCheckFailed, []updateAction{{"Try again", func() { a.checkUpdates(true, time.Now()) }}}
+	default:
+		v, rows = viewCurrent, []updateAction{{"Check again", func() { a.checkUpdates(true, time.Now()) }}}
 	}
-	actions := []updateAction{{"Check for updates", func() { a.checkUpdates(true, time.Now()) }}}
+	for _, r := range a.offered() {
+		if next != nil && r.ID == next.ID {
+			continue
+		}
+		rows = append(rows, updateAction{"Install " + channelName(r.Channel) + " " + r.Version, func() { u.install(r) }})
+	}
 	if beta.Channel != "beta" {
-		actions = append(actions, updateAction{label, func() {
+		label := "Beta notifications: Off"
+		if a.Cfg.EarlyAccessUpdates {
+			label = "Beta notifications: On"
+		}
+		rows = append(rows, updateAction{label, func() {
 			a.Cfg.EarlyAccessUpdates = !a.Cfg.EarlyAccessUpdates
 			if err := a.Cfg.Save(); err != nil {
 				a.Cfg.EarlyAccessUpdates = !a.Cfg.EarlyAccessUpdates
@@ -206,28 +279,23 @@ func (u *Updates) actions() []updateAction {
 			}
 		}})
 	}
-	for _, channel := range []string{"public", "beta"} {
-		if r, ok := a.updates.catalogue.Releases[channel]; ok {
-			title := "Public: "
-			if channel == "beta" {
-				title = "Early access: "
-			}
-			if r.ID == a.Build {
-				title += "Installed - "
-			}
-			actions = append(actions, updateAction{title + r.Version, func() { u.release = &r; u.cur = 0 }})
-		}
+	return v, rows
+}
+
+// shows is what Draw calls: it brings the focus back to the top row whenever
+// the screen changes what it shows, so a finished download lands on Restart now.
+func (u *Updates) shows() (updateView, []updateAction) {
+	v, rows := u.view()
+	if v != u.shown {
+		u.shown = v
+		u.cur = 0
 	}
-	if a.updates.status.Stage == "ready" {
-		actions = append(actions, updateAction{"Restart now", func() { a.startUpdate("activate", nil) }}, updateAction{"Later", func() { a.Pop() }})
-	}
-	return actions
+	u.cur = max(0, min(u.cur, len(rows)-1))
+	return v, rows
 }
 func (u *Updates) Back() bool {
 	if u.release != nil {
 		u.release = nil
-		u.confirm = false
-		u.cur = 0
 		return true
 	}
 	u.app.Pop()
@@ -237,93 +305,138 @@ func (u *Updates) Key(ev input.Event, now time.Time) {
 	if ev.Release {
 		return
 	}
-	actions := u.actions()
+	v, rows := u.view()
+	if v != u.shown || len(rows) == 0 {
+		// the screen changed since it was drawn: the press was for what was there
+		return
+	}
+	u.cur = max(0, min(u.cur, len(rows)-1))
 	switch ev.Key {
 	case input.Up:
 		u.cur = max(0, u.cur-1)
 	case input.Down:
-		u.cur = min(len(actions)-1, u.cur+1)
+		u.cur = min(len(rows)-1, u.cur+1)
 	case input.Enter:
-		if !ev.Repeat && !u.app.updates.status.Busy() {
-			actions[min(u.cur, len(actions)-1)].do()
+		if !ev.Repeat {
+			rows[u.cur].do()
 		}
 	}
 }
+
+// stageText says what a busy updater is doing. The worker's own messages
+// name its internals, so the screen keeps its own words for them.
+func stageText(stage string) string {
+	switch stage {
+	case "verify":
+		return "Checking the download..."
+	case "install":
+		return "Getting it ready..."
+	case "activating":
+		return "Restarting Plex..."
+	}
+	return "Downloading..."
+}
+
+const (
+	updateHeadY = 96  // the headline
+	updateRowsY = 216 // the first row, the same in every view but the code one
+)
+
 func (u *Updates) Draw(c *gfx.Canvas, now time.Time) bool {
 	c.Fill(0, 0, c.W, c.H, gfx.Bg)
 	a := u.app
 	f := a.F
-	a.text(c, MenuX, SafeY, f.Title, gfx.White, "Updates")
-	y := 128
-	if u.release != nil {
+	a.text(c, MenuX, SafeY, f.Title, gfx.Grey, "Updates")
+	v, rows := u.shows()
+	s := a.updates.status
+	installed := "Installed: " + a.Version + " - " + channelName(beta.Channel)
+	y := updateHeadY
+	head := func(text string, col gfx.Color) {
+		a.text(c, MenuX, y, f.Big, col, f.Big.Fit(text, MenuWidth))
+		y += 44
+	}
+	line := func(font *gfx.Font, col gfx.Color, text string) {
+		a.text(c, MenuX, y, font, col, font.Fit(text, MenuWidth))
+		y += 28
+	}
+	release := func(r *updates.Release) string {
+		return r.Version + " - " + channelName(r.Channel)
+	}
+	var note string
+	var noteDetail string
+	switch v {
+	case viewCode:
 		r := u.release
-		a.text(c, MenuX, 82, f.Body, gfx.Amber, f.Body.Fit(r.Version+" - "+r.Channel, MenuWidth))
-		if u.confirm {
-			for i, line := range []string{"This release requires a new Patreon code.", "Your current version will keep working."} {
-				a.text(c, MenuX, 136+i*30, f.Body, gfx.White, line)
-			}
-			a.text(c, MenuX, 209, f.Body, gfx.Purple, patreonAddress)
+		line(f.Body, gfx.Amber, release(r))
+		y += 8
+		for _, text := range []string{"This release requires a new Patreon code.", "Your current version will keep working."} {
+			line(f.Body, gfx.GreyHi, text)
+		}
+		a.text(c, MenuX, y+4, f.SmallBold, gfx.Purple, patreonAddress)
+		y += 60
+	case viewWorking:
+		head(stageText(s.Stage), gfx.Grey)
+		if s.Stage != "activating" {
+			line(f.Body, gfx.GreyHi, "You can leave this screen, it keeps going.")
+		}
+		if s.Release != nil {
+			line(f.SmallBold, gfx.GreyLo, "Updating to "+release(s.Release))
+		}
+	case viewReady:
+		if s.Release != nil {
+			head(s.Release.Version+" is ready", gfx.Amber)
 		} else {
-			a.text(c, MenuX, 114, f.SmallBold, gfx.GreyLo, fmt.Sprintf("Download: %.1f MB", float64(r.Size)/(1024*1024)))
-			for i, line := range wrap(f.Body, r.Notes, MenuWidth, 4) {
-				a.text(c, MenuX, 151+i*26, f.Body, gfx.GreyHi, line)
+			head("The update is ready", gfx.Amber)
+		}
+		line(f.Body, gfx.GreyHi, "Plex will restart to finish updating.")
+	case viewAvailable:
+		r := a.nextUpdate()
+		head(r.Version+" is available", gfx.Amber)
+		line(f.Body, gfx.GreyHi, fmt.Sprintf("%s - %.1f MB", channelName(r.Channel), float64(r.Size)/(1024*1024)))
+		line(f.SmallBold, gfx.GreyLo, installed)
+		if a.updateFailed(*r) {
+			note, noteDetail = s.Message, s.Detail
+			if note == "" {
+				note = "The update did not finish. Your current version will keep working."
 			}
 		}
-		y = 304
-	} else {
-		a.text(c, MenuX, 82, f.SmallBold, gfx.GreyLo, f.SmallBold.Fit("Installed: "+a.Version+" - "+beta.Channel, MenuWidth))
+	case viewChecking:
+		head("Checking for updates...", gfx.Grey)
+		line(f.SmallBold, gfx.GreyLo, installed)
+	case viewCheckFailed:
+		head("Couldn't check for updates", gfx.Grey)
+		line(f.Body, gfx.GreyHi, "Check the network and try again.")
+		line(f.SmallBold, gfx.GreyLo, installed)
+	case viewCurrent:
+		head("You're up to date", gfx.Grey)
+		line(f.Body, gfx.GreyHi, a.Version+" - "+channelName(beta.Channel))
 	}
-	actions := u.actions()
-	u.cur = min(u.cur, len(actions)-1)
-	for i, it := range actions {
+	y = max(y, updateRowsY)
+	for i, it := range rows {
 		col := gfx.GreyHi
 		if i == u.cur {
 			col = gfx.White
-			menuFocusBar(c, MenuX, y+9, f.Body.Height())
+			menuFocusBar(c, MenuX, y, f.Body.Height())
 		}
-		a.text(c, MenuX, y+9, f.Body, col, f.Body.Fit(it.label, MenuWidth))
-		y += 32
+		a.text(c, MenuX, y, f.Body, col, f.Body.Fit(it.label, MenuWidth))
+		y += MenuRowH
 	}
-	if u.release == nil {
-		// The worker's outcome owns this area: a failure stays readable until the
-		// next update starts, and a catalogue check result never covers it.
-		s := a.updates.status
-		note := a.updates.message
-		if a.updates.checking {
-			note = "Checking for updates..."
-		}
+	if a.updates.message != "" && v != viewWorking {
+		note, noteDetail = a.updates.message, ""
+	}
+	if note != "" {
 		const lines = 4
-		y := 352
-		if note != "" {
-			for _, line := range wrap(f.SmallBold, note, MenuWidth, 1) {
-				a.text(c, MenuX, y, f.SmallBold, gfx.GreyLo, line)
-				y += 23
-			}
+		y += 16
+		room := lines
+		if noteDetail != "" {
+			room--
 		}
-		if s.Stage != "" {
-			message := s.Message
-			if message == "" {
-				message = s.Stage
-			}
-			if s.Stage == "ready" {
-				message = "The update is downloaded but not installed. Choose Restart now to install it."
-				if s.Release != nil {
-					message = s.Release.Version + " is downloaded but not installed. Choose Restart now to install it."
-				}
-			}
-			room := lines - (y-352)/23
-			if s.Detail != "" && room > 1 {
-				room--
-			}
-			for _, line := range wrap(f.SmallBold, message, MenuWidth, room) {
-				a.text(c, MenuX, y, f.SmallBold, gfx.Purple, line)
-				y += 23
-			}
-			if s.Detail != "" && (y-352)/23 < lines {
-				for _, line := range wrap(f.SmallBold, s.Detail, MenuWidth, 1) {
-					a.text(c, MenuX, y, f.SmallBold, gfx.GreyLo, line)
-				}
-			}
+		for _, text := range wrap(f.SmallBold, note, MenuWidth, room) {
+			a.text(c, MenuX, y, f.SmallBold, gfx.Purple, text)
+			y += 23
+		}
+		if noteDetail != "" {
+			a.text(c, MenuX, y, f.SmallBold, gfx.GreyLo, f.SmallBold.Fit(noteDetail, MenuWidth))
 		}
 	}
 	return false

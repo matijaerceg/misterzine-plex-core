@@ -14,7 +14,6 @@ import (
 // The tokens live only here and in memory; nothing logs them.
 type Config struct {
 	EarlyAccessUpdates bool     `json:"early_access_updates"`
-	DismissedUpdates   []string `json:"dismissed_updates,omitempty"`
 	RecentSearches     []string `json:"recent_searches,omitempty"`
 	NoTaps             bool     `json:"no_taps"`
 	NoTheme            bool     `json:"no_theme"`

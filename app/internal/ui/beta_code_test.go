@@ -177,13 +177,29 @@ func TestBetaScreenPreview(t *testing.T) {
 	a.Push(u)
 	render("updates")
 	u.release = &r
-	render("update-details")
-	u.confirm = true
 	render("update-new-code")
 	u.release = nil
-	u.confirm = false
+	for _, stage := range []string{"download", "verify", "install"} {
+		a.updates.status = updates.Status{Stage: stage, Release: &r}
+		render("update-" + stage)
+	}
 	a.updates.status = updates.Status{Stage: "ready", Release: &r}
 	render("update-ready")
+	a.updates.status = updates.Status{Stage: "failed", Release: &r, Message: "Update could not be prepared: the card is full. Your current version will keep working.", Detail: "Free 250 MB on the SD card and try again."}
+	render("update-failed")
+	a.updates.status = updates.Status{}
+	a.updates.catalogue = updates.Catalogue{}
+	a.updates.checking = true
+	render("updates-checking")
+	a.updates.checking = false
+	render("updates-current")
+	a.updates.checkFailed = true
+	render("updates-check-failed")
+	a.updates.checkFailed = false
+	beta.Channel = "public"
+	a.Version = "0.2.0"
+	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{"beta": r}}
+	render("updates-public")
 }
 
 func TestDigitAnimationDoesNotQueueInput(t *testing.T) {

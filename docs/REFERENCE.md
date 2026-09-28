@@ -82,23 +82,25 @@ from the next playback.
 
 ### Update, rollback and remove
 
-Open **Options > Updates** for available versions, release notes and download
-sizes. Checks run in the background at startup and every six hours while browsing.
-Failed background checks stay quiet and are tried again after five minutes.
-Manual checks show errors; previously fetched
-release information remains available offline.
+Open **Options > Updates** to see whether a newer version is available, and its
+download size. The screen checks when it opens. Checks also run in the background
+at startup and every six hours while browsing; failed background checks stay quiet
+and are tried again after five minutes. An update found by an earlier check is
+still offered while the network is down.
 
-Public builds notify about newer public releases. Early-access notifications are
-off by default but can be enabled in Updates. Beta builds notify about newer betas
-and public releases that catch up. Older public versions remain an explicit channel
-choice. Dismiss a release notification from its detail page. Nothing installs or
-switches channels automatically.
+Updates offers only versions newer than the one running. It never reinstalls the
+current version or goes back to an older one; **MisterZine-Plex-Rollback** does
+that. Public builds notify about newer public releases. Beta notifications are off
+by default but can be switched on in Updates; a newer beta is listed either way.
+Beta builds notify about newer betas and public releases that catch up. Nothing
+installs or switches channels automatically.
 
-If a beta needs a code you have not saved, choose **Enter code and update**, or
-**Install for browsing**. Your current version will keep working. Codes and older
-receipts survive updates and rollback. Downloading continues if Plex closes;
-activation waits for **Restart now**. **Later** leaves the current version active.
-If startup fails, the previous selection is restored.
+Choose **Update now**. If a beta needs a code you have not saved, choose **Enter
+code and update**, or **Install for browsing**. Your current version will keep
+working. Codes and older receipts survive updates and rollback. Downloading
+continues if you leave the screen or Plex closes; activation waits for **Restart
+now**. **Later** leaves the current version active. If an update fails, the reason
+is shown under **Try again**. If startup fails, the previous selection is restored.
 
 An ordinary Downloader run can refresh `misterzine-plex-downloads/package.zip`;
 it cannot activate that package. Rebooting the MiSTer does not install a downloaded

@@ -90,11 +90,13 @@ func (o *Options) items() []option {
 	}
 	items = append(items, option{label: label, do: o.app.SignOut})
 	updateLabel := "Updates"
-	if o.app.updateAvailable() {
+	switch s := o.app.updates.status; {
+	case s.Busy():
+		updateLabel = "Updates - downloading"
+	case s.Stage == "ready":
+		updateLabel = "Updates - ready, restart to finish"
+	case o.app.updateAvailable():
 		updateLabel = "Updates - update available"
-	}
-	if o.app.updates.status.Stage == "ready" {
-		updateLabel = "Updates - downloaded, restart to install"
 	}
 	items = append(items, option{label: updateLabel, do: func() { o.app.Push(NewUpdates(o.app)) }})
 	items = append(items, option{label: "Send a report", do: func() { o.app.Push(NewReport(o.app)) }})

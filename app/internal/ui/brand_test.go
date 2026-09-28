@@ -95,9 +95,9 @@ func TestUpdateMarkShowsOnHome(t *testing.T) {
 	if got := marks(); got != "UPDATE" {
 		t.Fatalf("a public build with an update: %q", got)
 	}
-	a.Cfg.DismissedUpdates = []string{"pub"}
+	a.updates.catalogue.Releases = map[string]updates.Release{"beta": {ID: "next", Version: "0.3.0-beta.1", Channel: "beta"}}
 	if got := marks(); got != "" {
-		t.Fatalf("a dismissed update: %q", got)
+		t.Fatalf("a beta on a public build with beta notifications off: %q", got)
 	}
 	a.updates.status = updates.Status{Stage: "ready"}
 	if got := marks(); got != "UPDATE" {
