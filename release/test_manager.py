@@ -489,6 +489,9 @@ class DisplayCheckTests(unittest.TestCase):
         self.assertFound(found, vrr='unknown', hdmi_hz=None, dvi=True, conditional=['vrr_mode'])
         found = self.check('[MiSTer]\ndvi_mode=1\nvideo_mode=9\n[Video=720x480]\ndvi_mode=0\n')
         self.assertFound(found, dvi=None, hdmi_hz=50.0, conditional=['dvi_mode'])
+        # a later line outside video sections settles the value whether or not the section applies
+        found = self.check('[video=720x480]\nvrr_mode=0\ndvi_mode=0\n[MiSTer]\nvrr_mode=2\ndvi_mode=1\n')
+        self.assertFound(found, vrr='forced', dvi=True, conditional=[])
         # only the settings the checks use count, so junk cannot swell what the app is handed
         found = self.check('[MiSTer]\nvrr_mode=2\n[video=720x480]\n' + 'k' * 5000 + '=1\nbootscreen=0\n')
         self.assertFound(found, vrr='forced', conditional=[])
@@ -515,6 +518,13 @@ class DisplayCheckTests(unittest.TestCase):
         self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=0x9\nvideo_mode_ntsc=1920,1080,60,CVT\n'
                                     '[MiSTer]\nvideo_mode=9\nvideo_mode_ntsc=1920,1080,60.0,cvt\n')['overridden'], [])
         self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=99\n[MiSTer]\nvideo_mode=0\n')['overridden'], [])
+        # flags as main leaves them: the last of a pair wins; a numbered mode ignores blanking flags
+        for own, later in (('9,+hsync,+vsync', '9,+vsync,+hsync'), ('9,-hsync,+hsync', '9,+hsync'), ('9,cvt,pr', '9'),
+                           ('1280,110,40,220,720,5,5,20,74250,1,1,-vsync', '1280,110,40,220,720,5,5,20,74250,1,1')):
+            self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=%s\n[MiSTer]\nvideo_mode=%s\n' % (own, later))
+                             ['overridden'], [], (own, later))
+        self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=9,+hsync\n[MiSTer]\nvideo_mode=9\n')['overridden'],
+                         ['video_mode'])
         self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=1920,1080,60\n'
                                     '[MiSTer]\nvideo_mode=1920,1080,50\n')['overridden'], ['video_mode'])
         # settings main does not know, or these checks do not use, are not flagged
@@ -523,6 +533,9 @@ class DisplayCheckTests(unittest.TestCase):
         # nor ones a video mode section may change again
         self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=8\n[MiSTer]\nvideo_mode=9\n'
                                     '[video=720x480]\nvideo_mode=8\n')['overridden'], [])
+        # but a video section in between changes nothing about a later [MiSTer] line
+        self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=8\n[video=720x480]\nvideo_mode=7\n'
+                                    '[MiSTer]\nvideo_mode=9\n')['overridden'], ['video_mode'])
 
     def test_plex_section_in_another_ini(self):
         (self.card / 'MiSTer_crt.ini').write_text('[MiSTer]\nvideo_mode=9\n')

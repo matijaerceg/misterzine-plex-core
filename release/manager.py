@@ -899,25 +899,45 @@ def setting(key, value):
     if parts is None:
         return 'rejected'           # any rejected value gets the same fallback mode
     numbers, rate, flags = parts
-    if len(numbers) == 1:           # a number past main's table is mode 0
-        return ('mode', numbers[0] if numbers[0] < 15 else 0, tuple(flags))
+    # The flags as main leaves them: the last of each pair wins.
+    hpol, vpol, rb, pr = 0, 0, 1, 0
+    for flag in flags:
+        if flag in ('+hsync', '-hsync'):
+            hpol = int(flag[0] == '+')
+        elif flag in ('+vsync', '-vsync'):
+            vpol = int(flag[0] == '+')
+        elif flag in ('cvt', 'cvtrb'):
+            rb = int(flag == 'cvtrb')
+        else:
+            pr = 1
+    if len(numbers) == 1:           # main's table sets blanking and repetition; past it is mode 0
+        return ('mode', numbers[0] if numbers[0] < 15 else 0, hpol, vpol)
     if rate is not None or len(numbers) == 3:   # width,height,rate: 60 and 60.0 alike
-        return ('rate', numbers[0], numbers[1], rate if rate is not None else float(numbers[2]), tuple(flags))
-    return ('timing', tuple(numbers), tuple(flags))
+        return ('rate', numbers[0], numbers[1], rate if rate is not None else float(numbers[2]), hpol, vpol, rb, pr)
+    if len(numbers) == 11:          # the last two numbers set the polarities
+        return ('timing', tuple(numbers), pr)
+    return ('timing', tuple(numbers), hpol, vpol, pr)
+
+
+def last_scopes(entries):
+    """The scope of the line that last set each key. A key last set in a video
+    mode section is not known: that section may not apply."""
+    return {key: scope for scope, key, _ in entries}
 
 
 def overridden_keys(entries):
     """Known settings the core's own section sets that a later [MiSTer] line
-    changes, so main never uses the core's value. Settings a video mode
-    section touches are left out: whether it applies is not known."""
+    changes, so main never uses the core's value. A setting last set in a
+    video mode section is left out: whether that section applies is not
+    known."""
     own, final = {}, {}
     for scope, key, value in entries:
-        if key in KNOWN_KEYS:
+        if key in KNOWN_KEYS and scope != 'video':
             final[key] = setting(key, value)
             if scope == 'core':
                 own[key] = final[key]
-    conditional = {key for scope, key, _ in entries if scope == 'video'}
-    return sorted(key for key, value in own.items() if final[key] != value and key not in conditional)
+    last = last_scopes(entries)
+    return sorted(key for key, value in own.items() if final[key] != value and last[key] != 'video')
 
 
 def vrr_state(values):
@@ -1050,11 +1070,11 @@ def fixed_hdmi_refresh(values):
 def ini_findings(entries):
     """What Options and reports say about the INI main read for the core:
     VRR, the fixed HDMI rate, DVI mode (no HDMI sound) and core settings a
-    later [MiSTer] section undoes. A finding that depends on a setting some
-    video mode section changes is left unknown ('unknown', None), since that
-    section may or may not apply."""
+    later [MiSTer] section undoes. A finding that depends on a setting last
+    set in a video mode section is left unknown ('unknown', None), since that
+    section may or may not apply; a later line anywhere else settles it."""
     values = {key: value for scope, key, value in entries if scope != 'video'}
-    conditional = sorted({key for scope, key, _ in entries if scope == 'video' and key in KNOWN_KEYS})
+    conditional = sorted(key for key, scope in last_scopes(entries).items() if scope == 'video' and key in KNOWN_KEYS)
     def known(keys):
         return not set(conditional).intersection(keys)
     hz, mode = fixed_hdmi_refresh(values) if known(REFRESH_KEYS) else (None, '')
