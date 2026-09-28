@@ -44,7 +44,7 @@ it for the lines to add.
 
 Options also flag other MiSTer INI settings that hurt playback: HDMI running
 at 50 Hz, DVI mode (no sound over HDMI), and a Plex section that another
-section overrides or that sits in a different INI. Each row explains the fix;
+section overrides. Alternative INIs are each checked on their own. Each row explains the fix;
 see [HDMI setup](https://github.com/matijaerceg/misterzine-plex-core/blob/main/docs/HDMI.md#settings-options-warn-about).
 
 ### The picture looks wrong

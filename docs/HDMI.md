@@ -116,8 +116,10 @@ file to change and what to add.
 - **Plex INI section: Overridden**: a `[MiSTer]` section further down the file
   changes a video setting the Plex section sets to a different value. Move the
   Plex section to the end.
-- **Plex INI section: In another INI**: the INI MiSTer loaded has no Plex
-  section, but another INI does.
+
+Each alternative INI is checked on its own, so a Plex section kept in only
+some of them, such as an HDMI INI but not a CRT one, is not flagged.
+**Send a report** still notes it, in case settings seem to be ignored.
 
 Some settings are only resolved while MiSTer runs, so rows that depend on them
 stay hidden. `direct_video=1` sends the core's own timing, and with

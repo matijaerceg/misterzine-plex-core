@@ -18,8 +18,9 @@ import (
 func TestParseDisplayCheck(t *testing.T) {
 	d := ParseDisplayCheck(`{"ini": "MiSTer_alt_1.ini", "vrr": "forced", "vrr_mode": 2, "vsync_adjust": 0, "hdmi_hz": null,
 		"hdmi_mode": "", "dvi": true, "overridden": ["video_mode"], "conditional": [], "section_in": "MiSTer.ini"}`)
+	// section_in came from test launchers before it went to reports only: ignored
 	want := DisplayCheck{INI: "MiSTer_alt_1.ini", VRR: "forced", VRRMode: 2, DVI: true,
-		Overridden: []string{"video_mode"}, SectionIn: "MiSTer.ini"}
+		Overridden: []string{"video_mode"}}
 	if !reflect.DeepEqual(d, want) || !d.VRRForced() {
 		t.Fatalf("forced: %+v", d)
 	}
@@ -52,7 +53,6 @@ func TestDisplayWarnings(t *testing.T) {
 		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", HDMIHz: 75}, []string{"HDMI refresh: 75 Hz"}},
 		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", DVI: true}, []string{"HDMI sound: Off (DVI mode)"}},
 		{DisplayCheck{INI: "MiSTer.ini", VRR: "off", Overridden: []string{"video_mode"}}, []string{"Plex INI section: Overridden"}},
-		{DisplayCheck{INI: "MiSTer_alt_1.ini", VRR: "off", SectionIn: "MiSTer.ini"}, []string{"Plex INI section: In another INI"}},
 		{DisplayCheck{INI: "MiSTer.ini", VRR: "forced", VRRMode: 2, DVI: true, Overridden: []string{"vrr_mode"}},
 			[]string{"HDMI VRR: Forced on", "HDMI sound: Off (DVI mode)", "Plex INI section: Overridden"}},
 	} {
@@ -176,7 +176,6 @@ func TestDisplayPreview(t *testing.T) {
 	}
 	for _, d := range []DisplayCheck{
 		{INI: "MiSTer.ini", VRR: "off", HDMIHz: 50, HDMIMode: "video_mode_pal=9", VsyncAdjust: 1},
-		{INI: "MiSTer_alt_1.ini", VRR: "off", SectionIn: "MiSTer.ini"},
 	} {
 		w := d.Warnings()[0]
 		shots[strings.ReplaceAll(strings.ToLower(w.label+" "+w.value), " ", "-")] = draw(NewDisplayNote(a, w))

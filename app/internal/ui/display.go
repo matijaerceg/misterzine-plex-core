@@ -26,7 +26,6 @@ type DisplayCheck struct {
 	VsyncAdjust int      `json:"vsync_adjust"`
 	DVI         bool     `json:"dvi"`        // dvi_mode=1: no sound over HDMI
 	Overridden  []string `json:"overridden"` // Plex settings a later [MiSTer] section changes
-	SectionIn   string   `json:"section_in"` // another INI with the Plex section this one lacks
 }
 
 // ParseDisplayCheck reads the launcher's variable; anything unreadable is
@@ -75,7 +74,9 @@ func addLines(why string, lines ...string) []noteBlock {
 }
 
 // Warnings are the Options rows for INI settings that hurt Plex, in the
-// order they show.
+// order they show. Each names a problem in the INI MiSTer loaded; a Plex
+// section kept only in another INI is not one (CRT and HDMI INIs are often
+// set up that way), so only reports mention it.
 func (d DisplayCheck) Warnings() []displayWarning {
 	file := d.INI
 	if file == "" {
@@ -125,12 +126,6 @@ func (d DisplayCheck) Warnings() []displayWarning {
 		ws = append(ws, displayWarning{label: "Plex INI section", value: "Overridden", title: "Plex INI section", blocks: []noteBlock{
 			{text: "A [MiSTer] section further down " + file + " changes what the Plex section sets: " + strings.Join(keys, ", ") + "."},
 			{text: "MiSTer reads the file from top to bottom and later values win. Move the [MisterZine Plex Core] section to the end of the file" + restartPlex + "."},
-		}})
-	}
-	if d.SectionIn != "" {
-		ws = append(ws, displayWarning{label: "Plex INI section", value: "In another INI", title: "Plex INI section", blocks: []noteBlock{
-			{text: "The [MisterZine Plex Core] section is in " + d.SectionIn + ", but MiSTer read " + file + " for Plex, so those settings are not used."},
-			{text: "Copy the section to the end of " + file + restartPlex + "."},
 		}})
 	}
 	return ws

@@ -1089,7 +1089,9 @@ def ini_findings(entries):
 
 def section_elsewhere(card, active):
     """Another INI main could read that has the core's own section, for when
-    the active one has none: MiSTer.ini first, then the alternatives."""
+    the active one has none: MiSTer.ini first, then the alternatives. Reports
+    only: separate INIs for a CRT and for HDMI are often set up that way on
+    purpose, so Options do not flag it."""
     try:
         names = ['MiSTer.ini'] + alt_ini_names(card)
     except OSError:
@@ -1107,19 +1109,18 @@ def section_elsewhere(card, active):
 
 def display_check(card, altcfg=read_altcfg):
     """What the app's Options show about the MiSTer INI: which file main read
-    for Plex, ini_findings for it, and another INI holding the Plex section
-    this one lacks ('section_in'). vrr is 'unknown' when the file main read
+    for Plex and ini_findings for it. vrr is 'unknown' when the file main read
     cannot be told or read."""
     path, number = active_ini(card, altcfg)
     if path is None:
         return {'ini': '', 'vrr': 'unknown'}
     try:
-        entries, own = parse_core_ini(path.read_text(errors='replace'))
+        entries = parse_core_ini(path.read_text(errors='replace'))[0]
     except FileNotFoundError:
-        entries, own = [], False    # main runs on its defaults
+        entries = []                # main runs on its defaults
     except OSError:
         return {'ini': path.name, 'vrr': 'unknown'}
-    return dict(ini_findings(entries), ini=path.name, section_in='' if own else section_elsewhere(card, path))
+    return dict(ini_findings(entries), ini=path.name)
 
 
 DISPLAY_ENV_MAX = 4096
@@ -1135,9 +1136,8 @@ def display_env(card):
     except Exception as exc:        # never in the way of starting the app
         trace('display check failed: %s' % type(exc).__name__)
         return ''
-    trace('display check: vrr %s, hdmi %s Hz, dvi %s, overridden %s, section elsewhere %s' % (
-        check['vrr'], check.get('hdmi_hz'), check.get('dvi'), ','.join(check.get('overridden', [])) or 'none',
-        bool(check.get('section_in'))))
+    trace('display check: vrr %s, hdmi %s Hz, dvi %s, overridden %s' % (
+        check['vrr'], check.get('hdmi_hz'), check.get('dvi'), ','.join(check.get('overridden', [])) or 'none'))
     text = json.dumps(check)
     # Only known keys and file names go in, but an environment string that
     # is too long would stop the app starting at all.

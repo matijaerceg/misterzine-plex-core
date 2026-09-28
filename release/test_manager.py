@@ -440,7 +440,7 @@ class DisplayCheckTests(unittest.TestCase):
         (self.card / 'MiSTer.ini').unlink()
         self.assertEqual(manager.display_check(self.card, lambda: 0),
                          {'ini': 'MiSTer.ini', 'vrr': 'off', 'vrr_mode': 0, 'vsync_adjust': 0, 'hdmi_hz': None,
-                          'hdmi_mode': '', 'dvi': False, 'overridden': [], 'conditional': [], 'section_in': ''})
+                          'hdmi_mode': '', 'dvi': False, 'overridden': [], 'conditional': []})
 
     def test_video_mode_refresh_follows_main_parsing(self):
         refresh = manager.video_mode_refresh
@@ -541,13 +541,15 @@ class DisplayCheckTests(unittest.TestCase):
         self.assertEqual(self.check('[MisterZine Plex Core]\nvideo_mode=8\n[video=720x480]\nvideo_mode=7\n'
                                     '[MiSTer]\nvideo_mode=9\n')['overridden'], ['video_mode'])
 
-    def test_plex_section_in_another_ini(self):
+    def test_plex_section_in_another_ini_is_for_reports_only(self):
+        # a CRT INI and an HDMI INI often differ on purpose: Options are not told
         (self.card / 'MiSTer_crt.ini').write_text('[MiSTer]\nvideo_mode=9\n')
-        self.assertEqual(self.check('[MiSTer]\n[MisterZine Plex Core]\nvideo_mode=8\n', altcfg=lambda: 1)['section_in'], 'MiSTer.ini')
-        self.assertEqual(self.check('[MiSTer]\nvideo_mode=8\n', altcfg=lambda: 1)['section_in'], '')
+        (self.card / 'MiSTer.ini').write_text('[MiSTer]\n[MisterZine Plex Core]\nvideo_mode=8\n')
+        self.assertEqual(manager.section_elsewhere(self.card, self.card / 'MiSTer_crt.ini'), 'MiSTer.ini')
+        self.assertNotIn('section_in', manager.display_check(self.card, lambda: 1))
         (self.card / 'MiSTer_crt.ini').write_text('[MiSTer]\n[MisterZine Plex Core]\nvideo_mode=8\n')
-        self.assertEqual(self.check('[MiSTer]\n', altcfg=lambda: 0)['section_in'], 'MiSTer_crt.ini')
-        self.assertEqual(self.check('[MiSTer]\n[MisterZine Plex Core]\n', altcfg=lambda: 0)['section_in'], '')
+        (self.card / 'MiSTer.ini').write_text('[MiSTer]\n')
+        self.assertEqual(manager.section_elsewhere(self.card, self.card / 'MiSTer.ini'), 'MiSTer_crt.ini')
         self.assertEqual(manager.ini_label(self.card, 'MiSTer_crt.ini'), 'alternative 1')
 
     def test_altcfg_reads_main_signature(self):
@@ -568,7 +570,7 @@ class DisplayCheckTests(unittest.TestCase):
         (self.card / 'MiSTer.ini').write_text('[MiSTer]\nvrr_mode=2\n')
         with mock.patch.object(manager, 'trace') as trace:
             self.assertFound(json.loads(manager.display_env(self.card)), ini='MiSTer.ini', vrr='forced', vrr_mode=2)
-        trace.assert_called_once_with('display check: vrr forced, hdmi None Hz, dvi False, overridden none, section elsewhere False')
+        trace.assert_called_once_with('display check: vrr forced, hdmi None Hz, dvi False, overridden none')
         with mock.patch.object(manager, 'trace') as trace, mock.patch.object(manager, 'DISPLAY_ENV_MAX', 20):
             self.assertEqual(manager.display_env(self.card), '')
         self.assertTrue(trace.call_args[0][0].startswith('display check left out: '))
