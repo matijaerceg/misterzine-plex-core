@@ -99,7 +99,7 @@ func TestUpdateMarkShowsOnHome(t *testing.T) {
 	if got := marks(); got != "" {
 		t.Fatalf("a beta on a public build with beta notifications off: %q", got)
 	}
-	a.updates.status = updates.Status{Stage: "ready"}
+	a.updates.status = updates.Status{Stage: "ready", Release: &updates.Release{ID: "next", Version: "0.3.0-beta.1", Channel: "beta"}}
 	if got := marks(); got != "UPDATE" {
 		t.Fatalf("an update downloaded but not installed: %q", got)
 	}

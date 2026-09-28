@@ -128,12 +128,55 @@ func TestUpdateViewsFollowTheUpdater(t *testing.T) {
 		t.Fatalf("ready: %v, focus on row %d", v, u.cur)
 	}
 	a.updates.status = updates.Status{Stage: "failed", Message: "Update could not be prepared: no space. Your current version will keep working.", Release: &r}
-	if v, rows := u.shows(); v != viewAvailable || rows[0].label != "Try again" {
+	if v, rows := u.shows(); v != viewFailed || rows[0].label != "Try again" {
 		t.Fatalf("failed: %v, %q", v, rows[0].label)
 	}
-	// a failure about another release does not change the offer
-	a.updates.status.Release = &updates.Release{ID: "older", Version: "0.2.0-beta.9", Channel: "beta"}
-	if _, rows := u.shows(); rows[0].label != "Update now" {
-		t.Fatalf("a stale failure: %q", rows[0].label)
+	// a failure for a release this build has passed is over
+	a.updates.status.Release = &updates.Release{ID: "older", Version: "0.2.0-beta.2", Channel: "beta"}
+	if v, rows := u.shows(); v != viewAvailable || rows[0].label != "Update now" {
+		t.Fatalf("a stale failure: %v, %q", v, rows[0].label)
+	}
+}
+
+// A failure stays on screen whatever the catalogue says since: replaced by a
+// newer release, or gone.
+func TestUpdateFailureOutlivesTheCatalogue(t *testing.T) {
+	a := betaTestApp(t)
+	u := &Updates{app: a}
+	failed := updates.Release{ID: "a", Version: "0.3.0-beta.1", Channel: "beta"}
+	a.updates.status = updates.Status{Stage: "failed", Message: "Could not restart Plex. The previous release was restored.", Release: &failed}
+	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{"beta": {ID: "b", Version: "0.3.0-beta.2", Channel: "beta"}}}
+	if v, rows := u.shows(); v != viewFailed || rows[0].label != "Update to 0.3.0-beta.2" {
+		t.Fatalf("replaced: %v, %q", v, rows[0].label)
+	}
+	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{}}
+	if v, rows := u.shows(); v != viewFailed || rows[0].label != "Check again" {
+		t.Fatalf("gone: %v, %q", v, rows[0].label)
+	}
+	// the updater never started: no release named, the failure still shows
+	a.updates.status = updates.Status{Stage: "failed", Message: "The updater did not start. Run Install to repair update support."}
+	if v, _ := u.shows(); v != viewFailed {
+		t.Fatalf("no release named: %v", v)
+	}
+}
+
+// A download left ready is not offered once the running build has caught up
+// with it or passed it (a rollback, or a script installing that release):
+// Restart now would put back what runs, or older.
+func TestStaleReadyUpdateIsNotOffered(t *testing.T) {
+	a := betaTestApp(t) // runs v0.2.0-beta.3, build "fixture"
+	u := &Updates{app: a}
+	for _, r := range []updates.Release{
+		{ID: "fixture", Version: "0.2.0-beta.3", Channel: "beta"},
+		{ID: "older", Version: "0.2.0-beta.2", Channel: "beta"},
+	} {
+		a.updates.status = updates.Status{Stage: "ready", Release: &r}
+		if v, _ := u.shows(); v != viewCurrent || a.updateAvailable() {
+			t.Fatalf("%s: view %v, update available %v", r.ID, v, a.updateAvailable())
+		}
+	}
+	a.updates.status = updates.Status{Stage: "ready"}
+	if v, _ := u.shows(); v == viewReady {
+		t.Fatal("a ready download that names no release offered")
 	}
 }

@@ -187,6 +187,8 @@ func TestBetaScreenPreview(t *testing.T) {
 	render("update-ready")
 	a.updates.status = updates.Status{Stage: "failed", Release: &r, Message: "Update could not be prepared: the card is full. Your current version will keep working.", Detail: "Free 250 MB on the SD card and try again."}
 	render("update-failed")
+	a.updates.catalogue.Releases = map[string]updates.Release{"beta": {ID: "newer", Version: "0.3.0-beta.2", Channel: "beta", Size: 12 << 20}}
+	render("update-failed-replaced")
 	a.updates.status = updates.Status{}
 	a.updates.catalogue = updates.Catalogue{}
 	a.updates.checking = true

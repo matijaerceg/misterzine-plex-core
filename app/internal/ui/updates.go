@@ -115,9 +115,7 @@ func channelName(channel string) string {
 	return "Development"
 }
 
-// offered lists the releases Updates can install, own channel first: newer
-// than the running one, or the public release a beta build of the same
-// version is told about. The running release and older ones are never offered.
+// offered lists the catalogue releases Updates can install, own channel first.
 func (a *App) offered() []updates.Release {
 	var out []updates.Release
 	own := ownChannel()
@@ -126,15 +124,22 @@ func (a *App) offered() []updates.Release {
 		other = "public"
 	}
 	for _, channel := range []string{own, other} {
-		r, ok := a.updates.catalogue.Releases[channel]
-		if !ok || r.ID == a.Build {
-			continue
-		}
-		if newer, ok := updates.Compare(r.Version, a.Version); ok && newer > 0 || a.notifies(r) {
+		if r, ok := a.updates.catalogue.Releases[channel]; ok && a.offers(r) {
 			out = append(out, r)
 		}
 	}
 	return out
+}
+
+// offers reports whether Updates may install r: it is newer than the running
+// release, or the public release a beta build of the same version is told
+// about. The running release and older ones never are.
+func (a *App) offers(r updates.Release) bool {
+	if r.ID == a.Build {
+		return false
+	}
+	newer, ok := updates.Compare(r.Version, a.Version)
+	return ok && newer > 0 || a.notifies(r)
 }
 func (a *App) notifies(r updates.Release) bool {
 	return a.Cfg != nil && updates.Notify(r, a.Version, beta.Channel, a.Cfg.EarlyAccessUpdates)
@@ -152,14 +157,28 @@ func (a *App) nextUpdate() *updates.Release {
 	return nil
 }
 func (a *App) updateAvailable() bool {
-	return a.updates.status.Stage == "ready" || a.nextUpdate() != nil
+	return a.prepared() != nil || a.nextUpdate() != nil
 }
 
-// updateFailed reports that the last try at r failed. A failure that names
-// no release (the updater never started) belongs to whatever is offered.
-func (a *App) updateFailed(r updates.Release) bool {
+// prepared is the release a finished download installs on Restart now, while
+// it is one Updates would offer. A download left ready before a rollback, or
+// before a script installed that release, is not: it would put back the
+// running release or an older one.
+func (a *App) prepared() *updates.Release {
 	s := a.updates.status
-	return s.Stage == "failed" && (s.Release == nil || s.Release.ID == r.ID)
+	if s.Stage != "ready" || s.Release == nil || !a.offers(*s.Release) {
+		return nil
+	}
+	return s.Release
+}
+
+// failure reports a failed update that still needs explaining: one that names
+// no release (the updater never started), or one for a release still ahead of
+// this build. It stays, whatever the catalogue says since, until the next
+// update starts.
+func (a *App) failure() bool {
+	s := a.updates.status
+	return s.Stage == "failed" && (s.Release == nil || a.offers(*s.Release))
 }
 func (a *App) startUpdate(action string, r *updates.Release) {
 	if a.updates.status.Busy() || !a.Starting.IsZero() {
@@ -200,6 +219,7 @@ const (
 	viewAvailable
 	viewWorking
 	viewReady
+	viewFailed
 	viewCode
 )
 
@@ -237,28 +257,37 @@ func (u *Updates) view() (updateView, []updateAction) {
 			{"Install for browsing", func() { u.release = nil; a.startUpdate("prepare", &r) }},
 			{"Cancel", func() { u.release = nil }},
 		}
-	case s.Stage == "ready":
+	case a.prepared() != nil:
 		return viewReady, []updateAction{{"Restart now", func() { a.startUpdate("activate", nil) }}, {"Later", func() { a.Pop() }}}
 	}
 	var v updateView
 	var rows []updateAction
 	next := a.nextUpdate()
+	check := updateAction{"Check again", func() { a.checkUpdates(true, time.Now()) }}
 	switch {
+	case a.failure():
+		// the way on is whatever is offered now, which may not be the
+		// release that failed
+		v, rows = viewFailed, []updateAction{check}
+		if next != nil {
+			r := *next
+			label := "Update to " + r.Version
+			if s.Release == nil || s.Release.ID == r.ID {
+				label = "Try again"
+			}
+			rows[0] = updateAction{label, func() { u.install(r) }}
+		}
 	case next != nil:
 		// an update known from an earlier check is offered while the next
 		// check runs, and when that check cannot reach the catalogue
 		r := *next
-		label := "Update now"
-		if a.updateFailed(r) {
-			label = "Try again"
-		}
-		v, rows = viewAvailable, []updateAction{{label, func() { u.install(r) }}}
+		v, rows = viewAvailable, []updateAction{{"Update now", func() { u.install(r) }}}
 	case a.updates.checking:
 		v = viewChecking
 	case a.updates.checkFailed:
 		v, rows = viewCheckFailed, []updateAction{{"Try again", func() { a.checkUpdates(true, time.Now()) }}}
 	default:
-		v, rows = viewCurrent, []updateAction{{"Check again", func() { a.checkUpdates(true, time.Now()) }}}
+		v, rows = viewCurrent, []updateAction{check}
 	}
 	for _, r := range a.offered() {
 		if next != nil && r.ID == next.ID {
@@ -383,23 +412,23 @@ func (u *Updates) Draw(c *gfx.Canvas, now time.Time) bool {
 			line(f.SmallBold, gfx.GreyLo, "Updating to "+release(s.Release))
 		}
 	case viewReady:
-		if s.Release != nil {
-			head(s.Release.Version+" is ready", gfx.Amber)
-		} else {
-			head("The update is ready", gfx.Amber)
-		}
+		head(a.prepared().Version+" is ready", gfx.Amber)
 		line(f.Body, gfx.GreyHi, "Plex will restart to finish updating.")
+	case viewFailed:
+		head("Update failed", gfx.Grey)
+		if s.Release != nil {
+			line(f.Body, gfx.GreyHi, release(s.Release))
+		}
+		line(f.SmallBold, gfx.GreyLo, installed)
+		note, noteDetail = s.Message, s.Detail
+		if note == "" {
+			note = "The update did not finish. Your current version will keep working."
+		}
 	case viewAvailable:
 		r := a.nextUpdate()
 		head(r.Version+" is available", gfx.Amber)
 		line(f.Body, gfx.GreyHi, fmt.Sprintf("%s - %.1f MB", channelName(r.Channel), float64(r.Size)/(1024*1024)))
 		line(f.SmallBold, gfx.GreyLo, installed)
-		if a.updateFailed(*r) {
-			note, noteDetail = s.Message, s.Detail
-			if note == "" {
-				note = "The update did not finish. Your current version will keep working."
-			}
-		}
 	case viewChecking:
 		head("Checking for updates...", gfx.Grey)
 		line(f.SmallBold, gfx.GreyLo, installed)

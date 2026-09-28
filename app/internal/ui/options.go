@@ -93,7 +93,7 @@ func (o *Options) items() []option {
 	switch s := o.app.updates.status; {
 	case s.Busy():
 		updateLabel = "Updates - downloading"
-	case s.Stage == "ready":
+	case o.app.prepared() != nil:
 		updateLabel = "Updates - ready, restart to finish"
 	case o.app.updateAvailable():
 		updateLabel = "Updates - update available"

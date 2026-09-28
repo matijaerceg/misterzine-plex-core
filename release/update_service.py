@@ -527,6 +527,10 @@ def activate(card, launch=start_and_check):
             if not releases.manifest_matches(manifest, release):
                 raise ValueError('Prepared release metadata changed')
             old = manager.read_state(root) if (root / 'active.json').exists() else None
+            # A download left ready before a rollback, or before a script
+            # installed the same release, must not select what already runs.
+            if old and old.get('current') == release['id']:
+                raise ValueError('This release is already installed. Check for updates again.')
             # Copy runtime before activation so recovery does not depend on the new helper.
             backups = {name: (root / name).read_bytes() for name in HELPERS if (root / name).exists()}
             dropin = card / 'downloader_misterzine_plex.ini'

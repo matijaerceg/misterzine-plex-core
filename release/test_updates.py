@@ -158,6 +158,22 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(manager.read_state(self.root)['current'], 'old')
         self.assertEqual((self.root / 'manager.py').read_text(), '# synthetic helper old')
 
+    def test_ready_download_of_the_running_release_is_not_activated(self):
+        # A script installed the prepared release after it was downloaded.
+        _, _, old = self.release('old')
+        manager.install(self.card, old)
+        release, archive, package = self.release('new', 'beta')
+        service.prepare(self.card, release, self.deliver(archive))
+        manager.install(self.card, package)
+        launched = []
+        with self.assertRaises(ValueError):
+            service.activate(self.card, lambda root: launched.append(root) or True)
+        self.assertEqual(launched, [])
+        self.assertEqual(manager.read_state(self.root), {'current': 'new', 'previous': 'old'})
+        status = json.loads((self.root / 'updates/status.json').read_text())
+        self.assertEqual(status['stage'], 'failed')
+        self.assertIn('already installed', status['message'])
+
     def test_failed_launch_restores_runtime_registration_and_selection(self):
         _, _, package = self.release('old')
         manager.install(self.card, package)
