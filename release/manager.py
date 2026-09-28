@@ -7,6 +7,7 @@ preserved. This module also runs against a temporary card root in its tests.
 import argparse
 import contextlib
 import hashlib
+import http.client
 import json
 import mmap
 import os
@@ -533,6 +534,12 @@ def locked(root):
         yield
 
 
+class DecoderFetchError(RuntimeError):
+    """The pinned decoder could not be downloaded or saved. It comes from its
+    own site, not GitHub. The text is fixed; the library error, which can
+    carry an address, is kept only as the cause."""
+
+
 def decoder(root, archive=None):
     ff = root / 'ffmpeg'
     stamp = root / 'decoder.json'
@@ -544,8 +551,11 @@ def decoder(root, archive=None):
         archive = root / 'ffmpeg-7.0.2-armhf-static.tar.xz'
         if not archive.exists() or digest(archive) != FF_SHA:
             print('Downloading the pinned FFmpeg decoder (about 20 MB)...', flush=True)
-            with urllib.request.urlopen(FF_URL, timeout=60) as response:
-                atomic(archive, response.read(64 * 1024 * 1024 + 1))
+            try:
+                with urllib.request.urlopen(FF_URL, timeout=60) as response:
+                    atomic(archive, response.read(64 * 1024 * 1024 + 1))
+            except (OSError, http.client.HTTPException) as exc:
+                raise DecoderFetchError('Could not fetch the FFmpeg decoder') from exc
     if digest(archive) != FF_SHA:
         raise ValueError('Decoder checksum failed. No release was activated.')
     with tarfile.open(str(archive), 'r:xz') as tar:

@@ -1,10 +1,14 @@
 import hashlib
+import io
 import json
 from pathlib import Path
+import socket
 import struct
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
+import urllib.error
 
 import manager
 
@@ -237,6 +241,32 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(manager.linger_for_start_check(str(ready), now=lambda: up + 10, sleep=self.fail), 0)
         self.assertEqual(manager.linger_for_start_check('', sleep=self.fail), 0)
         self.assertEqual(manager.linger_for_start_check(str(self.base / 'missing'), sleep=self.fail), 0)
+
+    def test_decoder_fetch_failure_is_fixed_words_and_a_card_copy_needs_no_network(self):
+        # A synthetic archive stands in for the pinned FFmpeg build.
+        stream = io.BytesIO()
+        with tarfile.open(fileobj=stream, mode='w:xz') as tar:
+            for name in ('ffmpeg', 'GPLv3.txt', 'readme.txt'):
+                data = ('synthetic ' + name).encode()
+                info = tarfile.TarInfo('ffmpeg-7.0.2-armhf-static/' + name)
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+        archive = stream.getvalue()
+        self.root.mkdir(parents=True)
+        def offline(url, timeout):
+            raise urllib.error.URLError(socket.gaierror(-2, 'no https://secret.example.org/'))
+        with mock.patch.object(manager, 'FF_SHA', hashlib.sha256(archive).hexdigest()), \
+                mock.patch.object(manager.urllib.request, 'urlopen', offline):
+            with self.assertRaises(manager.DecoderFetchError) as caught:
+                manager.decoder(self.root)
+            self.assertEqual(str(caught.exception), 'Could not fetch the FFmpeg decoder')
+            self.assertIsInstance(caught.exception.__cause__, urllib.error.URLError)
+            self.assertFalse((self.root / 'decoder.json').exists())
+            # The archive copied onto the card by hand is used as it is.
+            (self.root / 'ffmpeg-7.0.2-armhf-static.tar.xz').write_bytes(archive)
+            manager.decoder(self.root)
+        self.assertEqual((self.root / 'ffmpeg').read_bytes(), b'synthetic ffmpeg')
+        self.assertTrue((self.root / 'decoder.json').is_file())
 
     def test_reject_path_escape(self):
         self.root.mkdir(parents=True)

@@ -265,6 +265,16 @@ def verdict(opener=None, now=time.time):
     return None
 
 
+def decoder_error(cause, probe=None):
+    """Why the FFmpeg decoder, fetched from its own site after the release
+    itself, could not be downloaded or saved: the board's card or connection
+    when that is at fault, otherwise the decoder's site."""
+    detail = 'decoder download ' + network_reason(cause)
+    why = local_fault(detail) or (probe or verdict)() or \
+        'GitHub is reachable, but the FFmpeg decoder could not be fetched from its own site. Try again later or report this'
+    return DownloadError('Download failed: ' + why + '.', detail)
+
+
 def fetch_release(card, root, release, opener=None):
     """Stage the release archive directly from its published URL, with the
     same size and digest checks the package gets before installation. The
@@ -431,7 +441,10 @@ def prepare(card, release, downloader=download):
                 shutil.copyfile(archive, snapshot)
                 package = unpack(snapshot, Path(tmp), release)
                 status(root, 'install', release)
-                manager.stage(card, package)
+                try:
+                    manager.stage(card, package)
+                except manager.DecoderFetchError as exc:
+                    raise decoder_error(exc.__cause__) from exc
                 # Ready package survives the worker and contains verified maintenance files.
                 ready = guarded(root, 'updates/ready')
                 if ready.exists():

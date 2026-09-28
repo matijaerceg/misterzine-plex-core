@@ -394,6 +394,43 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(caught.exception.detail, 'Downloader setup could not resolve the download host; '
                          'direct download could not resolve the download host')
 
+    def test_decoder_site_failure_names_whose_problem_it_is(self):
+        # The FFmpeg decoder comes from its own site once the release is
+        # staged. A failure there used to reach the screen as the bare library
+        # error ("Update could not be prepared: URLError").
+        _, _, old = self.release('old')
+        manager.install(self.card, old)
+        r, z, _ = self.release('new')
+        e = service.urllib.error
+        def fails_with(cause):
+            def decoder(*a):
+                try:
+                    raise cause
+                except (OSError, service.http.client.HTTPException) as exc:
+                    raise manager.DecoderFetchError('Could not fetch the FFmpeg decoder') from exc
+            return decoder
+        manager.decoder.side_effect = fails_with(e.URLError(service.socket.gaierror(-2, 'no https://secret.example.org/')))
+        board = 'your MiSTer cannot look up GitHub. Check its network connection and DNS'
+        with patch.object(service, 'verdict', lambda: board), self.assertRaises(RuntimeError) as caught:
+            service.prepare(self.card, r, self.deliver(z))
+        self.assertEqual(str(caught.exception), 'Download failed: ' + board + '.')
+        status = json.loads((self.root / 'updates/status.json').read_text())
+        self.assertEqual(status['message'], 'Update could not be prepared: Download failed: ' + board + '. Your current version will keep working.')
+        self.assertEqual(status['detail'], 'decoder download could not resolve the download host')
+        self.assertNotIn('example.org', status['message'] + (self.root / service.ERROR_LOG).read_text())
+        self.assertEqual(manager.read_state(self.root)['current'], 'old')
+        self.assertFalse((self.root / 'updates/ready.json').exists())
+        # With GitHub answering, the decoder's own site is blamed.
+        manager.decoder.side_effect = fails_with(e.URLError(service.socket.timeout('timed out')))
+        with patch.object(service, 'verdict', lambda: None), self.assertRaises(RuntimeError) as caught:
+            service.prepare(self.card, r, self.deliver(z))
+        self.assertEqual(str(caught.exception), 'Download failed: GitHub is reachable, but the FFmpeg decoder '
+                         'could not be fetched from its own site. Try again later or report this.')
+        self.assertEqual(caught.exception.detail, 'decoder download timed out')
+        # A full card is the card's problem, found without a probe.
+        error = service.decoder_error(OSError(service.errno.ENOSPC, 'No space left on device'), probe=self.fail)
+        self.assertEqual(str(error), 'Download failed: your SD card has no free space.')
+
     def test_library_errors_and_broken_responses_stay_in_fixed_words(self):
         r, z, _ = self.release()
         (self.card / 'Scripts').mkdir(); (self.card / 'Scripts/downloader.sh').touch()
