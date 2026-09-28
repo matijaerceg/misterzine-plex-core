@@ -189,12 +189,7 @@ func (s *Season) rebuild() {
 			if err != nil {
 				return
 			}
-			s.app.Later(func() {
-				it.PartID, it.Audio, it.Subs = fresh.PartID, fresh.Audio, fresh.Subs
-				if s.focused() == it {
-					s.rebuild()
-				}
-			})
+			s.app.Later(func() { s.streamsArrived(it, fresh) })
 		}(it)
 	}
 	if it.ViewOffset > 0 {
@@ -223,6 +218,19 @@ func (s *Season) rebuild() {
 	s.actW = s.actW[:0]
 	for _, a := range s.actions {
 		s.actW = append(s.actW, f.Width(a))
+	}
+}
+
+// streamsArrived fills in an episode's tracks from its full record. Audio and
+// Subtitles go in before Remove from Continue Watching, so the cursor keeps
+// its action rather than its place in the row.
+func (s *Season) streamsArrived(it, fresh *plex.Item) {
+	it.PartID, it.Audio, it.Subs = fresh.PartID, fresh.Audio, fresh.Subs
+	if s.focused() == it {
+		kind := actionKind(s.actions, s.act)
+		s.rebuild()
+		s.act = restoreAction(s.actions, kind)
+		s.keepActVisible(time.Now())
 	}
 }
 
@@ -257,8 +265,10 @@ func (s *Season) keepActVisible(now time.Time) {
 	} else if r-off > SafeW-24 {
 		off = r - (SafeW - 24)
 	}
-	// a row that got shorter (an action gone) is not left scrolled past its end
-	off = min(off, max(0, s.actRowW()-(SafeW-24)))
+	// The 24 px above leave room for the chevron while more lies to the
+	// right. At the end there is none: a row that fits never scrolls, and
+	// one that got shorter (an action gone) is not left past its end.
+	off = min(off, max(0, s.actRowW()-SafeW))
 	s.actX.Go(float64(off), now)
 }
 

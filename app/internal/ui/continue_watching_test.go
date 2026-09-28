@@ -289,12 +289,57 @@ func TestSeasonShorterRowIsNotOverScrolled(t *testing.T) {
 	if slices.Contains(s.actions, RemoveContinue) || !strings.HasPrefix(s.actions[s.act], "Subtitles") {
 		t.Fatalf("after the list changed: %q, cursor %d", s.actions, s.act)
 	}
-	off, limit := round(s.actX.Target()), max(0, s.actRowW()-(SafeW-24))
+	off, limit := round(s.actX.Target()), max(0, s.actRowW()-SafeW)
 	if off > limit || off >= before {
 		t.Fatalf("the shorter row stays scrolled to %d (was %d, its end is at %d)", off, before, limit)
 	}
 	if l, r := s.actLeft(s.act)-off, s.actLeft(s.act)+s.actW[s.act]-off; l < 0 || r > SafeW {
 		t.Fatalf("the cursor's action is off the row (%d..%d)", l, r)
+	}
+}
+
+// The chevron's 24 px are kept only while more lies to the right: a row
+// that fits never scrolls, even with its last action selected, and a long
+// row's last action ends at the safe edge.
+func TestSeasonRowScrollBounds(t *testing.T) {
+	now := time.Now()
+	for _, c := range []struct {
+		widths []int
+		want   int
+	}{
+		{[]int{200, 200, 120}, 0},           // 584 px
+		{[]int{200, 200, 121}, 0},           // 585 px: inside the old 24 px reserve
+		{[]int{200, 200, 144}, 0},           // 608 px: exactly the safe width
+		{[]int{300, 300, 300}, 964 - SafeW}, // longer: the end lands on the safe edge
+	} {
+		s := &Season{actions: make([]string, len(c.widths)), actW: c.widths, acts: true}
+		s.act = len(c.widths) - 1
+		s.keepActVisible(now)
+		if got := round(s.actX.Target()); got != c.want {
+			t.Errorf("row %v (%d px), last action: scrolled %d, want %d", c.widths, s.actRowW(), got, c.want)
+		}
+	}
+}
+
+// The episode's tracks can land after the Continue Watching answer, with the
+// cursor already on Remove: Audio and Subtitles go in before it, and the
+// cursor stays on Remove rather than on whatever took its place.
+func TestSeasonStreamsKeepRemoveSelected(t *testing.T) {
+	a := continueTestApp(t, newContinueServer(t))
+	ep := &plex.Item{RatingKey: "e1", Type: "episode", ViewOffset: 300}
+	s := &Season{app: a, show: &plex.Item{}, seasons: []*plex.Item{{}}, eps: []*plex.Item{ep}, acts: true,
+		fetched: map[string]bool{"e1": true}}
+	s.cw.keys = map[string]bool{"e1": true}
+	s.rebuild()
+	s.act = len(s.actions) - 1
+	if s.actions[s.act] != RemoveContinue {
+		t.Fatalf("fixture: %q", s.actions)
+	}
+	s.streamsArrived(ep, &plex.Item{PartID: "p",
+		Audio: []plex.Stream{{ID: "1", Title: "English", Selected: true}, {ID: "2", Title: "French"}},
+		Subs:  []plex.Stream{{ID: "3", Title: "English (SRT)"}}})
+	if len(s.actions) != 6 || s.actions[s.act] != RemoveContinue {
+		t.Fatalf("after the tracks landed: %q, cursor on %q", s.actions, s.actions[s.act])
 	}
 }
 
