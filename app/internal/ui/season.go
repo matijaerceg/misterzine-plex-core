@@ -28,6 +28,7 @@ type Season struct {
 	pick     bool // the cursor is on the season picker in the header
 	act      int
 	actions  []string
+	cw       continueList
 	err      error
 	holes    []gfx.Rect
 	fetched  map[string]bool // episodes whose streams have been asked for
@@ -67,6 +68,7 @@ const (
 func NewSeason(app *App, show *plex.Item, seasons []*plex.Item, si int, at string) *Season {
 	s := &Season{app: app, show: show, seasons: seasons, si: si}
 	s.load(at)
+	s.cw.refetch(app)
 	return s
 }
 
@@ -211,6 +213,9 @@ func (s *Season) rebuild() {
 	if len(it.Subs) > 0 {
 		s.actions = append(s.actions, streamLabel("Subtitles", it.Subs))
 	}
+	if s.cw.has(it.RatingKey) {
+		s.actions = append(s.actions, RemoveContinue)
+	}
 	if s.act >= len(s.actions) {
 		s.act = 0
 	}
@@ -228,6 +233,16 @@ func (s *Season) actLeft(i int) int {
 		x += s.actW[k] + 32
 	}
 	return x
+}
+
+// actRowW is the unscrolled row's width to the end of its last label (no
+// gap after it), so the row scrolled to its end shows no chevron.
+func (s *Season) actRowW() int {
+	n := len(s.actW)
+	if n == 0 {
+		return 0
+	}
+	return s.actLeft(n-1) + s.actW[n-1]
 }
 
 // keepActVisible scrolls the action row so the cursor's action shows.
@@ -357,12 +372,19 @@ func (s *Season) toShow() {
 }
 
 func (s *Season) do(a string) {
+	it := s.focused()
+	if a == RemoveContinue {
+		if it != nil && s.app.removeContinue(it, &s.cw) {
+			s.rebuild() // the action goes and the cursor returns to the first
+			s.keepActVisible(time.Now())
+		}
+		return
+	}
 	s.periodic.reset()
 	if s.view != nil {
 		s.view.periodic.reset()
 	}
 	s.app.seasonData = nil // playback or marking can change watched state
-	it := s.focused()
 	switch {
 	case strings.HasPrefix(a, "Audio"):
 		s.app.chooseStream(it, "Audio", s.rebuild)
@@ -387,6 +409,7 @@ func (s *Season) do(a string) {
 		s.pageKey = "" // the facts changed
 	}
 	s.rebuild()
+	s.cw.refetch(s.app) // a play or a mark can move episodes in or out
 	if strings.HasPrefix(a, "Mark") {
 		// stay on the mark, now its counterpart
 		for i, b := range s.actions {
@@ -477,7 +500,7 @@ func (s *Season) drawDetails(c, page *gfx.Canvas, now time.Time) bool {
 		startingAct, off = 0, 0 // filmstrip playback uses the first Play/Resume action
 	}
 	anim = anim || s.actX.Running(now)
-	rowW := s.actLeft(len(s.actions))
+	rowW := s.actRowW()
 	sy, sh := ActY-6, f.Body.Height()+16
 	sx0, sx1 := SafeX-8, SafeX+SafeW+8
 	st := s.app.scratch(sx1-sx0, sh)

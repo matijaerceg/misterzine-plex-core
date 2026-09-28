@@ -23,6 +23,10 @@ Detailed behavior and display settings. For everyday help, see the
   up into one seek. The last frame stays on screen until the new position
   starts playing. **More** holds the crop for the playback under way (see
   Display setup); it is dimmed when no crop would change the picture.
+- A movie or episode in Continue Watching has **Remove from Continue Watching**
+  as the last action on its page. Plex keeps the resume point, and playing it
+  again puts it back in the row. Servers without a Continue Watching list
+  don't show the action.
 - The menu lists Home, Search, the movie and TV libraries, Options, and Exit to
   MiSTer menu. A long list of libraries scrolls, and the menu opens on the
   library visited last.

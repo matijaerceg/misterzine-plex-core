@@ -18,6 +18,7 @@ type Preplay struct {
 	app      *App
 	item     *plex.Item
 	actions  []string
+	cw       continueList
 	cur      int         // -1: the synopsis
 	more     bool        // the synopsis was cut: it can be opened
 	page     *gfx.Canvas // the page is composed here (blending reads pixels,
@@ -45,6 +46,7 @@ func NewPreplay(app *App, it *plex.Item) *Preplay {
 		}
 	}
 	p.rebuild()
+	p.cw.refetch(app)
 	return p
 }
 
@@ -66,6 +68,9 @@ func (p *Preplay) rebuild() {
 	}
 	if len(it.Subs) > 0 {
 		p.actions = append(p.actions, streamLabel("Subtitles", it.Subs))
+	}
+	if p.cw.has(it.RatingKey) {
+		p.actions = append(p.actions, RemoveContinue)
 	}
 	if p.cur >= len(p.actions) {
 		p.cur = 0
@@ -95,6 +100,10 @@ func (p *Preplay) Key(ev input.Event, now time.Time) {
 		}
 		a := p.actions[p.cur]
 		switch {
+		case a == RemoveContinue:
+			if p.app.removeContinue(p.item, &p.cw) {
+				p.rebuild() // the action goes and the cursor returns to the first
+			}
 		case strings.HasPrefix(a, "Audio"):
 			p.periodic.reset()
 			p.app.chooseStream(p.item, "Audio", p.rebuild)
@@ -128,6 +137,18 @@ func (p *Preplay) refresh() {
 		*p.item = *fresh
 	}
 	p.rebuild()
+	p.cw.refetch(p.app) // a play or a mark can move it in or out
+}
+
+// actionPitch is the distance between the page's action lines, the first
+// at top. A long stack (resumable, both track choices, in Continue
+// Watching) closes up a little so its last line stays inside the safe area.
+func actionPitch(f *gfx.Font, top, n int) int {
+	pitch := f.Height() + 10
+	if n > 1 {
+		pitch = min(pitch, (SafeBottom-top-f.Height())/(n-1))
+	}
+	return pitch
 }
 
 // Draw composes the page off-frame and copies it in.
@@ -275,7 +296,7 @@ func (p *Preplay) compose(c *gfx.Canvas, now time.Time) bool {
 	// the selected Play/Resume label.
 	starting := !p.app.Starting.IsZero()
 	ay := y + 14
-	ah := f.Body.Height() + 10
+	ah := actionPitch(f.Body, ay, len(p.actions))
 	for i, a := range p.actions {
 		col := gfx.GreyLo
 		if a == "Play" || strings.HasPrefix(a, "Resume") {

@@ -214,6 +214,12 @@ type Hub struct {
 	Items []*Item
 }
 
+// IsContinueWatching reports whether the hub is one of the two that make
+// up the Continue Watching row: in progress, and the next episodes.
+func (h *Hub) IsContinueWatching() bool {
+	return strings.HasPrefix(h.Ident, "home.continue") || strings.HasPrefix(h.Ident, "home.ondeck")
+}
+
 // Section is a library.
 type Section struct {
 	Key, Title, Type string
@@ -552,10 +558,10 @@ func (c *Client) Hubs(count int) ([]*Hub, error) {
 		// Continue Watching holds everything in progress (films included);
 		// On Deck adds the next unwatched episodes. They are shown as one
 		// row: Continue Watching first, then what On Deck adds to it.
-		if !(strings.HasPrefix(ident, "home.continue") || strings.HasPrefix(ident, "home.ondeck")) {
+		hub := &Hub{Title: Fold(h.Title), Key: h.Key, Ident: ident}
+		if !hub.IsContinueWatching() {
 			continue // the recently added rows come per library (SectionRecent)
 		}
-		hub := &Hub{Title: Fold(h.Title), Key: h.Key, Ident: ident}
 		for i := range h.Items {
 			x := &h.Items[i]
 			if x.XMLName.Local != "Video" && x.XMLName.Local != "Directory" {
@@ -645,7 +651,7 @@ func (c *Client) SectionRecent(section string, count int) (*Hub, error) {
 	return pick, nil
 }
 
-// Put sends a PUT to a path (stream selection).
+// Put sends a PUT to a path (stream selection, Continue Watching).
 func (c *Client) Put(path string, q url.Values) error {
 	r, err := c.req(path, q)
 	if err != nil {
@@ -681,6 +687,38 @@ func (c *Client) Scrobble(ratingKey string, watched bool) error {
 	}
 	_, err := c.Get(path, url.Values{"key": {ratingKey}, "identifier": {"com.plexapp.plugins.library"}})
 	return err
+}
+
+// ContinueWatching returns the rating keys in the server's Continue
+// Watching list: everything in progress and the next episodes, the two
+// hubs of the Home row together and without the row's cap. A server
+// without the list answers with an error.
+func (c *Client) ContinueWatching() (map[string]bool, error) {
+	q := url.Values{"excludeFields": {"summary,tagline"},
+		"excludeElements": {"Genre,Director,Writer,Role,Country,Producer,Guid,Collection,Label,Field,UltraBlurColors,Media"}}
+	data, err := c.getSlow("/hubs/continueWatching/items", q)
+	if err != nil {
+		return nil, err
+	}
+	var mc xmlContainer
+	if err := xml.Unmarshal(data, &mc); err != nil {
+		return nil, err
+	}
+	keys := map[string]bool{}
+	for i := range mc.Items {
+		x := &mc.Items[i]
+		if (x.XMLName.Local == "Video" || x.XMLName.Local == "Directory") && x.RatingKey != "" {
+			keys[x.RatingKey] = true
+		}
+	}
+	return keys, nil
+}
+
+// RemoveFromContinueWatching takes an item out of Continue Watching. The
+// server keeps its resume point, and playing it again puts it back
+// (Plex Media Server 1.43).
+func (c *Client) RemoveFromContinueWatching(ratingKey string) error {
+	return c.Put("/actions/removeFromContinueWatching", url.Values{"ratingKey": {ratingKey}})
 }
 
 // Art fetches a transcoded picture (poster or backdrop) at w x h, cropped by

@@ -84,7 +84,7 @@ func actionKind(actions []string, at int) string {
 		return ""
 	}
 	a := actions[at]
-	for _, kind := range []string{"Resume", "Mark", "Audio", "Subtitles"} {
+	for _, kind := range []string{"Resume", "Mark", "Audio", "Subtitles", "Remove"} {
 		if strings.HasPrefix(a, kind) {
 			return kind
 		}
@@ -105,6 +105,12 @@ func restoreAction(actions []string, kind string) int {
 }
 
 func (p *Preplay) pollRefresh(now time.Time) {
+	if p.cw.poll() {
+		kind := actionKind(p.actions, p.cur)
+		p.rebuild()
+		p.cur = restoreAction(p.actions, kind)
+		p.app.dirty = true
+	}
 	client, key := p.app.Plex, p.item.RatingKey
 	p.periodic.poll(p.app, now, func() ([]*plex.Item, error) {
 		it, err := client.Item(key)
@@ -124,6 +130,14 @@ func (p *Preplay) pollRefresh(now time.Time) {
 }
 
 func (s *Season) pollRefresh(now time.Time) {
+	// an answer that lands while the episodes load is kept for their rebuild
+	if s.cw.poll() && !s.loading && len(s.eps) > 0 {
+		kind := actionKind(s.actions, s.act)
+		s.rebuild()
+		s.act = restoreAction(s.actions, kind)
+		s.keepActVisible(now)
+		s.app.dirty = true
+	}
 	if s.loading || s.err != nil || len(s.eps) == 0 {
 		return
 	}

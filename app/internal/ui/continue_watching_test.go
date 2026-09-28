@@ -1,0 +1,281 @@
+package ui
+
+import (
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"plexcrt/internal/gfx"
+	"plexcrt/internal/input"
+	"plexcrt/internal/plex"
+)
+
+// continueServer is a Plex server with a Continue Watching list and the
+// removal action; a removal takes the item off the list, as Plex does.
+type continueServer struct {
+	*httptest.Server
+	mu      sync.Mutex
+	keys    map[string]bool
+	removed []string
+	fail    bool
+}
+
+func newContinueServer(t *testing.T, keys ...string) *continueServer {
+	s := &continueServer{keys: map[string]bool{}}
+	for _, k := range keys {
+		s.keys[k] = true
+	}
+	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		switch {
+		case r.URL.Path == "/hubs/continueWatching/items":
+			io.WriteString(w, "<MediaContainer>")
+			for k := range s.keys {
+				fmt.Fprintf(w, `<Video ratingKey=%q type="movie"/>`, k)
+			}
+			io.WriteString(w, "</MediaContainer>")
+		case r.URL.Path == "/actions/removeFromContinueWatching" && r.Method == "PUT":
+			if s.fail {
+				http.Error(w, "refused", 500)
+				return
+			}
+			k := r.URL.Query().Get("ratingKey")
+			s.removed = append(s.removed, k)
+			delete(s.keys, k)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(s.Close)
+	return s
+}
+
+func (s *continueServer) removals() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.removed)
+}
+
+func continueTestApp(t *testing.T, s *continueServer) *App {
+	a := &App{Plex: plex.New(s.URL, "tok", t.TempDir(), ""), Log: log.New(io.Discard, "", 0), Wake: make(chan struct{}, 1)}
+	a.F = Fonts{Title: gfx.Load("med22"), Body: gfx.Load("med18"), Small: gfx.Load("reg16"), SmallBold: gfx.Load("med16"), Big: gfx.Load("bold28")}
+	return a
+}
+
+// settle waits for the page's Continue Watching answer to land.
+func settle(t *testing.T, a *App) {
+	t.Helper()
+	select {
+	case <-a.Wake:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the Continue Watching answer did not land")
+	}
+}
+
+func continueHome(a *App, cw ...*plex.Item) *Home {
+	h := &Home{app: a, home: true}
+	h.applyHome([]*plex.Hub{
+		{Title: "Continue Watching", Ident: "home.continue", Items: cw},
+		{Title: "Films", Ident: "movie.recentlyadded", Key: "/hubs/sections/1", Items: []*plex.Item{{RatingKey: "r1", Type: "movie"}}},
+	})
+	h.refreshAt = time.Now().Add(time.Hour)
+	return h
+}
+
+func TestPreplayRemovesFromContinueWatching(t *testing.T) {
+	srv := newContinueServer(t, "m1", "m2")
+	a := continueTestApp(t, srv)
+	m1 := &plex.Item{RatingKey: "m1", Type: "movie", Title: "One", Summary: "s", PartID: "p", ViewOffset: 600}
+	m2 := &plex.Item{RatingKey: "m2", Type: "movie", Title: "Two", Summary: "s", PartID: "p", ViewOffset: 60}
+	h := continueHome(a, m1, m2)
+	p := NewPreplay(a, m1)
+	a.stack = []Screen{h, p}
+	if slices.Contains(p.actions, RemoveContinue) {
+		t.Fatal("the action showed before the list answered")
+	}
+	settle(t, a)
+	p.pollRefresh(time.Now())
+	if p.actions[len(p.actions)-1] != RemoveContinue {
+		t.Fatalf("the action is not last: %q", p.actions)
+	}
+
+	p.cur = len(p.actions) - 1
+	p.Key(input.Event{Key: input.Enter}, time.Now())
+	if got := srv.removals(); !slices.Equal(got, []string{"m1"}) {
+		t.Fatalf("removal sent for %v", got)
+	}
+	if slices.Contains(p.actions, RemoveContinue) || p.cur != 0 || !strings.HasPrefix(p.actions[0], "Resume") {
+		t.Fatalf("after removal: actions %q, cursor %d", p.actions, p.cur)
+	}
+	if p.item.ViewOffset != 600 {
+		t.Fatal("the removal touched the resume point")
+	}
+	// Home drops it at once and fetches the rows again when shown
+	if items := h.hubs[0].Items; len(items) != 1 || items[0] != m2 || h.Focused() != m2 {
+		t.Fatalf("home row after removal: %v, focused %v", items, h.Focused())
+	}
+	if !h.refreshAt.IsZero() || h.refreshResult != nil {
+		t.Fatal("home was not set to fetch the rows again")
+	}
+}
+
+func TestContinueRemovalRefusedKeepsTheAction(t *testing.T) {
+	srv := newContinueServer(t, "m1")
+	srv.fail = true
+	a := continueTestApp(t, srv)
+	m1 := &plex.Item{RatingKey: "m1", Type: "movie", Summary: "s", PartID: "p", ViewOffset: 600}
+	h := continueHome(a, m1)
+	p := NewPreplay(a, m1)
+	a.stack = []Screen{h, p}
+	settle(t, a)
+	p.pollRefresh(time.Now())
+	p.cur = len(p.actions) - 1
+	p.Key(input.Event{Key: input.Enter}, time.Now())
+	if p.actions[p.cur] != RemoveContinue || a.Notice == "" {
+		t.Fatalf("refused removal: actions %q, cursor %d, notice %q", p.actions, p.cur, a.Notice)
+	}
+	if len(h.hubs[0].Items) != 1 || h.refreshAt.IsZero() {
+		t.Fatal("a refused removal changed Home")
+	}
+}
+
+// An answer fetched before the removal lands after it: it must not bring
+// the action back.
+func TestContinueAnswerFromBeforeRemovalIsDropped(t *testing.T) {
+	srv := newContinueServer(t, "m1")
+	a := continueTestApp(t, srv)
+	m1 := &plex.Item{RatingKey: "m1", Type: "movie", Summary: "s", PartID: "p", ViewOffset: 600}
+	p := &Preplay{app: a, item: m1}
+	p.cw.keys = map[string]bool{"m1": true}
+	p.rebuild()
+	stale := make(chan map[string]bool, 1)
+	p.cw.pending = stale
+	p.cur = len(p.actions) - 1
+	p.Key(input.Event{Key: input.Enter}, time.Now())
+	stale <- map[string]bool{"m1": true}
+	p.pollRefresh(time.Now())
+	if slices.Contains(p.actions, RemoveContinue) {
+		t.Fatal("an answer from before the removal brought the action back")
+	}
+}
+
+func TestSeasonRemovesEpisodeFromContinueWatching(t *testing.T) {
+	srv := newContinueServer(t, "e2")
+	a := continueTestApp(t, srv)
+	e1 := &plex.Item{RatingKey: "e1", Type: "episode", Title: "Ep 1", ViewCount: 1}
+	e2 := &plex.Item{RatingKey: "e2", Type: "episode", Title: "Ep 2", ViewOffset: 300}
+	s := &Season{app: a, show: &plex.Item{RatingKey: "sh"}, seasons: []*plex.Item{{RatingKey: "se", Key: "/library/metadata/se/children"}},
+		eps: []*plex.Item{e1, e2}, cur: 1, acts: true, fetched: map[string]bool{"e1": true, "e2": true}}
+	s.rebuild()
+	s.cw.refetch(a)
+	settle(t, a)
+	s.act = 2 // Mark watched
+	s.pollRefresh(time.Now())
+	if s.actions[len(s.actions)-1] != RemoveContinue || s.actions[s.act] != "Mark watched" {
+		t.Fatalf("after the answer: actions %q, cursor on %q", s.actions, s.actions[s.act])
+	}
+	if len(s.actW) != len(s.actions) {
+		t.Fatal("the action widths were not measured")
+	}
+	s.cur = 0 // an episode that is not in Continue Watching
+	s.rebuild()
+	if slices.Contains(s.actions, RemoveContinue) {
+		t.Fatal("the action showed for an episode not in Continue Watching")
+	}
+
+	s.cur = 1
+	s.rebuild()
+	s.act = len(s.actions) - 1
+	s.do(s.actions[s.act])
+	if got := srv.removals(); !slices.Equal(got, []string{"e2"}) {
+		t.Fatalf("removal sent for %v", got)
+	}
+	if slices.Contains(s.actions, RemoveContinue) || s.act != 0 || !strings.HasPrefix(s.actions[0], "Resume") {
+		t.Fatalf("after removal: actions %q, cursor %d", s.actions, s.act)
+	}
+}
+
+// The action row scrolled to its last action shows no chevron past it; at
+// its start a row that runs past the safe width still does.
+func TestSeasonActionRowEndHasNoChevron(t *testing.T) {
+	a := continueTestApp(t, newContinueServer(t))
+	ep := &plex.Item{RatingKey: "e1", Type: "episode", ViewOffset: 300, PartID: "p",
+		Subs: []plex.Stream{{ID: "1", Title: "English (SRT)", Selected: true}}}
+	s := &Season{app: a, show: &plex.Item{}, seasons: []*plex.Item{{}}, eps: []*plex.Item{ep}, acts: true,
+		fetched: map[string]bool{"e1": true}}
+	s.cw.keys = map[string]bool{"e1": true}
+	s.rebuild()
+	if s.actRowW() <= SafeW {
+		t.Fatalf("the fixture row (%d px) does not need scrolling", s.actRowW())
+	}
+	now := time.Now()
+	s.act = len(s.actions) - 1
+	s.keepActVisible(now)
+	if off := round(s.actX.Target()); s.actRowW()-off > SafeW {
+		t.Fatalf("scrolled to the end, the row still reaches %d px past its start (safe width %d)", s.actRowW()-off, SafeW)
+	}
+}
+
+// The periodic refresh keeps the cursor on the action rather than moving it
+// to the second Play.
+func TestRefreshKeepsCursorOnRemove(t *testing.T) {
+	actions := []string{"Resume 10:00", "From start", "Mark watched", RemoveContinue}
+	if got := restoreAction(actions, actionKind(actions, 3)); got != 3 {
+		t.Fatalf("cursor restored to %d", got)
+	}
+}
+
+func TestHomeDropContinue(t *testing.T) {
+	a := &App{}
+	one, two := &plex.Item{RatingKey: "1"}, &plex.Item{RatingKey: "2"}
+
+	h := continueHome(a, one, two)
+	h.row, h.col[0] = 0, 1 // on the second
+	h.dropContinue("1")
+	if h.Focused() != two || len(h.hubs) != 2 {
+		t.Fatalf("focus moved off the item left in place: %v", h.Focused())
+	}
+
+	h = continueHome(a, one)
+	h.dropContinue("1")
+	if len(h.hubs) != 1 || h.hubs[0].IsContinueWatching() || h.row != 0 {
+		t.Fatalf("an emptied row stayed: %d rows", len(h.hubs))
+	}
+
+	h = continueHome(a, one)
+	h.dropContinue("elsewhere")
+	if len(h.hubs[0].Items) != 1 || !h.refreshAt.IsZero() {
+		t.Fatal("an item beyond the row changed it, or no refetch was set")
+	}
+}
+
+// Six actions (resumable, two tracks, in Continue Watching) still end above
+// the safe area's bottom on the movie page, a little closer together; five
+// keep their spacing. The longest label fits the width.
+func TestPreplaySixActionsFit(t *testing.T) {
+	a := continueTestApp(t, newContinueServer(t))
+	f := a.F
+	// the tallest layout: a logo box, the facts line and two synopsis lines
+	top := SafeY + 12 + PreLogoH + 8 + f.SmallBold.Height() + 16 + PreLines*(f.SmallBold.Height()+2) + 14
+	if got := actionPitch(f.Body, top, 5); got != f.Body.Height()+10 {
+		t.Fatalf("five actions closed up to %d", got)
+	}
+	pitch := actionPitch(f.Body, top, 6)
+	if bottom := top + 5*pitch + f.Body.Height(); bottom > SafeBottom {
+		t.Fatalf("six actions end at %d, below the safe bottom %d", bottom, SafeBottom)
+	}
+	if pitch < f.Body.Height()+8 {
+		t.Fatalf("six actions pressed to %d px apart", pitch)
+	}
+	if w := f.Body.Width(RemoveContinue); PreTextX+w > SafeX+SafeW {
+		t.Fatalf("%q is %d px wide, past the safe area", RemoveContinue, w)
+	}
+}
