@@ -1,12 +1,14 @@
 package ui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"plexcrt/internal/beta"
 	"plexcrt/internal/input"
 	"plexcrt/internal/updates"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -269,6 +271,33 @@ func TestSilentUpdaterFailureStays(t *testing.T) {
 	}
 	if v, rows := (&Updates{app: a}).view(); v != viewFailed || rows[0].label != "Try again" {
 		t.Fatalf("view %v, %q", v, rows[0].label)
+	}
+}
+
+// An update already at work is followed, not launched again: a second
+// updater would lose the lock and exit without a word.
+func TestUpdateAlreadyRunningIsNotLaunchedAgain(t *testing.T) {
+	a := betaTestApp(t) // the settings folder has no updater to launch
+	r := &updates.Release{ID: "pub", Version: "0.3.0", Channel: "public"}
+	writeStatus(t, a, fmt.Sprintf(`{"stage":"download","pid":%d,"updated":5}`, os.Getpid()))
+	a.startUpdate("prepare", r)
+	if s := a.updates.status; s.Stage != "download" || a.updates.launch != 0 {
+		t.Fatalf("a running update's status was not followed: %+v", s)
+	}
+	// holding the lock, not written yet
+	writeStatus(t, a, `{"stage":"complete","updated":5}`)
+	a.updates.status = updates.Status{Stage: "complete"}
+	lock, err := os.OpenFile(filepath.Join(a.betaDir(), "updates/worker.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	a.startUpdate("prepare", r)
+	if a.updates.launch != 0 || a.updates.waiting || !strings.Contains(a.updates.message, "already running") || a.failure() {
+		t.Fatalf("launched beside a running updater: %+v, %q", a.updates.status, a.updates.message)
 	}
 }
 

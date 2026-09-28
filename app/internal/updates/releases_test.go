@@ -8,9 +8,36 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
+
+func TestRunningSeesAHeldWorkerLock(t *testing.T) {
+	root := t.TempDir()
+	if Running(root) {
+		t.Fatal("no lock file, yet running")
+	}
+	os.MkdirAll(filepath.Join(root, "updates"), 0700)
+	f, err := os.OpenFile(filepath.Join(root, "updates/worker.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if Running(root) {
+		t.Fatal("a free lock taken for a running updater")
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	if !Running(root) {
+		t.Fatal("a held lock not seen")
+	}
+	syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	if Running(root) {
+		t.Fatal("a released lock still seen")
+	}
+}
 
 func fixture() Release {
 	return Release{ID: "fixture", Version: "1.2.0", Channel: "public", URL: "https://example.org/package.zip", DBURL: "https://example.org/public.json.zip", Size: 123, SHA256: strings.Repeat("a", 64)}

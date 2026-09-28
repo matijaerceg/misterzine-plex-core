@@ -38,6 +38,21 @@ func ReadStatus(root string) Status {
 	return s
 }
 
+// Running reports that an updater holds the worker lock. A second one would
+// exit at once without a word, so this is asked before starting one.
+func Running(root string) bool {
+	f, err := os.Open(filepath.Join(root, "updates/worker.lock"))
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return err == syscall.EWOULDBLOCK
+	}
+	syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return false
+}
+
 // Copy the worker before starting it: installing a new runtime must not change
 // the code supervising the current update or its recovery path. The channel
 // closes when the worker exits.

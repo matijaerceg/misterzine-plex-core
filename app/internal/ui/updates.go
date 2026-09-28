@@ -19,7 +19,7 @@ type updateState struct {
 	nextStatus  time.Time
 	reading     bool
 	status      updates.Status
-	message     string // a choice was not saved
+	message     string // a choice was not saved, or another update runs
 	// An update started and its updater has not written the status file
 	// since: the file still has the "updated" stamp it had then. No clock is
 	// compared (the board may set its clock at any time), and only the
@@ -250,10 +250,20 @@ func (a *App) startUpdate(action string, r *updates.Release) {
 	if action == "activate" {
 		stage, shown = "activating", a.prepared()
 	}
+	root := a.betaDir()
 	// read before the updater runs, so nothing it writes can pass for the old file
+	now := updates.ReadStatus(root)
+	if now.Busy() {
+		a.updates.status = now // one is at work already: follow it
+		return
+	}
+	if updates.Running(root) {
+		a.updates.message = "Another update is already running. Try again when it has finished."
+		return
+	}
 	a.updates.launch++
-	a.updates.waiting, a.updates.before = true, updates.ReadStatus(a.betaDir()).Updated
-	exited, err := updates.Start(a.betaDir(), action, r)
+	a.updates.waiting, a.updates.before, a.updates.message = true, now.Updated, ""
+	exited, err := updates.Start(root, action, r)
 	a.updates.exited = exited
 	if err != nil {
 		a.fail(shown, "Could not start the updater. Run MisterZine-Plex-Install to repair update support.")
