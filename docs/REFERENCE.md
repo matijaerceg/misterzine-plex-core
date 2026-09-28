@@ -112,11 +112,13 @@ selected release and removes it on uninstall. Nothing needs adding to Zaparoo's
 `config.toml`.
 
 Each release also checks its own entries at boot and once an update to it has
-finished: the main-menu entry, the boot hook, the Scripts entries and the Zaparoo
-entry. An in-app update is installed by the previous release's code, so this is
-what brings them up to date, and it adds the Zaparoo entry at the next boot when
-Zaparoo is installed after Plex. Nothing is written when they are already right.
-The last check and Zaparoo reload are recorded in `maintenance.json` and appear in
+finished: the main-menu entry, the Scripts entries and the Zaparoo entry. An in-app
+update is installed by the previous release's code, so this is what brings them up
+to date, and it adds the Zaparoo entry at the next boot when Zaparoo is installed
+after Plex. Nothing is written when they are already right, and a Zaparoo reload
+that did not happen is retried at the next check. The boot hook in
+`linux/user-startup.sh` is changed only by the installer and uninstaller. The last
+check and Zaparoo reload are recorded in `maintenance.json` and appear in
 diagnostics reports, with the Zaparoo version and whether its `config.toml`
 overrides the entry.
 

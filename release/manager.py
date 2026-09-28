@@ -100,9 +100,10 @@ def zaparoo_version(timeout=1):
 
 def reload_zaparoo(card):
     """Ask a running Zaparoo service to re-read its launchers, so the entry
-    appears without a reboot. No wait beyond 15 s. A stopped service refuses
-    at once and reads the entry when it starts; only a running one that did
-    not reload is left pending, for the next check to retry."""
+    appears without a reboot. No wait beyond 15 s. A reload that did not
+    happen stays pending for the next check to retry: a service that is
+    stopped refuses at once (a fraction of a second), and one that is starting
+    or busy may already have read the old launchers."""
     script = card / 'Scripts/zaparoo.sh'
     if not script.is_file():
         outcome = 'no script'
@@ -115,8 +116,7 @@ def reload_zaparoo(card):
             outcome = 'timeout'
         except (OSError, subprocess.SubprocessError) as exc:
             outcome = type(exc).__name__
-    pending = outcome not in ('ok', 'no script') and zaparoo_version() is not None
-    note(card / 'misterzine-plex', zaparoo_reload=outcome, zaparoo_pending=pending)
+    note(card / 'misterzine-plex', zaparoo_reload=outcome, zaparoo_pending=outcome not in ('ok', 'no script'))
     return outcome
 
 
@@ -282,21 +282,23 @@ def upkeep_blocked(root):
 
 def reconcile(card):
     """Put this release's own entries on the card right: the main-menu entry,
-    the boot hook, the Scripts entries and the Zaparoo entry.
+    the Scripts entries and the Zaparoo entry.
 
     An in-app update is installed by the previous release's code, which writes
     its own idea of these, and nothing else checks them later (Zaparoo can
     arrive after Plex). So each release checks them itself at boot and once an
-    update to it has committed. Each piece is optional: a failure is recorded
-    and the rest goes on. The caller holds the manager lock. Returns whether
-    Zaparoo needs to reload its launchers."""
+    update to it has committed. The boot hook is left to install and
+    uninstall: other tools edit user-startup.sh too, and without the hook
+    nothing would run this check anyway. Each piece is optional: a failure is
+    recorded and the rest goes on. The caller holds the manager lock. Returns
+    whether Zaparoo needs to reload its launchers."""
     root = card / 'misterzine-plex'
     reason = upkeep_blocked(root)
     if reason:
         note(root, skipped=reason)
         return False
     wrote, errors, zaparoo = [], {}, 'unknown'
-    for name, piece in (('menu entry', menu_entry_file), ('boot hook', startup_hook), ('scripts', wrappers)):
+    for name, piece in (('menu entry', menu_entry_file), ('scripts', wrappers)):
         try:
             if piece(card):
                 wrote.append(name)
@@ -375,23 +377,45 @@ def upkeep_after_start(root, release, timeout=600, pause=.5):
         note(root, errors={'upkeep': type(exc).__name__})
 
 
-def maintain(card, wait=60):
-    """The boot check (manager.py maintain, started by the watcher). Leaves
-    the entries to the app, an install or an update when one holds the lock."""
+def maintain(card, wait=60, released=lambda: None):
+    """The boot check (manager.py maintain, started by the watcher).
+
+    The update lock is checked first: an update holds it from before it
+    installs until its start check is done, and the manager lock must stay
+    free for the release that start check launches. With no update running,
+    the manager lock keeps an install, rollback or the app out while the
+    entries are checked. `released` is called once both are let go, before
+    any Zaparoo reload; the watcher waits for that before it watches, so this
+    never holds the lock a launch needs."""
     root = card / 'misterzine-plex'
-    if not root.is_dir():
-        return 0
+    reload = False
     try:
-        with locked(root):
-            settled, reload = reconcile_when_settled(card)
+        if not root.is_dir():
+            return 0
+        with no_update_running(root) as clear:
+            if not clear:
+                print('upkeep: skipped, an update is under way', flush=True)
+                return 0
+            with locked(root):
+                reload = reconcile(card)
     except RuntimeError:
         print('upkeep: skipped, Plex or its installer is running', flush=True)
         return 0
-    if not settled:
-        print('upkeep: skipped, an update is under way', flush=True)
-    elif reload or noted(root).get('zaparoo_pending'):
+    finally:
+        released()
+    if reload or noted(root).get('zaparoo_pending'):
         print('upkeep: Zaparoo reload ' + refresh_zaparoo(card, wait), flush=True)
     return 0
+
+
+def let_the_watcher_go():
+    """End the watcher's wait for `maintain`: it waits for this process's
+    stdout to close. Everything printed after goes to the log on stderr."""
+    sys.stdout.flush()
+    sys.stdout = sys.stderr
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, 1)
+    os.close(devnull)
 
 
 def start_menu_launcher(card):
@@ -1425,7 +1449,8 @@ def main():
             print('It can name media titles and playback details. Account files and tokens are never included.')
             return 0 if code or args.no_upload else 1
         if args.action == 'maintain':
-            return maintain(args.card)
+            sys.stdout = sys.stderr         # the log; stdout only tells the watcher when to go on
+            return maintain(args.card, released=let_the_watcher_go)
         with locked(root):
             if args.action == 'install':
                 install(args.card, args.package, args.decoder_archive)

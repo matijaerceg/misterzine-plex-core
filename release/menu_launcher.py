@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import os
 from pathlib import Path
+import select
 import subprocess
 import sys
 import time
@@ -13,16 +14,26 @@ import time
 SELECTIONS = ('MisterZine Plex Core', 'MisterZine Plex', 'misterzine-plex')
 
 
-def start_upkeep(card, root):
+MAINTAIN_LOG = '/tmp/misterzine-plex-maintain.log'
+
+
+def start_upkeep(card, root, patience=20):
     """Check the Plex entries once as the watch starts (at boot, or after an
-    install): `manager.py maintain`. A child process, so the watch starts at
-    once; the caller reaps it."""
+    install): `manager.py maintain`. Returns once the check has let go of the
+    Plex locks, which it signals by closing its stdout, so the app is never
+    launched into a held lock. A pick made meanwhile is launched after, since
+    the watch compares the core name's time stamp. A Zaparoo reload can go on
+    after that; the caller reaps the child."""
     try:
-        with open('/tmp/misterzine-plex-maintain.log', 'wb') as log:
-            return subprocess.Popen([sys.executable, str(root / 'manager.py'), 'maintain', '--card', str(card)],
-                                    stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+        with open(MAINTAIN_LOG, 'wb') as log:
+            child = subprocess.Popen([sys.executable, str(root / 'manager.py'), 'maintain', '--card', str(card)],
+                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=log)
     except OSError:
         return None
+    with child.stdout:
+        if select.select([child.stdout], [], [], patience)[0]:
+            child.stdout.read(1)        # end of file: the locks are free
+    return child
 
 
 def main():

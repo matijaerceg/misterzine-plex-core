@@ -719,13 +719,17 @@ class UpdateTests(unittest.TestCase):
         # What an older release's updater can leave behind.
         entry.unlink()
         mgl.write_bytes(manager.LEGACY_ENTRY)
-        startup.write_text('#!/bin/bash\necho other-app\n')
         script.write_text('#!/bin/bash\necho retired\n')
+        # The boot hook belongs to install and uninstall: other tools edit that file too.
+        edited = '#!/bin/bash\necho other-app\n'
+        startup.write_text(edited)
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertTrue(manager.reconcile(self.card))
+        self.assertEqual(startup.read_text(), edited)
+        startup.write_bytes(right[startup])
         self.assertEqual({path: path.read_bytes() for path in right}, right)
         record = json.loads((self.root / manager.MAINTENANCE).read_text())
-        self.assertEqual(record['repaired'], ['menu entry', 'boot hook', 'scripts', 'zaparoo entry'])
+        self.assertEqual(record['repaired'], ['menu entry', 'scripts', 'zaparoo entry'])
         self.assertEqual((record['release'], record['zaparoo_entry'], record['errors'], record['skipped']),
                          ('one', 'current', {}, None))
         # Once right, a check writes nothing at all.
@@ -738,12 +742,12 @@ class UpdateTests(unittest.TestCase):
     def test_upkeep_failure_in_one_entry_leaves_the_others_to_be_put_right(self):
         entry = self.installed()
         entry.unlink()
-        with patch.object(manager, 'startup_hook', side_effect=PermissionError), \
+        with patch.object(manager, 'wrappers', side_effect=PermissionError), \
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertTrue(manager.reconcile(self.card))
         self.assertTrue(entry.exists())
         self.assertEqual(json.loads((self.root / manager.MAINTENANCE).read_text())['errors'],
-                         {'boot hook': 'PermissionError'})
+                         {'scripts': 'PermissionError'})
 
     def test_upkeep_leaves_the_entries_alone_when_it_should(self):
         entry = self.installed()
@@ -821,41 +825,52 @@ class UpdateTests(unittest.TestCase):
         import fcntl
         entry = self.installed()
         entry.unlink()
-        out = io.StringIO()
+        out, freed = io.StringIO(), []
+        def released():
+            # Both locks are free by the time the watcher is let go.
+            with manager.no_update_running(self.root) as clear, manager.locked(self.root):
+                freed.append(clear)
         with contextlib.redirect_stdout(out):
             with manager.locked(self.root):
-                self.assertEqual(manager.maintain(self.card, wait=0), 0)
+                self.assertEqual(manager.maintain(self.card, wait=0, released=lambda: freed.append('app')), 0)
             self.assertFalse(entry.exists())
-            with (self.root / 'updates/worker.lock').open('a') as lock:
+            # During an update the manager lock is left alone: the release its
+            # start check launches must be able to take it.
+            with (self.root / 'updates/worker.lock').open('a') as lock, \
+                    patch.object(manager, 'locked', side_effect=AssertionError('manager lock taken')):
                 fcntl.flock(lock, fcntl.LOCK_EX)
-                manager.maintain(self.card, wait=0)
+                manager.maintain(self.card, wait=0, released=lambda: freed.append('update'))
             self.assertFalse(entry.exists())
             with patch.object(manager, 'reload_zaparoo', lambda card: 'ok'):
-                manager.maintain(self.card, wait=0)
+                manager.maintain(self.card, wait=0, released=released)
         self.assertTrue(entry.exists())
+        self.assertEqual(freed, ['app', 'update', True])
         self.assertIn('Plex or its installer is running', out.getvalue())
         self.assertIn('an update is under way', out.getvalue())
         self.assertIn('Zaparoo reload ok', out.getvalue())
 
-    def test_a_missed_zaparoo_reload_is_retried_only_while_zaparoo_runs(self):
+    def test_a_missed_zaparoo_reload_stays_pending_until_one_succeeds(self):
         entry = self.installed()
         script = self.card / 'Scripts/zaparoo.sh'
         answer = self.card / 'answer'
         script.write_text('#!/bin/sh\nexit $(cat ' + str(answer) + ')\n')
         script.chmod(0o755)
         answer.write_text('1')
-        running = {'version': '2.17.2', 'platform': 'mister'}
-        with patch.object(manager, 'zaparoo_version', return_value=None):
-            self.assertEqual(manager.reload_zaparoo(self.card), 'exit 1')
-        self.assertFalse(manager.noted(self.root)['zaparoo_pending'])   # it reads the entry when it starts
-        with patch.object(manager, 'zaparoo_version', return_value=running):
-            self.assertEqual(manager.reload_zaparoo(self.card), 'exit 1')
-            self.assertTrue(manager.noted(self.root)['zaparoo_pending'])
-            answer.write_text('0')
-            manager.upkeep_after_start(self.root, 'one')              # entry unchanged, reload still due
+        # Not answering may mean starting, with the old launchers already read.
+        self.assertEqual(manager.reload_zaparoo(self.card), 'exit 1')
+        self.assertTrue(manager.noted(self.root)['zaparoo_pending'])
+        manager.upkeep_after_start(self.root, 'one')                  # still refused: still pending
+        self.assertTrue(manager.noted(self.root)['zaparoo_pending'])
+        answer.write_text('0')
+        manager.upkeep_after_start(self.root, 'one')                  # entry unchanged, reload still due
         self.assertTrue(entry.exists())
         self.assertEqual((manager.noted(self.root)['zaparoo_reload'], manager.noted(self.root)['zaparoo_pending']),
                          ('ok', False))
+        os.utime(self.root / manager.MAINTENANCE, (1_000_000_000, 1_000_000_000))
+        answer.write_text('1')
+        manager.upkeep_after_start(self.root, 'one')                  # nothing due: no reload, no write
+        self.assertEqual(manager.noted(self.root)['zaparoo_reload'], 'ok')
+        self.assertEqual((self.root / manager.MAINTENANCE).stat().st_mtime, 1_000_000_000)
 
     def test_report_says_why_plex_is_or_is_not_in_zaparoo(self):
         entry = self.installed()
@@ -882,13 +897,29 @@ class UpdateTests(unittest.TestCase):
         self.assertIn('== LOG worker.log', text)
         self.assertNotIn(str(self.card), text.split('== LOG')[0])
 
-    def test_watcher_starts_the_boot_check_once(self):
+    def test_watcher_waits_for_the_boot_check_to_let_go_of_the_locks_but_not_for_a_reload(self):
         import menu_launcher
-        with patch.object(menu_launcher.subprocess, 'Popen') as popen, \
-                patch('menu_launcher.open', unittest.mock.mock_open(), create=True):
-            menu_launcher.start_upkeep(self.card, self.root)
-        args = popen.call_args[0][0]
-        self.assertEqual(args[1:], [str(self.root / 'manager.py'), 'maintain', '--card', str(self.card)])
+        # A stand-in manager: records its arguments, holds "the locks" for a
+        # moment, lets the watcher go as the real one does, then "reloads".
+        (self.root / 'manager.py').write_text(
+            'import sys, time\n'
+            'sys.path.insert(0, ' + repr(str(Path(manager.__file__).parent)) + ')\n'
+            'import manager\n'
+            'open(' + repr(str(self.card / 'args')) + ', "w").write(" ".join(sys.argv[1:]))\n'
+            'time.sleep(.3)\n'
+            'manager.let_the_watcher_go()\n'
+            'print("after the watcher went")\n'
+            'time.sleep(2)\n')
+        log = self.card / 'maintain.log'
+        with patch.object(menu_launcher, 'MAINTAIN_LOG', str(log)):
+            started = time.monotonic()
+            child = menu_launcher.start_upkeep(self.card, self.root)
+            waited = time.monotonic() - started
+        self.assertTrue(.3 <= waited < 1.8, waited)
+        self.assertIsNone(child.poll())                                 # its reload goes on
+        self.assertEqual((self.card / 'args').read_text(), 'maintain --card ' + str(self.card))
+        child.wait(10)
+        self.assertIn('after the watcher went', log.read_text())
 
     def test_unattended_pinned_install_does_not_fetch_latest_or_prompt(self):
         release, _, _ = self.release()
