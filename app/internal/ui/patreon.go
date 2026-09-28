@@ -6,6 +6,7 @@ import (
 	"plexcrt/internal/beta"
 	"plexcrt/internal/gfx"
 	"plexcrt/internal/input"
+	"plexcrt/internal/updates"
 )
 
 // Patreon is the menu's last entry. It tells everyone else what supporting
@@ -24,10 +25,14 @@ func (a *App) supporter() bool {
 }
 
 // earlyAccess is the early-access version on offer, from the last catalogue
-// check; empty when there is none or no check has come back yet.
+// check: only one newer than this build. The catalogue keeps a beta after
+// it has become the public release, and offering that would be a step
+// back. Empty when there is none or no check has come back yet.
 func (a *App) earlyAccess() string {
 	if r, ok := a.updates.catalogue.Releases["beta"]; ok {
-		return r.Version
+		if newer, ok := updates.Compare(r.Version, a.Version); ok && newer > 0 {
+			return r.Version
+		}
 	}
 	return ""
 }

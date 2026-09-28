@@ -66,7 +66,17 @@ func TestPatreonOnAPublicBuildPointsAtUpdates(t *testing.T) {
 	}
 	p.Key(input.Event{Key: input.Enter}, time.Now()) // nothing to choose: nothing happens
 	p.Key(input.Event{Key: input.Down}, time.Now())
-	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{"beta": {ID: "next", Version: "0.3.0-beta.1", Channel: "beta"}}}
+	// the catalogue keeps the beta that became this public release: not on offer
+	a.Version = "1.0.0"
+	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{
+		"public": {ID: "pub", Version: "1.0.0", Channel: "public"}, "beta": {ID: "old", Version: "1.0.0-beta.1", Channel: "beta"}}}
+	if v, rows := a.earlyAccess(), p.rows(); v != "" || len(rows) != 0 {
+		t.Fatalf("an older beta offered as %q, rows %+v", v, rows)
+	}
+	a.updates.catalogue.Releases["beta"] = updates.Release{ID: "next", Version: "1.1.0-beta.1", Channel: "beta"}
+	if v := a.earlyAccess(); v != "1.1.0-beta.1" {
+		t.Fatalf("a newer beta offered as %q", v)
+	}
 	a.Push(p)
 	p.Key(input.Event{Key: input.Enter}, time.Now())
 	if _, ok := a.top().(*Updates); !ok {
@@ -148,7 +158,7 @@ func TestPatreonPreview(t *testing.T) {
 	render("options-top", o)
 	o.cur = len(o.items()) - 1
 	render("options-bottom", o)
-	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{"beta": {ID: "next", Version: "0.1.0-beta.14", Channel: "beta"}}}
+	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{"beta": {ID: "next", Version: "0.2.0-beta.14", Channel: "beta"}}}
 	render("patreon-locked", NewPatreon(a))
 	a.secs = []plex.Section{{Key: "1", Title: "Movies", Type: "movie"}, {Key: "2", Title: "TV Shows", Type: "show"}}
 	items, _ := a.menuItems()
