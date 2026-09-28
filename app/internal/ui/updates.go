@@ -21,13 +21,15 @@ type updateState struct {
 	status      updates.Status
 	message     string // a choice was not saved
 	// An update started and its updater has not written the status file
-	// since: the file still reads as it did then (its "updated" stamp is
-	// seen). No clock is compared: the board may set its clock at any time.
-	launched time.Time
-	seen     float64   // the status file's stamp at the last read
-	before   float64   // and at the launch
-	failedAt time.Time // when this app first saw the current failure
-	checked  time.Time // when the last check that read the catalogue started
+	// since: the file still has the "updated" stamp it had then. No clock is
+	// compared (the board may set its clock at any time), and only the
+	// updater's exit says it never wrote, however long its checks take.
+	waiting  bool
+	before   float64
+	exited   <-chan struct{} // closes when the updater exits
+	launch   int             // counts launches: a read begun before one is stale
+	failedAt time.Time       // when this app first saw the current failure
+	checked  time.Time       // when the last check that read the catalogue started
 }
 
 func (a *App) checkUpdates(manual bool, now time.Time) {
@@ -87,21 +89,32 @@ func (a *App) pollUpdates(now time.Time) {
 	}
 	a.updates.reading = true
 	a.updates.nextStatus = now.Add(time.Second)
-	root := a.betaDir()
+	root, launch, exited := a.betaDir(), a.updates.launch, a.updates.exited
 	go func() {
+		// the exit is looked at before the file: an updater writes, then exits
+		gone := false
+		if exited != nil {
+			select {
+			case <-exited:
+				gone = true
+			default:
+			}
+		}
 		s := updates.ReadStatus(root)
 		a.Later(func() {
 			a.updates.reading = false
-			a.updates.seen = s.Updated
-			if !a.updates.launched.IsZero() && s.Updated == a.updates.before {
+			if launch != a.updates.launch {
+				return // begun before the latest launch
+			}
+			if a.updates.waiting && s.Updated == a.updates.before {
 				// the file still holds what came before the launch: keep saying
 				// what this update is doing until its updater writes
-				if time.Since(a.updates.launched) >= 10*time.Second && a.updates.status.Stage != "failed" {
+				if gone && a.updates.status.Stage != "failed" {
 					a.fail(a.updates.status.Release, "The updater did not start. Run Install to repair update support.")
 				}
 				return
 			}
-			a.updates.launched = time.Time{}
+			a.updates.waiting = false
 			if old := a.updates.status; s.Stage == "failed" && (old.Stage != "failed" || old.Updated != s.Updated || old.Message != s.Message) {
 				a.updates.failedAt = time.Now()
 			}
@@ -237,9 +250,12 @@ func (a *App) startUpdate(action string, r *updates.Release) {
 	if action == "activate" {
 		stage, shown = "activating", a.prepared()
 	}
-	// before the updater runs, so nothing it writes can pass for the old file
-	a.updates.launched, a.updates.before = time.Now(), a.updates.seen
-	if err := updates.Start(a.betaDir(), action, r); err != nil {
+	// read before the updater runs, so nothing it writes can pass for the old file
+	a.updates.launch++
+	a.updates.waiting, a.updates.before = true, updates.ReadStatus(a.betaDir()).Updated
+	exited, err := updates.Start(a.betaDir(), action, r)
+	a.updates.exited = exited
+	if err != nil {
 		a.fail(shown, "Could not start the updater. Run MisterZine-Plex-Install to repair update support.")
 		return
 	}

@@ -120,8 +120,14 @@ stage='failed' if 'MISTERZINE_PLEX_OWNER' in os.environ or 'MISTERZINE_PLEX_READ
 `
 	os.WriteFile(filepath.Join(root, "update_service.py"), []byte(script), 0600)
 	r := fixture()
-	if err := Start(root, "prepare", &r); err != nil {
+	exited, err := Start(root, "prepare", &r)
+	if err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-exited:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the worker's exit was not reported")
 	}
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {

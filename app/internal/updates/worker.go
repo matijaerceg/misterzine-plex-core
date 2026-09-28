@@ -39,43 +39,44 @@ func ReadStatus(root string) Status {
 }
 
 // Copy the worker before starting it: installing a new runtime must not change
-// the code supervising the current update or its recovery path.
-func Start(root, action string, release *Release) error {
+// the code supervising the current update or its recovery path. The channel
+// closes when the worker exits.
+func Start(root, action string, release *Release) (<-chan struct{}, error) {
 	if action != "prepare" && action != "activate" {
-		return fmt.Errorf("invalid update action")
+		return nil, fmt.Errorf("invalid update action")
 	}
 	folder := filepath.Join(root, "updates")
 	if err := os.MkdirAll(folder, 0700); err != nil {
-		return err
+		return nil, err
 	}
 	worker, err := os.MkdirTemp(folder, "worker-")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, name := range []string{"manager.py", "update_service.py", "catalogue.py", "menu_launcher.py"} {
 		data, e := os.ReadFile(filepath.Join(root, name))
 		if e != nil {
-			return fmt.Errorf("run MisterZine-Plex-Install to add update support")
+			return nil, fmt.Errorf("run MisterZine-Plex-Install to add update support")
 		}
 		if e = os.WriteFile(filepath.Join(worker, name), data, 0600); e != nil {
-			return e
+			return nil, e
 		}
 	}
 	args := []string{filepath.Join(worker, "update_service.py"), action, "--card", filepath.Dir(root)}
 	if release != nil {
 		if err = release.Validate(); err != nil {
-			return err
+			return nil, err
 		}
 		data, _ := json.Marshal(release)
 		request := filepath.Join(worker, "request.json")
 		if err = os.WriteFile(request, data, 0600); err != nil {
-			return err
+			return nil, err
 		}
 		args = append(args, "--request", request)
 	}
 	log, err := os.OpenFile(filepath.Join(folder, "worker.log"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cmd := exec.Command("python3", args...)
 	// The app marks its descendants as playback-owned for cleanup. An updater
@@ -90,8 +91,9 @@ func Start(root, action string, release *Release) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err = cmd.Start(); err != nil {
 		log.Close()
-		return err
+		return nil, err
 	}
-	go func() { cmd.Wait(); log.Close() }()
-	return nil
+	exited := make(chan struct{})
+	go func() { cmd.Wait(); log.Close(); close(exited) }()
+	return exited, nil
 }

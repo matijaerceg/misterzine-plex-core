@@ -243,20 +243,25 @@ func TestQuietBetaFailureOffersTryAgain(t *testing.T) {
 	}
 }
 
-// An updater that never reports keeps its failure on screen: the status file,
-// still from before the launch, does not bring the old state back.
+// An updater that exits without writing fails the update, and the failure
+// stays: the status file, still from before the launch, does not bring the
+// old state back. One still running is waited for, however long it takes.
 func TestSilentUpdaterFailureStays(t *testing.T) {
 	a := betaTestApp(t)
 	a.later = make(chan func(), 4)
 	a.updates.nextCheck = time.Now().Add(time.Hour) // no catalogue check here
 	r := updates.Release{ID: "next", Version: "0.3.0-beta.1", Channel: "beta"}
 	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{"beta": r}}
-	a.updates.status = updates.Status{Stage: "download", Release: &r}
-	a.updates.launched = time.Now().Add(-11 * time.Second)
+	a.updates.status = updates.Status{Stage: "activating", Release: &r}
+	running := make(chan struct{})
+	a.updates.waiting, a.updates.exited = true, running
+	readStatus(t, a)
+	if a.updates.status.Stage != "activating" {
+		t.Fatalf("a running updater that has not written yet: %+v", a.updates.status)
+	}
+	close(running)
 	for i := 0; i < 2; i++ {
-		a.updates.nextStatus = time.Time{}
-		a.pollUpdates(time.Now())
-		drain(t, a)
+		readStatus(t, a)
 		s := a.updates.status
 		if s.Stage != "failed" || s.Release == nil || s.Release.ID != "next" {
 			t.Fatalf("read %d: %+v", i, s)
@@ -264,6 +269,29 @@ func TestSilentUpdaterFailureStays(t *testing.T) {
 	}
 	if v, rows := (&Updates{app: a}).view(); v != viewFailed || rows[0].label != "Try again" {
 		t.Fatalf("view %v, %q", v, rows[0].label)
+	}
+}
+
+// A status read begun before a launch says nothing about that launch, even
+// when the file changed in between.
+func TestReadBegunBeforeALaunchIsDropped(t *testing.T) {
+	a := betaTestApp(t) // the settings folder has no updater to launch
+	a.later = make(chan func(), 4)
+	a.updates.nextCheck = time.Now().Add(time.Hour)
+	writeStatus(t, a, `{"stage":"complete","updated":1}`)
+	a.updates.nextStatus = time.Time{}
+	a.pollUpdates(time.Now())
+	var stale func()
+	select {
+	case stale = <-a.later: // read, and held back until after the launch
+	case <-time.After(5 * time.Second):
+		t.Fatal("the read did not finish")
+	}
+	writeStatus(t, a, `{"stage":"complete","updated":2}`)
+	a.startUpdate("prepare", &updates.Release{ID: "pub", Version: "0.3.0", Channel: "public"})
+	stale()
+	if !a.updates.waiting || a.updates.status.Stage != "failed" {
+		t.Fatalf("a read from before the launch was taken for its updater: %+v", a.updates.status)
 	}
 }
 
@@ -290,11 +318,11 @@ func TestUpdaterStatusCountsAfterAClockStep(t *testing.T) {
 	a := betaTestApp(t)
 	a.later = make(chan func(), 4)
 	a.updates.nextCheck = time.Now().Add(time.Hour)
-	a.updates.launched, a.updates.before, a.updates.seen = time.Now(), 100, 100
+	a.updates.waiting, a.updates.before = true, 100
 	a.updates.status = updates.Status{Stage: "download"}
 	writeStatus(t, a, `{"stage":"ready","updated":50,"release":{"id":"next","version":"0.3.0-beta.1","channel":"beta"}}`)
 	readStatus(t, a)
-	if a.prepared() == nil || !a.updates.launched.IsZero() {
+	if a.prepared() == nil || a.updates.waiting {
 		t.Fatalf("a status stamped before the launch was ignored: %+v", a.updates.status)
 	}
 }
