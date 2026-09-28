@@ -692,6 +692,204 @@ class UpdateTests(unittest.TestCase):
         manager.reload_zaparoo(self.card)
         self.assertEqual(marker.read_text().strip(), '-reload')
 
+    CURRENT = {'menu_launcher.py': "SELECTIONS = ('MisterZine Plex Core',)\n", 'manager.py': 'def zaparoo_entry(): pass\n'}
+
+    def installed(self, ident='one', zaparoo=True):
+        """A release whose watcher and manager know the direct entry and
+        Zaparoo, installed, with this code counting as its manager."""
+        if zaparoo:
+            (self.card / 'zaparoo').mkdir(exist_ok=True)
+        _, _, package = self.release(ident, helpers=self.CURRENT)
+        with patch.object(manager, 'reload_zaparoo', lambda card: 'ok'):
+            manager.install(self.card, package)
+        p = patch.object(manager, 'SELF_DIGEST', manager.digest(self.root / 'manager.py'))
+        p.start(); self.addCleanup(p.stop)
+        p = patch.object(manager, 'zaparoo_version', return_value=None)
+        p.start(); self.addCleanup(p.stop)
+        return self.card / 'zaparoo/launchers' / manager.ZAPAROO_ENTRY
+
+    def test_upkeep_puts_this_releases_entries_right_and_then_writes_nothing(self):
+        startup = self.card / 'linux/user-startup.sh'
+        startup.parent.mkdir()
+        startup.write_text('#!/bin/bash\necho other-app\n')
+        entry = self.installed()
+        mgl = self.card / 'MisterZine Plex Core.mgl'
+        script = self.card / 'Scripts/MisterZine-Plex-Rollback.sh'
+        right = {path: path.read_bytes() for path in (entry, mgl, startup, script)}
+        # What an older release's updater can leave behind.
+        entry.unlink()
+        mgl.write_bytes(manager.LEGACY_ENTRY)
+        startup.write_text('#!/bin/bash\necho other-app\n')
+        script.write_text('#!/bin/bash\necho retired\n')
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(manager.reconcile(self.card))
+        self.assertEqual({path: path.read_bytes() for path in right}, right)
+        record = json.loads((self.root / manager.MAINTENANCE).read_text())
+        self.assertEqual(record['repaired'], ['menu entry', 'boot hook', 'scripts', 'zaparoo entry'])
+        self.assertEqual((record['release'], record['zaparoo_entry'], record['errors'], record['skipped']),
+                         ('one', 'current', {}, None))
+        # Once right, a check writes nothing at all.
+        for path in list(right) + [self.root / manager.MAINTENANCE]:
+            os.utime(path, (1_000_000_000, 1_000_000_000))
+        self.assertFalse(manager.reconcile(self.card))
+        for path in list(right) + [self.root / manager.MAINTENANCE]:
+            self.assertEqual(path.stat().st_mtime, 1_000_000_000, path.name)
+
+    def test_upkeep_failure_in_one_entry_leaves_the_others_to_be_put_right(self):
+        entry = self.installed()
+        entry.unlink()
+        with patch.object(manager, 'startup_hook', side_effect=PermissionError), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(manager.reconcile(self.card))
+        self.assertTrue(entry.exists())
+        self.assertEqual(json.loads((self.root / manager.MAINTENANCE).read_text())['errors'],
+                         {'boot hook': 'PermissionError'})
+
+    def test_upkeep_leaves_the_entries_alone_when_it_should(self):
+        entry = self.installed()
+        entry.unlink()
+        def skipped():
+            self.assertFalse(manager.reconcile(self.card))
+            self.assertFalse(entry.exists())
+            return json.loads((self.root / manager.MAINTENANCE).read_text())['skipped']
+        with patch.object(manager, 'SELF_DIGEST', 'another release'):
+            self.assertEqual(skipped(), 'another manager installed')
+        journal = self.root / 'updates/activation.json'
+        journal.write_text('{}')
+        self.assertEqual(skipped(), 'update in progress')
+        journal.unlink()
+        disabled = self.card / 'Scripts/MisterZine-Plex-Rollback.sh.disabled'
+        disabled.write_text('')
+        self.assertEqual(skipped(), 'entries switched off')
+        disabled.unlink()
+        (self.root / 'active.json').unlink()
+        self.assertEqual(skipped(), 'not installed')
+
+    def test_upkeep_waits_for_the_updater_to_commit_and_never_runs_for_a_failed_start(self):
+        (self.card / 'zaparoo').mkdir()
+        _, _, package = self.release('old', helpers=self.CURRENT)
+        with patch.object(manager, 'reload_zaparoo', lambda card: 'ok'):
+            manager.install(self.card, package)
+        helpers = dict(self.CURRENT, **{'manager.py': 'def zaparoo_entry(): pass\n# new\n'})
+        release, archive, new = self.release('new', 'beta', helpers)
+        service.prepare(self.card, release, self.deliver(archive))
+        seen = []
+        def launch(result):
+            def check(root):
+                seen.append(manager.reconcile_when_settled(self.card, 'new'))
+                return result
+            return check
+        with patch.object(manager, 'SELF_DIGEST', manager.digest(new / 'manager.py')), \
+                patch.object(manager, 'reload_zaparoo', lambda card: 'ok'), \
+                patch.object(manager, 'zaparoo_version', return_value=None), \
+                contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(RuntimeError):
+                service.activate(self.card, launch(False))
+            # Undone: the old release is selected again, so the new one writes nothing.
+            self.assertEqual(manager.reconcile_when_settled(self.card, 'new'), (True, False))
+            self.assertNotIn('repaired', manager.noted(self.root))
+            service.prepare(self.card, release, self.deliver(archive))
+            service.activate(self.card, launch(True))
+            self.assertGreaterEqual(len(seen), 2)
+            self.assertEqual(set(seen), {(False, False)})       # held off during every start check
+            entry = self.card / 'zaparoo/launchers' / manager.ZAPAROO_ENTRY
+            entry.unlink()
+            self.assertEqual(manager.reconcile_when_settled(self.card, 'new'), (True, True))
+        self.assertIn('releases/new/', entry.read_text())
+
+    def test_upkeep_after_start_waits_beside_the_launch_until_no_update_runs(self):
+        import fcntl
+        import threading
+        entry = self.installed()
+        entry.unlink()
+        reloads = []
+        with (self.root / 'updates/worker.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            with patch.object(manager, 'refresh_zaparoo', lambda card: reloads.append(card)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                worker = threading.Thread(target=manager.upkeep_after_start, args=(self.root, 'one', 30, .01))
+                worker.start()
+                time.sleep(.2)
+                self.assertFalse(entry.exists())
+                fcntl.flock(lock, fcntl.LOCK_UN)
+                worker.join(10)
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(entry.exists())
+        self.assertEqual(reloads, [self.card])
+
+    def test_boot_upkeep_stands_aside_for_the_app_an_install_or_an_update(self):
+        import fcntl
+        entry = self.installed()
+        entry.unlink()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            with manager.locked(self.root):
+                self.assertEqual(manager.maintain(self.card, wait=0), 0)
+            self.assertFalse(entry.exists())
+            with (self.root / 'updates/worker.lock').open('a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                manager.maintain(self.card, wait=0)
+            self.assertFalse(entry.exists())
+            with patch.object(manager, 'reload_zaparoo', lambda card: 'ok'):
+                manager.maintain(self.card, wait=0)
+        self.assertTrue(entry.exists())
+        self.assertIn('Plex or its installer is running', out.getvalue())
+        self.assertIn('an update is under way', out.getvalue())
+        self.assertIn('Zaparoo reload ok', out.getvalue())
+
+    def test_a_missed_zaparoo_reload_is_retried_only_while_zaparoo_runs(self):
+        entry = self.installed()
+        script = self.card / 'Scripts/zaparoo.sh'
+        answer = self.card / 'answer'
+        script.write_text('#!/bin/sh\nexit $(cat ' + str(answer) + ')\n')
+        script.chmod(0o755)
+        answer.write_text('1')
+        running = {'version': '2.17.2', 'platform': 'mister'}
+        with patch.object(manager, 'zaparoo_version', return_value=None):
+            self.assertEqual(manager.reload_zaparoo(self.card), 'exit 1')
+        self.assertFalse(manager.noted(self.root)['zaparoo_pending'])   # it reads the entry when it starts
+        with patch.object(manager, 'zaparoo_version', return_value=running):
+            self.assertEqual(manager.reload_zaparoo(self.card), 'exit 1')
+            self.assertTrue(manager.noted(self.root)['zaparoo_pending'])
+            answer.write_text('0')
+            manager.upkeep_after_start(self.root, 'one')              # entry unchanged, reload still due
+        self.assertTrue(entry.exists())
+        self.assertEqual((manager.noted(self.root)['zaparoo_reload'], manager.noted(self.root)['zaparoo_pending']),
+                         ('ok', False))
+
+    def test_report_says_why_plex_is_or_is_not_in_zaparoo(self):
+        entry = self.installed()
+        running = lambda: {'version': '2.17.2', 'platform': 'mister'}
+        facts = manager.zaparoo_facts(self.root, running)
+        self.assertEqual(facts, {'installed': True, 'script': False, 'entry': 'current', 'config_override': False,
+                                 'other_files_with_id': 0, 'core': {'version': '2.17.2', 'platform': 'mister'}})
+        config = self.card / 'zaparoo/config.toml'
+        config.write_text('# [[launchers.custom]]\n# id = "misterzine-plex"\n[[launchers.custom]]\nid = "other"\n')
+        self.assertFalse(manager.zaparoo_facts(self.root, running)['config_override'])
+        config.write_text('[[ launchers.custom ]]  # mine\nid = \'misterzine-plex\'\n')
+        self.assertTrue(manager.zaparoo_facts(self.root, running)['config_override'])
+        (entry.parent / 'copy.toml').write_bytes(entry.read_bytes())
+        self.assertEqual(manager.zaparoo_facts(self.root, running)['other_files_with_id'], 1)
+        entry.write_text(entry.read_text().replace('/one/', '/zero/'))
+        self.assertEqual(manager.zaparoo_facts(self.root, running)['entry'], 'stale')
+        entry.unlink()
+        facts = manager.zaparoo_facts(self.root, lambda: None)
+        self.assertEqual((facts['entry'], facts['core']), ('absent', 'not answering'))
+        (self.root / 'updates/worker.log').write_text('Complete: Update installed\n')
+        with patch.object(manager, 'zaparoo_version', return_value=None):
+            text = manager.build_report(self.root, proc_root=self.card / 'no-proc', tmp=self.card / 'no-tmp')
+        self.assertIn('zaparoo: {"config_override": true, "core": "not answering", "entry": "absent"', text)
+        self.assertIn('== LOG worker.log', text)
+        self.assertNotIn(str(self.card), text.split('== LOG')[0])
+
+    def test_watcher_starts_the_boot_check_once(self):
+        import menu_launcher
+        with patch.object(menu_launcher.subprocess, 'Popen') as popen, \
+                patch('menu_launcher.open', unittest.mock.mock_open(), create=True):
+            menu_launcher.start_upkeep(self.card, self.root)
+        args = popen.call_args[0][0]
+        self.assertEqual(args[1:], [str(self.root / 'manager.py'), 'maintain', '--card', str(self.card)])
+
     def test_unattended_pinned_install_does_not_fetch_latest_or_prompt(self):
         release, _, _ = self.release()
         request = self.fixture/'request.json'

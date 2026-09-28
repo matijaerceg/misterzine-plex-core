@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 import urllib.request
 from xml.sax.saxutils import escape
@@ -39,7 +40,14 @@ REPORT_SERVICE = 'https://api.misterzine.fyi'
 REPORT_MAGIC = 'MisterZine report v1'
 REPORT_MAX_BYTES = 256 * 1024
 REPORT_LOGS = ('misterzine-plex-menu-run.log', 'misterzine-plex-menu-run.log.1', 'misterzine-plex.log',
-               'misterzine-plex.log.1', 'misterzine-plex-menu.log', 'plexplay.log')
+               'misterzine-plex.log.1', 'misterzine-plex-menu.log', 'misterzine-plex-maintain.log', 'plexplay.log')
+
+# The code running now. Entry checks stand down once the installed manager
+# differs from it (a recovery or rollback put another release's in place).
+try:
+    SELF_DIGEST = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+except OSError:                 # imported from the installer's archive
+    SELF_DIGEST = None
 
 
 LEGACY_ENTRY = b'<mistergamedescription>\n  <rbf>menu</rbf>\n  <setname>misterzine-plex</setname>\n</mistergamedescription>\n'
@@ -72,17 +80,57 @@ def repair_menu_entry(card):
 ZAPAROO_ENTRY = 'misterzine-plex.toml'
 
 
+ZAPAROO_API = 'http://localhost:7497/api/v0.1'
+
+
+def zaparoo_version(timeout=1):
+    """Version and platform of the running Zaparoo Core, asked through its
+    local API, or None when nothing answers there."""
+    import uuid
+    body = json.dumps({'jsonrpc': '2.0', 'id': str(uuid.uuid4()), 'method': 'version'}).encode()
+    req = urllib.request.Request(ZAPAROO_API, data=body, method='POST', headers={'Content-Type': 'application/json'})
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=timeout) as response:
+            result = json.loads(response.read(4096).decode('utf-8', errors='replace'))['result']
+            return {'version': str(result.get('version', ''))[:40], 'platform': str(result.get('platform', ''))[:40]}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
 def reload_zaparoo(card):
     """Ask a running Zaparoo service to re-read its launchers, so the entry
-    appears without a reboot. Best effort: no Zaparoo, no wait beyond 15 s."""
+    appears without a reboot. No wait beyond 15 s. A stopped service refuses
+    at once and reads the entry when it starts; only a running one that did
+    not reload is left pending, for the next check to retry."""
     script = card / 'Scripts/zaparoo.sh'
     if not script.is_file():
-        return
-    try:
-        subprocess.run([str(script), '-reload'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, timeout=15)
-    except (OSError, subprocess.SubprocessError):
-        pass
+        outcome = 'no script'
+    else:
+        try:
+            done = subprocess.run([str(script), '-reload'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL, timeout=15)
+            outcome = 'ok' if done.returncode == 0 else 'exit %d' % done.returncode
+        except subprocess.TimeoutExpired:
+            outcome = 'timeout'
+        except (OSError, subprocess.SubprocessError) as exc:
+            outcome = type(exc).__name__
+    pending = outcome not in ('ok', 'no script') and zaparoo_version() is not None
+    note(card / 'misterzine-plex', zaparoo_reload=outcome, zaparoo_pending=pending)
+    return outcome
+
+
+def refresh_zaparoo(card, wait=0):
+    """Reload Zaparoo's launchers. At boot its service starts alongside this
+    check and may have read them just before the entry was written, so for up
+    to `wait` seconds keep trying once its API answers."""
+    outcome = reload_zaparoo(card)
+    deadline = time.monotonic() + wait
+    while outcome not in ('ok', 'no script') and time.monotonic() < deadline:
+        time.sleep(2)
+        if zaparoo_version() is not None:
+            outcome = reload_zaparoo(card)
+    return outcome
 
 
 def maintains_zaparoo(root):
@@ -95,6 +143,19 @@ def maintains_zaparoo(root):
         return False
 
 
+def zaparoo_body(root, folder=None):
+    load = core_file(root, folder).relative_to(root.parent).with_suffix('').as_posix()
+    return ('# MisterZine Plex Core in Zaparoo\'s Other list. Written by the Plex installer and\n'
+            '# rewritten on every update; do not edit. Uninstalling Plex removes it.\n'
+            '[[launchers.custom]]\n'
+            'id = "misterzine-plex"\n'
+            'kind = "virtual_system"\n'
+            'backend = "mister_core"\n'
+            'name = "MisterZine Plex Core"\n'
+            'category = "Other"\n'
+            'load_path = ' + json.dumps(load) + '\n').encode()
+
+
 def zaparoo_entry(card, enable=True, folder=None, reload=None):
     """List Plex under Other in Zaparoo, pointing at the selected release.
 
@@ -105,7 +166,10 @@ def zaparoo_entry(card, enable=True, folder=None, reload=None):
     watcher cannot start the app from a direct core load, so none is listed
     for one. A launcher with the same id in Zaparoo's own config.toml wins.
     The frontend's system list reads this after a reload; no media database
-    update is needed (that only indexes games)."""
+    update is needed (that only indexes games).
+
+    Returns what happened: 'written', 'current', 'removed', 'none',
+    'no zaparoo' or 'symlink'."""
     reload = reload or reload_zaparoo
     root = card / 'misterzine-plex'
     zaparoo = card / 'zaparoo'
@@ -113,63 +177,221 @@ def zaparoo_entry(card, enable=True, folder=None, reload=None):
     path = launchers / ZAPAROO_ENTRY
     for place in (zaparoo, launchers, path):
         if place.is_symlink():
-            return
+            return 'symlink'
     if (not enable or legacy_watcher(root) or not maintains_zaparoo(root)
             or not (root / 'active.json').is_file() and folder is None):
         if path.is_file():
             path.unlink()
             reload(card)
-        return
+            return 'removed'
+        return 'none'
     if not zaparoo.is_dir():
-        return
-    load = core_file(root, folder).relative_to(card).with_suffix('').as_posix()
-    body = ('# MisterZine Plex Core in Zaparoo\'s Other list. Written by the Plex installer and\n'
-            '# rewritten on every update; do not edit. Uninstalling Plex removes it.\n'
-            '[[launchers.custom]]\n'
-            'id = "misterzine-plex"\n'
-            'kind = "virtual_system"\n'
-            'backend = "mister_core"\n'
-            'name = "MisterZine Plex Core"\n'
-            'category = "Other"\n'
-            'load_path = ' + json.dumps(load) + '\n').encode()
+        return 'no zaparoo'
+    body = zaparoo_body(root, folder)
     try:
         if path.read_bytes() == body:
-            return
+            return 'current'
     except OSError:
         pass
     launchers.mkdir(exist_ok=True)
     atomic(path, body)
     reload(card)
+    return 'written'
 
 
-def menu_entries(card, enable=True, folder=None):
-    root = card / 'misterzine-plex'
+def startup_file(card):
     startup = card / 'linux/user-startup.sh'
     if startup.is_symlink() or not startup.resolve().is_relative_to(card.resolve()):
         raise ValueError('Startup file must stay on the selected card')
-    text = startup.read_text() if startup.exists() else '#!/bin/bash\n'
+    return startup
+
+
+def startup_text(card, text, enable):
+    """user-startup.sh without our block, and with it first when enabled."""
+    root = card / 'misterzine-plex'
     text = re.sub(re.escape(BOOT_START) + r'\n.*?' + re.escape(BOOT_END) + r'\n?', '', text, flags=re.S)
     # Migrate the exact earlier development hook without touching other apps.
     legacy = '[ -f /media/fat/misterzine-plex/menu_launcher.py ] && setsid python3 /media/fat/misterzine-plex/menu_launcher.py > /tmp/misterzine-plex-menu.log 2>&1 < /dev/null &'
     text = '\n'.join(line for line in text.split('\n') if line not in (legacy, '# MisterZine Plex main-menu launcher'))
-    entry = card / 'MisterZine Plex Core.mgl'
     if enable:
-        # Load the core directly. Bouncing through the menu core with a
-        # setname never reaches the watcher under forked main binaries
-        # (Zaparoo Frontend), which keep reporting the menu as the core.
-        # A pre-beta.4 watcher only knows the bounce, so keep it for one.
-        atomic(entry, LEGACY_ENTRY if legacy_watcher(root) else launch_body(root, folder).encode())
         command = 'setsid python3 ' + shlex.quote(str(root / 'menu_launcher.py')) + ' --card ' + shlex.quote(str(card))
         block = BOOT_START + '\n' + command + ' >/tmp/misterzine-plex-menu.log 2>&1 </dev/null &\n' + BOOT_END + '\n'
         # Put the hook ahead of any existing early exit in user-startup.sh.
         first, sep, rest = text.partition('\n')
         text = first + '\n' + block + rest if first.startswith('#!') else '#!/bin/bash\n' + block + text
-    else:
+    return text
+
+
+def startup_hook(card, enable=True):
+    """Add or remove the boot hook that starts the watcher. Other tools edit
+    this file too: nothing is written when it is already right, and a change
+    made while the new text was worked out is read again, not overwritten."""
+    startup = startup_file(card)
+    for _ in range(3):
+        before = startup.read_bytes() if startup.exists() else None
+        if before is None and not enable:
+            return False
+        text = before.decode('utf-8', 'surrogateescape') if before is not None else '#!/bin/bash\n'
+        data = startup_text(card, text, enable).encode('utf-8', 'surrogateescape')
+        if data == before:
+            return False
+        if (startup.read_bytes() if startup.exists() else None) == before:
+            atomic(startup, data)
+            startup.chmod(0o755)
+            return True
+    raise RuntimeError('user-startup.sh kept changing')
+
+
+def menu_entry_file(card, enable=True, folder=None):
+    entry = card / 'MisterZine Plex Core.mgl'
+    if not enable:
         entry.unlink(missing_ok=True)
-    if enable or startup.exists():
-        atomic(startup, text.encode())
-        startup.chmod(0o755)
+        return False
+    # Load the core directly. Bouncing through the menu core with a
+    # setname never reaches the watcher under forked main binaries
+    # (Zaparoo Frontend), which keep reporting the menu as the core.
+    # A pre-beta.4 watcher only knows the bounce, so keep it for one.
+    root = card / 'misterzine-plex'
+    return write_if_changed(entry, LEGACY_ENTRY if legacy_watcher(root) else launch_body(root, folder).encode())
+
+
+def menu_entries(card, enable=True, folder=None):
+    startup_file(card)          # refuse a startup file off the card before anything changes
+    menu_entry_file(card, enable, folder)
+    startup_hook(card, enable)
     zaparoo_entry(card, enable, folder)
+
+
+def upkeep_blocked(root):
+    """Why the entries must be left alone now, or None."""
+    if not (root / 'active.json').is_file() or not (root / 'menu_launcher.py').is_file():
+        return 'not installed'
+    if (root / 'updates/activation.json').exists():
+        return 'update in progress'
+    if any((root.parent / 'Scripts').glob('MisterZine-Plex-*.sh.disabled')):
+        return 'entries switched off'           # manager.py remove
+    try:
+        read_state(root)
+        if SELF_DIGEST is None or digest(root / 'manager.py') != SELF_DIGEST:
+            # A recovery or rollback put another release's manager in place.
+            return 'another manager installed'
+    except (OSError, ValueError):
+        return 'installation unreadable'
+    return None
+
+
+def reconcile(card):
+    """Put this release's own entries on the card right: the main-menu entry,
+    the boot hook, the Scripts entries and the Zaparoo entry.
+
+    An in-app update is installed by the previous release's code, which writes
+    its own idea of these, and nothing else checks them later (Zaparoo can
+    arrive after Plex). So each release checks them itself at boot and once an
+    update to it has committed. Each piece is optional: a failure is recorded
+    and the rest goes on. The caller holds the manager lock. Returns whether
+    Zaparoo needs to reload its launchers."""
+    root = card / 'misterzine-plex'
+    reason = upkeep_blocked(root)
+    if reason:
+        note(root, skipped=reason)
+        return False
+    wrote, errors, zaparoo = [], {}, 'unknown'
+    for name, piece in (('menu entry', menu_entry_file), ('boot hook', startup_hook), ('scripts', wrappers)):
+        try:
+            if piece(card):
+                wrote.append(name)
+        except Exception as exc:
+            errors[name] = type(exc).__name__
+    try:
+        zaparoo = zaparoo_entry(card, reload=lambda card: None)
+    except Exception as exc:
+        errors['zaparoo'] = type(exc).__name__
+    if zaparoo in ('written', 'removed'):
+        wrote.append('zaparoo entry')
+    fields = {'release': read_state(root).get('current'), 'skipped': None, 'errors': errors,
+              'zaparoo_entry': {'written': 'current', 'removed': 'none'}.get(zaparoo, zaparoo)}
+    if wrote:
+        fields.update(repaired=wrote, repaired_at=int(time.time()))
+        print(time.strftime('%H:%M:%S') + ' upkeep: put right: ' + ', '.join(wrote), flush=True)
+    if errors:
+        print(time.strftime('%H:%M:%S') + ' upkeep: failed: ' + ', '.join(k + ' (' + v + ')' for k, v in errors.items()), flush=True)
+    note(root, **fields)
+    return zaparoo in ('written', 'removed')
+
+
+@contextlib.contextmanager
+def no_update_running(root):
+    """True for the block while no update is under way, holding the update
+    worker's lock shared so none starts meanwhile; False while one runs or an
+    interrupted one awaits recovery. Never waits."""
+    import fcntl
+    try:
+        lock = (root / 'updates/worker.lock').open('a')
+    except FileNotFoundError:           # no updates folder: no update ever ran
+        yield not (root / 'updates/activation.json').exists()
+        return
+    with lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        yield not (root / 'updates/activation.json').exists()
+
+
+def reconcile_when_settled(card, release=None):
+    """(settled, reload): reconcile unless an update is under way. With a
+    release, only while that release is still the selected one."""
+    root = card / 'misterzine-plex'
+    with no_update_running(root) as clear:
+        if not clear:
+            return False, False
+        if release is not None and read_state(root).get('current') != release:
+            return True, False
+        return True, reconcile(card)
+
+
+def upkeep_after_start(root, release, timeout=600, pause=.5):
+    """Reconcile from a launched release once no update is under way.
+
+    When an update starts this release to check it, the previous release's
+    updater holds its lock until it has committed. A start that fails is
+    stopped before that and the previous release put back, so a release that
+    is being undone never writes its entries. An ordinary launch goes ahead
+    at once. Runs beside the launch and never holds it up."""
+    card = root.parent
+    try:
+        deadline = time.monotonic() + timeout
+        while True:
+            settled, reload = reconcile_when_settled(card, release)
+            if settled:
+                break
+            if time.monotonic() > deadline:
+                return
+            time.sleep(pause)
+        if reload or noted(root).get('zaparoo_pending'):
+            refresh_zaparoo(card)
+    except Exception as exc:
+        note(root, errors={'upkeep': type(exc).__name__})
+
+
+def maintain(card, wait=60):
+    """The boot check (manager.py maintain, started by the watcher). Leaves
+    the entries to the app, an install or an update when one holds the lock."""
+    root = card / 'misterzine-plex'
+    if not root.is_dir():
+        return 0
+    try:
+        with locked(root):
+            settled, reload = reconcile_when_settled(card)
+    except RuntimeError:
+        print('upkeep: skipped, Plex or its installer is running', flush=True)
+        return 0
+    if not settled:
+        print('upkeep: skipped, an update is under way', flush=True)
+    elif reload or noted(root).get('zaparoo_pending'):
+        print('upkeep: Zaparoo reload ' + refresh_zaparoo(card, wait), flush=True)
+    return 0
 
 
 def start_menu_launcher(card):
@@ -212,8 +434,53 @@ def atomic(path, data):
             os.unlink(name)
 
 
+def write_if_changed(path, data, mode=None):
+    """Write only when the content differs, so checks that run at every boot
+    cost no card writes. True when the file was written."""
+    try:
+        same = path.read_bytes() == data
+    except OSError:
+        same = False
+    if not same:
+        atomic(path, data)
+    if mode is not None and (not same or path.stat().st_mode & mode != mode):
+        path.chmod(mode)
+    return not same
+
+
 def write_json(path, data):
     atomic(path, (json.dumps(data, indent=2) + '\n').encode())
+
+
+MAINTENANCE = 'maintenance.json'
+
+
+def note(root, **fields):
+    """Merge fields into maintenance.json, the record of the last entry check
+    and Zaparoo reload that Send a report shows. Written only when a value
+    changed. Best effort: it never stops what it records."""
+    path = root / MAINTENANCE
+    if not root.is_dir():
+        return
+    try:
+        old = json.loads(path.read_text())
+        old = old if isinstance(old, dict) else {}
+    except (OSError, ValueError):
+        old = {}
+    new = dict(old, **fields)
+    if new != old:
+        try:
+            write_json(path, new)
+        except OSError:
+            pass
+
+
+def noted(root):
+    try:
+        value = json.loads((root / MAINTENANCE).read_text())
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
 
 def read_state(root):
@@ -266,6 +533,8 @@ def decoder(root, archive=None):
 
 
 def wrappers(card):
+    """The Scripts entries, and the removal of retired ones. True when any changed."""
+    changed = False
     for label, action in SCRIPTS.items():
         path = card / 'Scripts' / ('MisterZine-Plex-' + label + '.sh')
         helper = 'update_service.py' if label in ('Install', 'Uninstall') else 'manager.py'
@@ -273,12 +542,14 @@ def wrappers(card):
         # Diagnostics always waits: the code it prints is what the player posts.
         pause = 'true' if label == 'Diagnostics' else '[ "$result" -ne 0 ]'
         body += 'result=$?\nif ' + pause + '; then read -r -p "Press Enter to return to MiSTer..."; fi\nexit "$result"\n'
-        atomic(path, body.encode())
-        path.chmod(0o755)
-    for label in ('Run', 'Rollback', 'Remove', 'Diagnostics', 'Install'):
-        (card / 'Scripts' / ('MisterZine-Plex-Core-' + label + '.sh')).unlink(missing_ok=True)
-    for label in ('Run', 'Install'):
-        (card / 'Scripts' / ('MisterZine-Plex-' + label + '.sh')).unlink(missing_ok=True)
+        changed |= write_if_changed(path, body.encode(), 0o755)
+    retired = ['MisterZine-Plex-Core-' + label + '.sh' for label in ('Run', 'Rollback', 'Remove', 'Diagnostics', 'Install')]
+    retired += ['MisterZine-Plex-' + label + '.sh' for label in ('Run', 'Install')]
+    for name in retired:
+        with contextlib.suppress(FileNotFoundError):
+            (card / 'Scripts' / name).unlink()
+            changed = True
+    return changed
 
 
 def stage(card, package, archive=None):
@@ -448,6 +719,53 @@ def ini_video_settings(text):
     return found
 
 
+def defines_launcher(path, ident='misterzine-plex'):
+    """Whether a Zaparoo TOML file has a [[launchers.custom]] table with this
+    id. Tables and keys only; comments do not count."""
+    table = None
+    for line in path.read_text(errors='replace').splitlines():
+        line = line.strip()
+        if line.startswith('['):
+            table = re.sub(r'\s+', '', line.split('#', 1)[0])
+        elif table == '[[launchers.custom]]' and re.fullmatch(r'id\s*=\s*(["\'])' + re.escape(ident) + r'\1\s*(#.*)?', line):
+            return True
+    return False
+
+
+def zaparoo_facts(root, version=None):
+    """Why Plex does or does not show in Zaparoo, without paths or contents."""
+    version = version or zaparoo_version
+    card = root.parent
+    folder = card / 'zaparoo'
+    facts = {'installed': folder.is_dir(), 'script': (card / 'Scripts/zaparoo.sh').is_file()}
+    if not (facts['installed'] or facts['script']):
+        return facts
+    try:
+        data = (folder / 'launchers' / ZAPAROO_ENTRY).read_bytes()
+    except FileNotFoundError:
+        facts['entry'] = 'absent'
+    except OSError:
+        facts['entry'] = 'unreadable'
+    else:
+        try:
+            facts['entry'] = 'current' if data == zaparoo_body(root) else 'stale'
+        except (OSError, ValueError, KeyError, TypeError):
+            facts['entry'] = 'present'
+    # Zaparoo's own config wins over our file; another file with our id is a
+    # duplicate, which Zaparoo refuses.
+    try:
+        facts['config_override'] = (folder / 'config.toml').is_file() and defines_launcher(folder / 'config.toml')
+    except OSError:
+        facts['config_override'] = 'unreadable'
+    try:
+        facts['other_files_with_id'] = sum(1 for path in (folder / 'launchers').glob('*.toml')
+                                           if path.name != ZAPAROO_ENTRY and defines_launcher(path))
+    except OSError:
+        pass
+    facts['core'] = version() or 'not answering'
+    return facts
+
+
 def system_facts(root, secrets, proc_root=Path('/proc')):
     """Facts about the board that decide whether a launch or a picture can
     work, gathered read-only. Each is best-effort and absent when unreadable."""
@@ -488,6 +806,13 @@ def system_facts(root, secrets, proc_root=Path('/proc')):
         facts['startup_sha256'] = hashlib.sha256(startup.encode()).hexdigest()[:16]
     except OSError:
         pass
+    try:
+        facts['zaparoo'] = zaparoo_facts(root)
+    except OSError:
+        pass
+    upkeep = noted(root)
+    if upkeep:
+        facts['upkeep'] = upkeep
     try:
         facts['framebuffer_mode'] = Path('/sys/module/MiSTer_fb/parameters/mode').read_text().strip()
     except OSError:
@@ -564,7 +889,7 @@ def build_report(root, proc_root=Path('/proc'), tmp=Path('/tmp'), now=None):
         state = None
     facts = system_facts(root, secrets, proc_root)
     logs = [(name, tmp / name) for name in REPORT_LOGS]
-    logs += [(name, root / 'updates' / name) for name in ('last-error.log', 'download-output.log', 'downloader.log')]
+    logs += [(name, root / 'updates' / name) for name in ('last-error.log', 'worker.log', 'download-output.log', 'downloader.log')]
     logs = [(name, path) for name, path in logs if path.is_file()]
     created = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now))
     limit = 64 * 1024
@@ -981,8 +1306,12 @@ def fb_mode(parameters=Path('/sys/module/MiSTer_fb/parameters')):
 
 
 def run(root):
-    recover_activation(root)
+    recovered = recover_activation(root)
     state = read_state(root)
+    if not recovered:
+        # The update that installed this release ran the previous release's
+        # code, so check this release's own entries once it has committed.
+        threading.Thread(target=upkeep_after_start, args=(root, state['current']), daemon=True).start()
     folder = root / 'releases' / state['current']
     args = [str(folder / 'plexcrt'), '-config', str(root / 'plexcrt.json'),
             '-cache', str(root / 'cache'), '-ffmpeg', str(root / 'ffmpeg')]
@@ -1072,7 +1401,7 @@ def run(root):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['install', 'run', 'rollback', 'remove', 'diagnostics', 'report'])
+    parser.add_argument('action', choices=['install', 'run', 'rollback', 'remove', 'diagnostics', 'report', 'maintain'])
     parser.add_argument('--card', type=Path, default=Path('/media/fat'))
     parser.add_argument('--package', type=Path, default=Path(__file__).resolve().parent)
     parser.add_argument('--decoder-archive', type=Path)
@@ -1095,6 +1424,8 @@ def main():
                 print('Not sent: ' + problem + ' You can send the saved file instead.')
             print('It can name media titles and playback details. Account files and tokens are never included.')
             return 0 if code or args.no_upload else 1
+        if args.action == 'maintain':
+            return maintain(args.card)
         with locked(root):
             if args.action == 'install':
                 install(args.card, args.package, args.decoder_archive)

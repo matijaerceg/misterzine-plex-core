@@ -631,7 +631,8 @@ def uninstall(card, keep=True):
                 shutil.rmtree(staged)
             (root / 'active.json').unlink(missing_ok=True)
             if keep:
-                for name in ('releases', 'updates', 'ffmpeg', 'decoder.json', 'decoder-notices', 'ffmpeg-7.0.2-armhf-static.tar.xz'):
+                for name in ('releases', 'updates', 'ffmpeg', 'decoder.json', 'decoder-notices', 'ffmpeg-7.0.2-armhf-static.tar.xz',
+                             manager.MAINTENANCE):
                     path = guarded(root, name)
                     if path.is_dir():
                         shutil.rmtree(path)

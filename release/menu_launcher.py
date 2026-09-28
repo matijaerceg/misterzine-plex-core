@@ -13,6 +13,18 @@ import time
 SELECTIONS = ('MisterZine Plex Core', 'MisterZine Plex', 'misterzine-plex')
 
 
+def start_upkeep(card, root):
+    """Check the Plex entries once as the watch starts (at boot, or after an
+    install): `manager.py maintain`. A child process, so the watch starts at
+    once; the caller reaps it."""
+    try:
+        with open('/tmp/misterzine-plex-maintain.log', 'wb') as log:
+            return subprocess.Popen([sys.executable, str(root / 'manager.py'), 'maintain', '--card', str(card)],
+                                    stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+    except OSError:
+        return None
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--card', type=Path, default=Path('/media/fat'))
@@ -25,8 +37,11 @@ def main():
         except BlockingIOError:
             return
         handled = None
+        upkeep = start_upkeep(card, root)
         while root.is_dir() and (root / 'menu_launcher.py').is_file():
             time.sleep(.1)
+            if upkeep is not None and upkeep.poll() is not None:
+                upkeep = None
             try:
                 name = Path('/tmp/CORENAME')
                 stamp = name.stat().st_mtime_ns
@@ -65,6 +80,8 @@ def main():
                 left = False
                 while child.poll() is None:
                     time.sleep(.1)
+                    if upkeep is not None and upkeep.poll() is not None:
+                        upkeep = None
                     try:
                         left = left or name.read_text().strip() not in SELECTIONS
                     except OSError:
