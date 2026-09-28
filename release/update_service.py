@@ -497,11 +497,16 @@ def start_and_check(root, timeout=25):
                              start_new_session=True, env=env)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if child.poll() is not None:
+        started = ready.is_file()
+        code = child.poll()
+        if started:
+            if code is None:
+                time.sleep(2)
+                code = child.poll()
+            # Exit to MiSTer menu, chosen once the app was up, is no failed start.
+            return code in (None, manager.EXIT_TO_MENU)
+        if code is not None:
             return False
-        if ready.is_file():
-            time.sleep(2)
-            return child.poll() is None
         time.sleep(.2)
     stop_manager(root)
     return False

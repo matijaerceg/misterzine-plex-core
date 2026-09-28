@@ -108,6 +108,11 @@ func (o *Options) items() []option {
 	}
 	items = append(items, option{label: updateLabel, do: func() { o.app.Push(NewUpdates(o.app)) }})
 	items = append(items, option{label: "Send a report", do: func() { o.app.Push(NewReport(o.app)) }})
+	if o.app.Plex == nil {
+		// signed out there is no menu to hold Exit: Back from the sign-in
+		// screen comes here
+		items = append(items, option{label: "Exit to MiSTer menu", do: func() { o.app.ToMenu = true }})
+	}
 	items = append(items, option{label: "Version", val: func() string {
 		if o.app.Version == "" {
 			return "development"

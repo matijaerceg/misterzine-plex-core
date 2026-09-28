@@ -17,6 +17,7 @@ import (
 	"plexcrt/internal/safelog"
 	"runtime/pprof"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -31,7 +32,14 @@ import (
 var version = "0.1.0-beta.12"
 var build = "development"
 
-func main() {
+// exitToMenu is the exit status after the menu's Exit: the launcher then
+// loads the MiSTer menu (EXIT_TO_MENU in release/manager.py).
+const exitToMenu = 3
+
+func main() { os.Exit(run()) }
+
+// run is the app; its deferred cleanup is done before main exits with its status.
+func run() int {
 	exe, _ := os.Executable()
 	home := filepath.Dir(exe)
 	host := flag.String("host", "", "server address for explicit legacy-token import")
@@ -56,7 +64,7 @@ func main() {
 		if beta.Batch != "" || beta.KeySHA256 != "" || beta.CodeSHA256 != "" {
 			fmt.Printf("Patreon beta batch: %s\n", beta.Batch)
 		}
-		return
+		return 0
 	}
 	ff := filepath.Join(home, "ffmpeg")
 	if _, err := os.Stat(ff); err != nil {
@@ -75,7 +83,7 @@ func main() {
 	}
 	if *check {
 		fmt.Printf("Installation ready: %s (%s)\n", version, build)
-		return
+		return 0
 	}
 	// Prevent two copies of this install writing the same frame ring.
 	lock, err := os.OpenFile(filepath.Join(home, "app.lock"), os.O_CREATE|os.O_RDWR, 0600)
@@ -86,7 +94,7 @@ func main() {
 	defer lock.Close()
 	if syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
 		fmt.Fprintln(os.Stderr, "MisterZine Plex Core is already running.")
-		return
+		return 0
 	}
 	cfg := ui.LoadConfig(*cfgPath)
 	if cfg.LoadError != nil {
@@ -135,15 +143,16 @@ func main() {
 			lg.Fatal(err)
 		}
 		fmt.Println("wrote", *dump)
-		return
+		return 0
 	}
 
 	r, err := ring.Open()
 	if err != nil {
 		lg.Fatalf("ring: %v (is MisterZine Plex Core loaded?)", err)
 	}
-	defer r.Close()
-	player := &ui.Player{Script: *script, Fifo: "/tmp/plexplay.ctl", LogTo: filepath.Join(os.TempDir(), "plexplay.log"),
+	// The ring stays mapped until the process ends: the pad poller and the
+	// watchdog may still be reading it as the app stops, and exiting unmaps it.
+	player :=&ui.Player{Script: *script, Fifo: "/tmp/plexplay.ctl", LogTo: filepath.Join(os.TempDir(), "plexplay.log"),
 		Status: "/tmp/plexfb.stat", Env: playerEnv, Kbps: cfg.BitrateKbps, Boost: cfg.AudioBoostValue}
 	player.Access = func() error { return beta.Check(filepath.Dir(*cfgPath)) }
 	app := ui.New(client, r, player, lg)
@@ -164,16 +173,23 @@ func main() {
 	}
 
 	stop := make(chan struct{})
+	var stopping sync.Once
+	quit := func() { stopping.Do(func() { close(stop) }) }
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	go func() { <-sig; close(stop) }()
+	go func() { <-sig; quit() }()
 	events := merge(input.Poll(r, stop), input.Sim("/tmp/plexcrt.ctl", stop), stop)
 	app.Run(events, stop)
+	quit() // after the menu's Exit, the pad and the test FIFO stop too
 	// Leave our core on black, but once MiSTer main has loaded another core
 	// or the menu, this memory is main's picture.
 	if r.CoreRunning(100 * time.Millisecond) {
 		r.Blank()
 	}
+	if app.ToMenu {
+		return exitToMenu
+	}
+	return 0
 }
 
 // merge joins the pad and the simulation FIFO into one stream.

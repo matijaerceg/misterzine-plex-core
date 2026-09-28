@@ -174,6 +174,70 @@ class InstallerTests(unittest.TestCase):
         struct.pack_into('<I', mem, 0x6c, 0)
         self.assertEqual(manager.lost_core_status(mem, sleep=lambda _: None), 0)
 
+    def test_only_the_exit_status_asks_for_the_menu(self):
+        self.assertTrue(manager.app_finished(manager.EXIT_TO_MENU))
+        self.assertFalse(manager.app_finished(0))
+        self.assertFalse(manager.app_finished(None))    # stopped here: the core went
+        for status in (1, 2, -15):
+            with self.assertRaises(RuntimeError):
+                manager.app_finished(status)
+
+    def test_exit_loads_the_menu_core(self):
+        cmd = self.base / 'MiSTer_cmd'
+        self.card.mkdir()
+        plex, menu = {10: b'/media/fat/plex.rbf'}, {11: b'/media/fat/menu.rbf'}
+        with mock.patch.object(manager, 'trace'):
+            self.assertFalse(manager.load_menu(self.card, cmd))
+            self.assertFalse(cmd.exists())
+            (self.card / 'menu.rbf').write_bytes(b'rbf')
+            # MiSTer restarts its main process to load the menu
+            with mock.patch.object(manager, 'mister_processes', side_effect=[plex, plex, menu]):
+                self.assertTrue(manager.load_menu(self.card, cmd))
+            self.assertEqual(cmd.read_text(), 'load_core ' + str(self.card / 'menu.rbf') + '\n')
+            # Zaparoo Frontend's main comes back on its own menu core
+            with mock.patch.object(manager, 'mister_processes', side_effect=[plex, {12: b'zaparoo/menu_zaparoo.rbf'}]):
+                self.assertTrue(manager.load_menu(self.card, cmd))
+            # the same main process all along, or a new one on another core
+            for after in (plex, {13: b'/media/fat/_Console/NES.rbf'}):
+                with mock.patch.object(manager, 'mister_processes', side_effect=[plex] + [after] * 100):
+                    self.assertFalse(manager.load_menu(self.card, cmd, wait=.1))
+
+    def test_exit_lingers_with_the_lock_let_go(self):
+        import fcntl
+        self.root.mkdir(parents=True)
+        free = []
+
+        def linger():
+            # a new pick of Plex meanwhile must be able to launch
+            with (self.root / 'manager.lock').open('a') as lock:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    free.append(True)
+                except BlockingIOError:
+                    free.append(False)
+        with mock.patch.object(manager, 'run', return_value=True), \
+                mock.patch.object(manager, 'linger_for_start_check', side_effect=linger), \
+                mock.patch.object(manager.sys, 'argv', ['manager.py', 'run', '--card', str(self.card)]):
+            self.assertEqual(manager.main(), manager.EXIT_TO_MENU)
+        self.assertEqual(free, [True])
+        with mock.patch.object(manager, 'run', return_value=False), \
+                mock.patch.object(manager, 'linger_for_start_check', side_effect=self.fail), \
+                mock.patch.object(manager.sys, 'argv', ['manager.py', 'run', '--card', str(self.card)]):
+            self.assertEqual(manager.main(), 0)
+
+    def test_exit_after_an_update_start_outlasts_its_check(self):
+        ready = self.base / 'started'
+        ready.write_text('ready')
+        up = ready.stat().st_mtime
+        slept = []
+        # the app came up half a second ago: stay until 3 s after it
+        self.assertAlmostEqual(manager.linger_for_start_check(str(ready), now=lambda: up + .5, sleep=slept.append), 2.5)
+        self.assertAlmostEqual(slept[0], 2.5)
+        # long up, no updater, or no marker: no wait
+        self.assertEqual(manager.linger_for_start_check(str(ready), now=lambda: up + 10, sleep=self.fail), 0)
+        self.assertEqual(manager.linger_for_start_check('', sleep=self.fail), 0)
+        self.assertEqual(manager.linger_for_start_check(str(self.base / 'missing'), sleep=self.fail), 0)
+
     def test_reject_path_escape(self):
         self.root.mkdir(parents=True)
         manager.write_json(self.root / 'active.json', {'current': '../elsewhere'})

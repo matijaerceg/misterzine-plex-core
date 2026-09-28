@@ -243,11 +243,12 @@ func (p *Playing) running(now time.Time) bool {
 	return p.scrub && p.held != 0 && now.Sub(p.heldAt) >= ScrubHold && p.dur > 0
 }
 
-// runSpeed is the hold's pixels per field: one at first, three after a
-// second. Whole pixels per field keep the motion even on the tube.
+// runSpeed is the hold's pixels per field: one at first, two after half a
+// second (three was too fast to stop on a scene). Whole pixels per field
+// keep the motion even on the tube.
 func (p *Playing) runSpeed(now time.Time) int {
 	hold := now.Sub(p.heldAt).Seconds() - ScrubHold.Seconds()
-	return min(1+int(hold*2), 3)
+	return min(1+int(hold*2), 2)
 }
 
 // fromX is the film time the dot at frame column x stands for.

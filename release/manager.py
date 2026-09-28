@@ -1334,6 +1334,68 @@ def fb_mode(parameters=Path('/sys/module/MiSTer_fb/parameters')):
         return '?'
 
 
+# The app's exit status after the menu's Exit (exitToMenu in app/cmd/plexcrt/main.go).
+EXIT_TO_MENU = 3
+
+
+def app_finished(returncode):
+    """Whether the app asked for the MiSTer menu as it ended. One still running
+    (stopped here: None) or one that exited cleanly did not; any other
+    status is a failure."""
+    if returncode == EXIT_TO_MENU:
+        return True
+    if returncode not in (None, 0):
+        raise RuntimeError('App could not start. Run MisterZine-Plex-Diagnostics and check the report.')
+    return False
+
+
+def menu_core(arg):
+    """Whether a MiSTer main process's core argument is a menu: menu.rbf, or a
+    forked main's own (Zaparoo Frontend loads zaparoo/menu_zaparoo.rbf)."""
+    name = Path(arg.decode(errors='replace')).name.lower()
+    return name.startswith('menu') and name.endswith('.rbf')
+
+
+def load_menu(card, cmd=Path('/dev/MiSTer_cmd'), wait=10):
+    """Return to the MiSTer menu, as a short OSD Reboot does. Only once the app,
+    player and presenter have stopped: the menu draws its background into the
+    framebuffer, and a mode write of ours after that would clear its top.
+    MiSTer restarts its main process to load a core, so a new one running a
+    menu shows it came up. False when it did not."""
+    rbf = card / 'menu.rbf'
+    if not rbf.is_file():
+        trace('no %s; the Plex core stays loaded' % rbf)
+        return False
+    before = mister_processes()
+    with open(cmd, 'w') as out:
+        out.write('load_core ' + str(rbf) + '\n')
+    trace('app chose Exit; loading the MiSTer menu')
+    deadline = time.monotonic() + wait
+    while not any(pid not in before and menu_core(arg) for pid, arg in mister_processes().items()):
+        if time.monotonic() > deadline:
+            trace('no MiSTer menu within %d s; the Plex core may still be loaded' % wait)
+            return False
+        time.sleep(.05)
+    trace('MiSTer menu loaded')
+    return True
+
+
+def linger_for_start_check(ready=None, now=time.time, sleep=time.sleep):
+    """After an Exit, stay until 3 s after the app came up when an updater's
+    start check launched us (its readiness marker is set). That check, in
+    older releases too, counts a launcher still running 2 s after the app is
+    up as a good start; ending sooner would roll the update back."""
+    ready = ready if ready is not None else os.environ.get('MISTERZINE_PLEX_READY_FILE')
+    try:
+        up = Path(ready).stat().st_mtime if ready else None
+    except OSError:
+        up = None
+    wait = max(0.0, min(3.0, up + 3 - now())) if up else 0.0
+    if wait:
+        sleep(wait)
+    return wait
+
+
 def run(root):
     recovered = recover_activation(root)
     state = read_state(root)
@@ -1395,6 +1457,7 @@ def run(root):
             raise KeyboardInterrupt()
         # Before anything is paused or switched, so a stop at any point unwinds.
         signal.signal(signal.SIGTERM, interrupted)
+        to_menu = False
         with screen_to_ourselves() as screen, open('/tmp/misterzine-plex.log', 'wb') as log:
             child = None
             try:
@@ -1418,14 +1481,18 @@ def run(root):
                         break
                 if child.poll() is not None:
                     trace('app exited with status %d after %.0f s' % (child.returncode, time.monotonic() - changed))
-                if child.poll() not in (None, 0):
-                    raise RuntimeError('App could not start. Run MisterZine-Plex-Diagnostics and check the report.')
+                to_menu = app_finished(child.poll())
             finally:
                 with contextlib.suppress(ValueError):
                     signal.signal(signal.SIGTERM, signal.SIG_IGN)   # finish stopping the app
                 if child is not None:
                     stop_child(child)
                 cleanup_player(folder)
+    if to_menu:
+        # The screen is handed back and everything of ours has stopped.
+        if not load_menu(root.parent):
+            raise RuntimeError('Could not return to the MiSTer menu. Use the OSD to leave Plex.')
+    return to_menu
 
 
 def main():
@@ -1456,16 +1523,21 @@ def main():
         if args.action == 'maintain':
             sys.stdout = sys.stderr         # the log; stdout only tells the watcher when to go on
             return maintain(args.card, released=let_the_watcher_go)
+        to_menu = False
         with locked(root):
             if args.action == 'install':
                 install(args.card, args.package, args.decoder_archive)
                 prune_releases(root)
             elif args.action == 'run':
-                run(root)
+                to_menu = run(root)
             elif args.action == 'rollback':
                 rollback(root)
             elif args.action == 'remove':
                 remove(args.card)
+        if to_menu:
+            # With the lock let go, so Plex picked again meanwhile still launches.
+            linger_for_start_check()
+            return EXIT_TO_MENU     # the updater's start check reads it
     except KeyboardInterrupt:
         return 0
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError, tarfile.TarError) as exc:

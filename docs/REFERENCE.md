@@ -12,29 +12,34 @@ Detailed behavior and display settings. For everyday help, see the
 - In the library wall, L/R jumps by sort letter or page. Back selects the view
   tabs, then returns to the previous screen.
 - During playback, OK opens the controls. Left/right selects an action; OK
-  activates it. Up opens the scrubber. Back closes the controls; Back with the
-  controls hidden stops playback. Audio/subtitle menus use the same controls.
-  In the scrubber, taps step the dot ten seconds and a hold runs it; the
-  seek goes on its own 400 ms after the last release (OK sends it at once).
+  activates it. Up opens the scrubber. Back or Down closes the controls; Back
+  with the controls hidden stops playback. Audio/subtitle menus use the same
+  controls. In the scrubber, taps step the dot ten seconds and a hold runs it,
+  speeding up once after half a second; the seek goes on its own 400 ms after
+  the last release (OK sends it at once). Down from the scrubber returns to the
+  buttons and keeps the new position; Back returns without it.
   With the controls hidden, left/right shows a strip with the title, the
   progress bar and the times, and works the same way: taps and holds add
   up into one seek. The last frame stays on screen until the new position
   starts playing. **More** holds the crop for the playback under way (see
   Display setup); it is dimmed when no crop would change the picture.
-- The menu lists Home, Search, the movie and TV libraries, and Options. A long
-  list of libraries scrolls, and the menu opens on the library visited last.
+- The menu lists Home, Search, the movie and TV libraries, Options, and Exit to
+  MiSTer menu. A long list of libraries scrolls, and the menu opens on the
+  library visited last.
 - Options contains video mode, video geometry and crop, theme music, navigation
   taps, autoplay, bitrate, downmix boost, the 4:3 filter, server selection and
   sign-out. The 4:3 filter applies to the
   home rows, search and every library view. Movies and episodes are judged by
   their own picture; a show by its first episode. Each TV library is read once
   for that, the first time the filter needs it, and the answers are kept in the
-  cache folder. An update waiting under Options is marked with an amber dot in
-  the menu.
+  cache folder. An update waiting under Options is marked with a purple UPDATE
+  mark at the top of Home and an amber dot in the menu.
 - After three minutes without a press in the menus or on a paused video, the
   screen dims to a quarter of its brightness. The next press only brings it
   back; it does not also act. The sign-in code never dims.
-- To leave the app, open MiSTer's OSD and return to the MiSTer Menu core.
+- To leave the app, choose Exit to MiSTer menu in the menu (before sign-in, at
+  the foot of Options). Returning to the MiSTer Menu core from MiSTer's OSD
+  works too.
 
 ### Connecting after power-on
 

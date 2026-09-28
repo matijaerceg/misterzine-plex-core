@@ -76,12 +76,15 @@ type App struct {
 	// show it as a spinner); zero otherwise.
 	Starting time.Time
 	// Mark is the app's wordmark, rendered once.
-	Mark     *Wordmark
-	betaMark *gfx.Image
+	Mark  *Wordmark
+	marks map[string]*gfx.Image // the BETA and UPDATE marks, by text
 	// Cfg is the user's settings (Options screen) and sign-in.
 	Cfg            *Config
 	Showcase       bool // session-only capture privacy
 	Version, Build string
+	// ToMenu is set by the menu's Exit: Run returns, and the launcher loads
+	// the MiSTer menu once the app has stopped.
+	ToMenu bool
 	// Connected is signalled by the sign-in screen once a server is saved.
 	Connected chan struct{}
 	// Notice is a line shown along the bottom for a few seconds (a file
@@ -591,7 +594,8 @@ func (a *App) knownSections(secs []plex.Section) {
 	}
 }
 
-// Menu opens the drawer over the home screen: Home, the libraries, Options.
+// Menu opens the drawer over the home screen: Home, the libraries, Options,
+// Exit.
 func (a *App) Menu() {
 	if a.Plex == nil {
 		return // signing in: nothing to list
@@ -599,11 +603,17 @@ func (a *App) Menu() {
 	if len(a.secs) == 0 {
 		a.loadSections() // not in yet: one request, the first time only
 	}
+	items, cur := a.menuItems()
+	a.Push(NewDrawer(a, a.stack[0], items, cur))
+}
+
+// menuItems lists the drawer's entries, with the one to open on.
+func (a *App) menuItems() ([]*plex.Item, int) {
 	items := []*plex.Item{{Title: "Home", Type: "home"}, {Title: "Search", Type: "search"}}
 	for _, s := range a.secs {
 		items = append(items, &plex.Item{RatingKey: s.Key, Title: s.Title, Type: "section", Key: s.Key})
 	}
-	items = append(items, &plex.Item{Title: "Options", Type: "options"})
+	items = append(items, &plex.Item{Title: "Options", Type: "options"}, &plex.Item{Title: "Exit to MiSTer menu", Type: "exit"})
 	// open on the library visited last, so a long list needs no scrolling to return
 	cur := 0
 	for i, it := range items {
@@ -611,7 +621,7 @@ func (a *App) Menu() {
 			cur = i
 		}
 	}
-	a.Push(NewDrawer(a, a.stack[0], items, cur))
+	return items, cur
 }
 
 // MenuPick acts on a drawer entry.
@@ -629,6 +639,8 @@ func (a *App) MenuPick(d *Drawer, it *plex.Item) {
 			// the wall replaces the drawer once it has slid out: Back from it is home
 			d.Close(func() { a.Push(NewWall(a, s)) })
 		}
+	case "exit":
+		a.ToMenu = true // Run returns before the next frame
 	}
 }
 
@@ -827,7 +839,8 @@ func (a *App) homeUpdating() bool {
 	return false
 }
 
-// Run drives input, drawing and presentation until stop closes.
+// Run drives input, drawing and presentation until stop closes or the
+// menu's Exit sets ToMenu.
 func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
 	defer a.theme.Stop()
 	if r, ok := a.Out.(*ring.Ring); ok {
@@ -895,6 +908,10 @@ func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
 			case <-stop:
 				return
 			}
+		}
+		if a.ToMenu {
+			a.Log.Printf("exit to the MiSTer menu")
+			return
 		}
 		a.runLater()
 		a.idle(time.Now(), a.menuWaiting()) // the idle tick checks it every second
@@ -1022,7 +1039,7 @@ func (a *App) key(ev input.Event, now time.Time) {
 func (a *App) DrawOnce() *gfx.Canvas {
 	c := a.Out.Begin()
 	a.top().Draw(c, time.Now())
-	a.drawBetaBrand(c)
+	a.drawBrand(c)
 	a.Out.End()
 	return c
 }

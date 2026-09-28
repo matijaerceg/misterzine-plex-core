@@ -12,8 +12,9 @@ does to your library or your MiSTer.
 ### How do I use it?
 
 D-pad moves, OK selects, and Back returns or opens the menu. During playback,
-OK opens the controls; Back closes them. Press Back with the controls hidden to
-stop. To leave the app, use MiSTer's on-screen menu to return to the Menu core.
+OK opens the controls; Back or Down closes them. Press Back with the controls
+hidden to stop. To leave the app, choose Exit to MiSTer menu at the bottom of
+the menu.
 
 ### Why is it asking for another code?
 

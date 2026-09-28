@@ -48,6 +48,50 @@ class ProcessTests(unittest.TestCase):
             finally:
                 if child.poll() is None:child.kill();child.wait()
 
+    def test_start_check_counts_exit_to_the_menu_as_a_start(self):
+        real_sleep = time.sleep
+        for status, runs, started in ((manager.EXIT_TO_MENU, .3, True), (None, 1.5, True), (0, .3, False), (1, .3, False)):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / 'updates').mkdir()
+                # up (the readiness marker), then gone with this status after `runs` s
+                (root / 'manager.py').write_text(
+                    'import os, sys, time\n'
+                    'open(os.environ["MISTERZINE_PLEX_READY_FILE"], "w").write("ready")\n'
+                    'time.sleep(%s)\nsys.exit(%d)\n' % (runs, status or 0))
+                with patch.object(service.time, 'sleep', lambda s: real_sleep(min(s, .6))):
+                    self.assertEqual(service.start_and_check(root, timeout=10), started)
+
+    def test_an_older_updaters_start_check_survives_an_exit(self):
+        def legacy_start_check(root, timeout=10):
+            # start_and_check as releases up to 73924e1 have it: the update
+            # worker is the installed release's, the manager the new one's
+            ready = root / 'updates/started'
+            env = dict(os.environ, MISTERZINE_PLEX_READY_FILE=str(ready))
+            child = subprocess.Popen([service.sys.executable, str(root / 'manager.py')], env=env)
+            try:
+                deadline = time.monotonic() + timeout
+                while time.monotonic() < deadline:
+                    if child.poll() is not None:
+                        return False
+                    if ready.is_file():
+                        time.sleep(2)
+                        return child.poll() is None
+                    time.sleep(.2)
+                return False
+            finally:
+                child.wait()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'updates').mkdir()
+            (root / 'manager.py').write_text(
+                'import os, sys, time\nsys.path.insert(0, %r)\nimport manager\n'
+                'open(os.environ["MISTERZINE_PLEX_READY_FILE"], "w").write("ready")\n'
+                'time.sleep(.3)  # the app is up, and the user chooses Exit\n'
+                'manager.linger_for_start_check()\nsys.exit(manager.EXIT_TO_MENU)\n'
+                % str(Path(manager.__file__).resolve().parent))
+            self.assertTrue(legacy_start_check(root))
+
 
 class UpdateTests(unittest.TestCase):
     def setUp(self):
