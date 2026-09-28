@@ -63,23 +63,45 @@ func Open() (*Ring, error) {
 		return nil, err
 	}
 	defer f.Close()
-	// Look for the core through one page, which any mode maps, before
-	// enlarging the mode: the write clears main's menu wallpaper as well.
+	// The core is looked for through one page, which any mode maps.
 	head, err := syscall.Mmap(int(f.Fd()), 0, 4096, syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
 		return nil, err
 	}
-	running := (&Ring{hdr: (*[32]uint32)(unsafe.Pointer(&head[0])), stat: (*[4]uint32)(unsafe.Pointer(&head[statOff]))}).CoreRunning(2 * time.Second)
-	syscall.Munmap(head)
-	if !running {
+	defer syscall.Munmap(head)
+	probe := &Ring{hdr: (*[32]uint32)(unsafe.Pointer(&head[0])), stat: (*[4]uint32)(unsafe.Pointer(&head[statOff]))}
+	mem, err := mapRing(func() ([]byte, error) {
+		return syscall.Mmap(int(f.Fd()), 0, mapSize, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+	}, enlargeMode, probe.CoreRunning)
+	if err != nil {
+		return nil, err
+	}
+	r := &Ring{mem: mem}
+	r.hdr = (*[32]uint32)(unsafe.Pointer(&mem[0]))
+	r.stat = (*[4]uint32)(unsafe.Pointer(&mem[statOff]))
+	if !r.CoreRunning(2 * time.Second) {
+		syscall.Munmap(mem)
 		return nil, errNotRunning
 	}
-	var mem []byte
+	return r, nil
+}
+
+var errNotRunning = errors.New("MisterZine Plex Core is not running; launch MisterZine Plex Core from Scripts")
+
+// mapRing maps the ring, first enlarging a framebuffer mode that maps less,
+// and only while the core runs: once main has loaded the menu, the mode is
+// the menu's, and the write also clears the top of its wallpaper.
+func mapRing(mmap func() ([]byte, error), enlarge func() (string, error), running func(time.Duration) bool) ([]byte, error) {
+	wait := 2 * time.Second
 	for try := 0; ; try++ {
-		from, werr := enlargeMode()
-		mem, err = syscall.Mmap(int(f.Fd()), 0, mapSize, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
+		if !running(wait) {
+			return nil, errNotRunning
+		}
+		wait = 100 * time.Millisecond
+		from, werr := enlarge()
+		mem, err := mmap()
 		if err == nil {
-			break
+			return mem, nil
 		}
 		// main's own mode write can land between ours and the mapping
 		if err != syscall.EINVAL || try == 20 {
@@ -90,13 +112,7 @@ func Open() (*Ring, error) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	r := &Ring{mem: mem}
-	r.hdr = (*[32]uint32)(unsafe.Pointer(&mem[0]))
-	r.stat = (*[4]uint32)(unsafe.Pointer(&mem[statOff]))
-	return r, nil
 }
-
-var errNotRunning = errors.New("MisterZine Plex Core is not running; launch MisterZine Plex Core from Scripts")
 
 // CoreRunning reports whether the core is still scanning the ring: within
 // the given time its field counter moves on to a nonzero value beside its

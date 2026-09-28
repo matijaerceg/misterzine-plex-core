@@ -88,24 +88,56 @@ static struct stat_w *stat;
  * again whenever it sets a video mode, from a worker thread, so the launcher's
  * 1920x1080 can be undone after it. Put it back before mapping. Writing the
  * mode clears this memory; the presenter publishes its own frames anyway.
+ * Only for a running core: once main has loaded the menu, the mode is the
+ * menu's, and the write also clears the top of its wallpaper.
  */
 #define FB_MODE_FILE "/sys/module/MiSTer_fb/parameters/mode"
-static void enlarge_fb(size_t len)
+
+/* The core writes its field counter, then its status signature at +0x6c,
+   every vsync (rtl/ddr_scanout.v). Running: the counter moves on to a
+   nonzero value beside the signature within ms. A mode write zeroes both
+   until the next vsync, and another core leaves them as they were. */
+static int core_running(const volatile uint32_t *words, int ms)
+{
+	uint32_t start = words[STAT_OFF / 4];
+	for (int waited = 0; ; waited += 2) {
+		uint32_t f = words[STAT_OFF / 4];
+		if (f != start && f != 0 && (words[0x6c / 4] & 0xfffffff0u) == 0x56500000u)
+			return 1;
+		if (waited >= ms) return 0;
+		usleep(2000);
+	}
+}
+
+/* through one page, which any mode maps */
+static int core_running_fd(int fd, int ms)
+{
+	void *page = mmap(0, 4096, PROT_READ, MAP_SHARED, fd, 0);
+	if (page == MAP_FAILED) return 0;
+	int running = core_running(page, ms);
+	munmap(page, 4096);
+	return running;
+}
+
+/* 0 when the mode needed enlarging and the core is not running */
+static int enlarge_fb(int fd, size_t len)
 {
 	char mode[64] = "";
 	int fmt, rb, w, h, stride;
 	FILE *f = fopen(FB_MODE_FILE, "r");
-	if (!f) return;
+	if (!f) return 1;
 	if (!fgets(mode, sizeof mode, f)) mode[0] = 0;
 	fclose(f);
-	if (sscanf(mode, "%d %d %d %d %d", &fmt, &rb, &w, &h, &stride) != 5) return;
-	if (fmt == 8888 && (size_t)stride * (size_t)h >= len) return;
+	if (sscanf(mode, "%d %d %d %d %d", &fmt, &rb, &w, &h, &stride) != 5) return 1;
+	if (fmt == 8888 && (size_t)stride * (size_t)h >= len) return 1;
+	if (!core_running_fd(fd, 100)) return 0;
 	mode[strcspn(mode, "\n")] = 0;
 	fprintf(stderr, "plexfb: framebuffer mode \"%s\" maps less than the ring; setting 1920x1080\n", mode);
 	f = fopen(FB_MODE_FILE, "w");
-	if (!f) { perror(FB_MODE_FILE); return; }
+	if (!f) { perror(FB_MODE_FILE); return 1; }
 	fputs("8888 1 1920 1080 7680\n", f);
 	if (fclose(f)) perror(FB_MODE_FILE);
+	return 1;
 }
 
 /*
@@ -134,7 +166,10 @@ static void map_mem(void)
 	/* fb0 is 1920*1080*4 = 8,294,400 bytes; mmap refuses anything longer */
 	size_t len = off ? MAP_SIZE : 0x7E0000u;   /* slot 4 ends at 0x7D1800 */
 	for (int tries = 0; ; tries++) {
-		if (!off) enlarge_fb(len);
+		if (!off && !enlarge_fb(fd, len)) {
+			fprintf(stderr, "plexfb: MisterZine Plex Core is not running; framebuffer mode left alone\n");
+			exit(1);
+		}
 		map = mmap(0, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, off);
 		if (map != MAP_FAILED) break;
 		/* main's own mode write can land between ours and the mapping */
@@ -718,7 +753,8 @@ static void present_loop(double fps, uint32_t seq)
 	double dt = now() - t0;
 	ring_eof = 1;                      /* tells the audio thread to wind down */
 	write_status((ring_shown - ring_base) / fps, starved);
-	if (!g_hold) blank_screen(++seq);
+	/* once main has loaded another core or the menu, this memory is its picture */
+	if (!g_hold && core_running((const volatile uint32_t *)map, 100)) blank_screen(++seq);
 	printf("%d frames in %.1fs (%.2f fps), avg read %.1f ms, scale %.1f ms, %d starved slots, max %d frames ahead%s\n",
 	       n, dt, n / dt, n ? stat_read_ms / n : 0, n ? stat_scale_ms / n : 0, starved, max_ahead,
 	       g_quit ? ", stopped" : "");

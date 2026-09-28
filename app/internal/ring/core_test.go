@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -72,6 +73,39 @@ func TestCoreRunning(t *testing.T) {
 	}()
 	if r.CoreRunning(50 * time.Millisecond) {
 		t.Fatal("a counter without the status signature read as running")
+	}
+}
+
+func TestMapRingEnlargesOnlyForARunningCore(t *testing.T) {
+	var enlarged, mapped int
+	enlarge := func() (string, error) { enlarged++; return "", nil }
+	refused := func() ([]byte, error) { mapped++; return nil, syscall.EINVAL }
+	ok := func() ([]byte, error) { mapped++; return make([]byte, 8), nil }
+	always := func(time.Duration) bool { return true }
+
+	if _, err := mapRing(ok, enlarge, func(time.Duration) bool { return false }); err != errNotRunning || enlarged+mapped != 0 {
+		t.Fatalf("no core: err %v, %d enlarged, %d mapped", err, enlarged, mapped)
+	}
+
+	// main's mode write lands between ours and the mapping: enlarge again
+	enlarged, mapped = 0, 0
+	calls := 0
+	flaky := func() ([]byte, error) {
+		if calls++; calls == 1 {
+			return refused()
+		}
+		return ok()
+	}
+	if mem, err := mapRing(flaky, enlarge, always); err != nil || mem == nil || enlarged != 2 {
+		t.Fatalf("retry: err %v, %d enlarged", err, enlarged)
+	}
+
+	// the core goes during the retry: the menu's mode is left alone
+	enlarged, mapped = 0, 0
+	checks := 0
+	goes := func(time.Duration) bool { checks++; return checks == 1 }
+	if _, err := mapRing(refused, enlarge, goes); err != errNotRunning || enlarged != 1 {
+		t.Fatalf("core gone mid-retry: err %v, %d enlarged", err, enlarged)
 	}
 }
 

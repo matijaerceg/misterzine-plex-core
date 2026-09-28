@@ -479,8 +479,45 @@ static void timing(int w, int h, double aspect)
 	free(f); free(slot);
 }
 
+/* the core's vsync write, 10 ms from now: field counter, then status word */
+static volatile uint32_t core_page[1024];
+static uint32_t core_status_next;
+static void *core_writes(void *arg)
+{
+	(void)arg;
+	usleep(10000);
+	core_page[STAT_OFF / 4] = 1236;
+	core_page[0x6c / 4] = core_status_next;
+	return NULL;
+}
+
+static int core_after_write(uint32_t status)
+{
+	pthread_t t;
+	core_status_next = status;
+	pthread_create(&t, NULL, core_writes, NULL);
+	int running = core_running(core_page, 100);
+	pthread_join(t, NULL);
+	return running;
+}
+
+/* the presenter enlarges the mode and blanks on exit only for a running core */
+static void core_detection(void)
+{
+	CHECK(!core_running(core_page, 20), "an empty page read as a running core");
+	core_page[STAT_OFF / 4] = 1234;
+	core_page[0x6c / 4] = 0x56500001;
+	CHECK(!core_running(core_page, 20), "a counter left behind by a core that has gone read as running");
+	core_page[STAT_OFF / 4] = core_page[0x6c / 4] = 0;   /* a mode write */
+	CHECK(core_after_write(0x56500001), "a core writing again after a mode write was not seen");
+	core_page[STAT_OFF / 4] = core_page[0x6c / 4] = 0;
+	CHECK(!core_after_write(0), "a counter without the status signature read as running");
+}
+
 int main(int argc, char **argv)
 {
+	core_detection();
+
 	/* frame shapes Plex sends and a few it could, on the whole raster and in
 	   calibrated picture areas */
 	fit_cases();
