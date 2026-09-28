@@ -184,10 +184,23 @@ wire [10:0] y_x = y_wrap ? y_ahead - 11'd858 : y_ahead;
 wire y_half = (y_wrap || hc == 0) ? wr_half : rd_half;
 reg [3:0] y_x_q;
 
-// where the current pixel sits in the overlay rectangle
+// The RGB picture and overlay reads feed the stage register ahead of the
+// blend (below), which takes them a clock before the output register takes
+// the pixel. At 15 kHz a pixel lasts four clocks, which covers the read and
+// the stage, so they read the pixel on show; in 480p it lasts two, so they
+// read a pixel ahead, into the incoming bank at the line's end like the YUV
+// reads.
+wire [10:0] la_ahead = hc + ((scan_status[1:0] == 2'd2) ? 11'd1 : 11'd0);
+wire la_wrap = (la_ahead >= 11'd858);
+wire [10:0] la_x = la_wrap ? la_ahead - 11'd858 : la_ahead;
+wire la_half = (la_wrap || hc == 0) ? wr_half : rd_half;
+wire  [9:0] la_row = la_wrap ? next_row : vc;
+
+// where the pixel on show, and the one being read, sit in the overlay rectangle
 wire [10:0] ox     = hc - {1'b0, o_x};
-wire        osd_at = o_en && (hc >= {1'b0, o_x}) && (hc < ({1'b0, o_x} + {1'b0, o_w})) &&
-                     (vc >= o_y) && (vc < (o_y + o_h));
+wire [10:0] ox_la  = la_x - {1'b0, o_x};
+wire        osd_at = o_en && (la_x >= {1'b0, o_x}) && (la_x < ({1'b0, o_x} + {1'b0, o_w})) &&
+                     (la_row >= o_y) && (la_row < (o_y + o_h));
 // Registered like the line buffer reads: hc moves only on ce_pix, at most
 // every other clock, so a clock later it still names the same pixel. Keeps
 // these compares out of the blend and brightness multiplies' clock.
@@ -198,11 +211,11 @@ always @(posedge clk) begin
 	if (lb_we && lb_plane == 2'd1) lb1[{wr_half, lb_waddr[5:0]}] <= lb_wdata;
 	if (lb_we && lb_plane == 2'd2) lb2[{wr_half, lb_waddr[5:0]}] <= lb_wdata;
 	if (lb_we && lb_plane == 2'd3) lb3[{wr_half, lb_waddr}]      <= lb_wdata;
-	q0 <= lb0[{h_yuv ? y_half : ((hc == 0) ? wr_half : rd_half), h_yuv ? {2'b00, y_x[9:3]} : hc[9:1]}];
+	q0 <= lb0[{h_yuv ? y_half : la_half, h_yuv ? {2'b00, y_x[9:3]} : la_x[9:1]}];
 	q1 <= lb1[{y_half, y_x[9:4]}];
 	q2 <= lb2[{y_half, y_x[9:4]}];
 	y_x_q <= y_x[3:0];
-	q3 <= lb3[{rd_half, ox[9:1]}];
+	q3 <= lb3[{la_half, ox_la[9:1]}];
 	in_osd <= osd_at;
 end
 
@@ -549,7 +562,7 @@ reg signed  [9:0] y16, u128, v128;
 reg signed [19:0] yy, rv, gu, gv, bu;
 reg signed [20:0] rs, gs, bs;
 reg         [7:0] cr, cg, cb;
-reg [23:0] rgb_delay0, rgb_delay1, rgb_delay2;
+reg [23:0] rgb_delay0, rgb_delay1;   // the stage register is the third delay
 
 function [7:0] clamp8(input signed [20:0] v);
 	clamp8 = v[20] ? 8'd0 : (v[19:8] > 12'd255) ? 8'd255 : v[15:8];
@@ -575,7 +588,6 @@ always @(posedge clk) begin
 	cb <= clamp8(bs);
 	rgb_delay0 <= {cr, cg, cb};
 	rgb_delay1 <= rgb_delay0;
-	rgb_delay2 <= rgb_delay1;
 end
 
 // ---------------- ordered dither to 6 bits ----------------
@@ -590,9 +602,9 @@ function [7:0] dither8(input [7:0] v, input [1:0] d);
 endfunction
 
 wire        pic = row_ok && col_ok;
-wire [7:0] sr = ~pic ? 8'd0 : h_yuv ? rgb_delay2[23:16] : px[23:16];
-wire [7:0] sg = ~pic ? 8'd0 : h_yuv ? rgb_delay2[15:8] : px[15:8];
-wire [7:0] sb = ~pic ? 8'd0 : h_yuv ? rgb_delay2[7:0] : px[7:0];
+wire [7:0] sr = ~pic ? 8'd0 : h_yuv ? rgb_delay1[23:16] : px[23:16];
+wire [7:0] sg = ~pic ? 8'd0 : h_yuv ? rgb_delay1[15:8] : px[15:8];
+wire [7:0] sb = ~pic ? 8'd0 : h_yuv ? rgb_delay1[7:0] : px[7:0];
 
 // ---------------- overlay blend ----------------
 // straight alpha; a' = a + a[7] so 255 is fully the overlay
@@ -600,6 +612,18 @@ wire [31:0] opx = ox[0] ? q3[63:32] : q3[31:0];
 wire  [7:0] oa  = in_osd ? opx[31:24] : 8'd0;
 wire  [8:0] a9  = {1'b0, oa} + {8'd0, oa[7]};
 wire  [8:0] ia9 = 9'd256 - a9;
+
+// Stage register: the blend's operands, taken every clock, so the one before
+// the output register's names the pixel on show (see la_ahead). It keeps the
+// line buffer reads and the alpha sums out of the clock of the blend and
+// brightness multiplies, which had only 0.12 ns to spare without it.
+reg [7:0] s_r = 0, s_g = 0, s_b = 0, s_or = 0, s_og = 0, s_ob = 0;
+reg [8:0] s_a = 0, s_ia = 9'd256;
+always @(posedge clk) begin
+	{s_r, s_g, s_b}    <= {sr, sg, sb};
+	{s_or, s_og, s_ob} <= opx[23:0];
+	{s_a, s_ia}        <= {a9, ia9};
+end
 
 function [7:0] mix(input [7:0] v, input [7:0] o, input [8:0] a, input [8:0] ia);
 	reg [17:0] sum;
@@ -609,9 +633,9 @@ function [7:0] mix(input [7:0] v, input [7:0] o, input [8:0] a, input [8:0] ia);
 	end
 endfunction
 
-wire [7:0] mr = mix(sr, opx[23:16], a9, ia9);
-wire [7:0] mg = mix(sg, opx[15:8],  a9, ia9);
-wire [7:0] mb = mix(sb, opx[7:0],   a9, ia9);
+wire [7:0] mr = mix(s_r, s_or, s_a, s_ia);
+wire [7:0] mg = mix(s_g, s_og, s_a, s_ia);
+wire [7:0] mb = mix(s_b, s_ob, s_a, s_ia);
 
 // ---------------- sprites ----------------
 // the bar: a rectangle. The dot: a disc of radius 7 rows, widened 9/8 so
