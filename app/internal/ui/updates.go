@@ -19,8 +19,9 @@ type updateState struct {
 	nextStatus  time.Time
 	reading     bool
 	status      updates.Status
-	message     string // the updater could not start, or a choice was not saved
-	launched    time.Time
+	message     string    // the updater could not start, or a choice was not saved
+	launched    time.Time // an update started and its updater has not reported yet
+	checked     time.Time // when a check last read the catalogue
 }
 
 func (a *App) checkUpdates(manual bool, now time.Time) {
@@ -65,6 +66,7 @@ func (a *App) checkUpdates(manual bool, now time.Time) {
 				return
 			}
 			a.updates.catalogue = c
+			a.updates.checked = time.Now()
 		})
 	}()
 }
@@ -84,10 +86,13 @@ func (a *App) pollUpdates(now time.Time) {
 		a.Later(func() {
 			a.updates.reading = false
 			if !a.updates.launched.IsZero() && s.Updated < float64(a.updates.launched.UnixNano())/1e9 {
-				if time.Since(a.updates.launched) < 10*time.Second {
-					return
+				if time.Since(a.updates.launched) >= 10*time.Second && a.updates.status.Stage != "failed" {
+					a.updates.status = updates.Status{Stage: "failed", Updated: float64(time.Now().UnixNano()) / 1e9,
+						Release: a.updates.status.Release, Message: "The updater did not start. Run Install to repair update support."}
 				}
-				s = updates.Status{Stage: "failed", Message: "The updater did not start. Run Install to repair update support."}
+				// the file still holds what came before the launch: keep saying
+				// what this update is doing until its updater reports
+				return
 			}
 			a.updates.launched = time.Time{}
 			a.updates.status = s
@@ -156,8 +161,12 @@ func (a *App) nextUpdate() *updates.Release {
 	}
 	return nil
 }
+
+// updateAvailable is what the UPDATE mark, the drawer badge and the Options
+// row call attention with: a download to restart into, an update, or a
+// failed one to try again.
 func (a *App) updateAvailable() bool {
-	return a.prepared() != nil || a.nextUpdate() != nil
+	return a.prepared() != nil || a.nextUpdate() != nil || a.failure()
 }
 
 // prepared is the release a finished download installs on Restart now, while
@@ -175,10 +184,35 @@ func (a *App) prepared() *updates.Release {
 // failure reports a failed update that still needs explaining: one that names
 // no release (the updater never started), or one for a release still ahead of
 // this build. It stays, whatever the catalogue says since, until the next
-// update starts.
+// update starts, or until a check made after it finds nothing to install:
+// then there is nothing to try again.
 func (a *App) failure() bool {
 	s := a.updates.status
-	return s.Stage == "failed" && (s.Release == nil || a.offers(*s.Release))
+	if s.Stage != "failed" || s.Release != nil && !a.offers(*s.Release) {
+		return false
+	}
+	at := time.Unix(0, int64(s.Updated*1e9))
+	return !a.updates.checked.After(at) || len(a.offered()) > 0
+}
+
+// retry is what a failed update offers next: the failed release while it is
+// offered, even quietly (a beta on a public build), else the update the mark
+// is about, else any release offered.
+func (a *App) retry() *updates.Release {
+	s := a.updates.status
+	offered := a.offered()
+	for _, r := range offered {
+		if s.Release != nil && s.Release.ID == r.ID {
+			return &r
+		}
+	}
+	if next := a.nextUpdate(); next != nil {
+		return next
+	}
+	if len(offered) > 0 {
+		return &offered[0]
+	}
+	return nil
 }
 func (a *App) startUpdate(action string, r *updates.Release) {
 	if a.updates.status.Busy() || !a.Starting.IsZero() {
@@ -188,13 +222,13 @@ func (a *App) startUpdate(action string, r *updates.Release) {
 		a.updates.message = "Could not start the updater. Run MisterZine-Plex-Install to repair update support."
 		return
 	}
-	stage := "download"
+	stage, shown := "download", r
 	if action == "activate" {
-		stage = "activating"
+		stage, shown = "activating", a.prepared()
 	}
 	a.updates.launched = time.Now()
 	a.updates.message = ""
-	a.updates.status = updates.Status{Stage: stage, Release: r}
+	a.updates.status = updates.Status{Stage: stage, Release: shown}
 }
 
 // Updates is available on both public and beta builds; notifications are quieter
@@ -262,25 +296,26 @@ func (u *Updates) view() (updateView, []updateAction) {
 	}
 	var v updateView
 	var rows []updateAction
-	next := a.nextUpdate()
+	var lead *updates.Release // the release the first row installs
 	check := updateAction{"Check again", func() { a.checkUpdates(true, time.Now()) }}
 	switch {
 	case a.failure():
 		// the way on is whatever is offered now, which may not be the
 		// release that failed
 		v, rows = viewFailed, []updateAction{check}
-		if next != nil {
-			r := *next
+		if lead = a.retry(); lead != nil {
+			r := *lead
 			label := "Update to " + r.Version
 			if s.Release == nil || s.Release.ID == r.ID {
 				label = "Try again"
 			}
 			rows[0] = updateAction{label, func() { u.install(r) }}
 		}
-	case next != nil:
+	case a.nextUpdate() != nil:
 		// an update known from an earlier check is offered while the next
 		// check runs, and when that check cannot reach the catalogue
-		r := *next
+		lead = a.nextUpdate()
+		r := *lead
 		v, rows = viewAvailable, []updateAction{{"Update now", func() { u.install(r) }}}
 	case a.updates.checking:
 		v = viewChecking
@@ -290,7 +325,7 @@ func (u *Updates) view() (updateView, []updateAction) {
 		v, rows = viewCurrent, []updateAction{check}
 	}
 	for _, r := range a.offered() {
-		if next != nil && r.ID == next.ID {
+		if lead != nil && r.ID == lead.ID {
 			continue
 		}
 		rows = append(rows, updateAction{"Install " + channelName(r.Channel) + " " + r.Version, func() { u.install(r) }})

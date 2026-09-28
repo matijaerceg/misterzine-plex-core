@@ -95,6 +95,8 @@ func (o *Options) items() []option {
 		updateLabel = "Updates - downloading"
 	case o.app.prepared() != nil:
 		updateLabel = "Updates - ready, restart to finish"
+	case o.app.failure():
+		updateLabel = "Updates - update failed"
 	case o.app.updateAvailable():
 		updateLabel = "Updates - update available"
 	}

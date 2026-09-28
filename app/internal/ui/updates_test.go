@@ -1,9 +1,12 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"plexcrt/internal/beta"
 	"plexcrt/internal/input"
 	"plexcrt/internal/updates"
+	"strings"
 	"testing"
 	"time"
 )
@@ -178,5 +181,88 @@ func TestStaleReadyUpdateIsNotOffered(t *testing.T) {
 	a.updates.status = updates.Status{Stage: "ready"}
 	if v, _ := u.shows(); v == viewReady {
 		t.Fatal("a ready download that names no release offered")
+	}
+}
+
+// drain runs what a background check or status read handed back.
+func drain(t *testing.T, a *App) {
+	t.Helper()
+	select {
+	case f := <-a.later:
+		f()
+	case <-time.After(5 * time.Second):
+		t.Fatal("nothing came back")
+	}
+}
+
+// A failure with nothing left to install ends at the first check made after
+// it: Check again is a way out, not a loop back to the same failure.
+func TestCheckAgainEndsAFailureWithNothingToInstall(t *testing.T) {
+	a := betaTestApp(t)
+	a.later = make(chan func(), 4)
+	file := filepath.Join(t.TempDir(), "catalogue.json")
+	if err := os.WriteFile(file, []byte(`{"schema":1,"releases":{}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PLEXCRT_CATALOGUE_FILE", file)
+	u := &Updates{app: a}
+	a.updates.status = updates.Status{Stage: "failed", Updated: float64(time.Now().Add(-time.Minute).UnixNano()) / 1e9, Message: "Could not read update status."}
+	v, rows := u.shows()
+	if v != viewFailed || rows[0].label != "Check again" || !a.updateAvailable() {
+		t.Fatalf("before the check: %v, %q", v, rows[0].label)
+	}
+	rows[0].do()
+	drain(t, a)
+	if v, _ := u.shows(); v != viewCurrent || a.updateAvailable() {
+		t.Fatalf("after a check that found nothing: %v", v)
+	}
+}
+
+// A beta installed from its quiet row on a public build is tried again from
+// the failure, not left to a second row; Options says it failed.
+func TestQuietBetaFailureOffersTryAgain(t *testing.T) {
+	a := betaTestApp(t)
+	beta.Channel = "public" // betaTestApp puts it back
+	a.Version = "0.2.0"
+	u := &Updates{app: a}
+	r := updates.Release{ID: "next", Version: "0.3.0-beta.1", Channel: "beta"}
+	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{"beta": r}}
+	a.updates.status = updates.Status{Stage: "failed", Message: "Update could not be prepared: OSError.", Release: &r}
+	v, rows := u.shows()
+	if v != viewFailed || len(rows) != 2 || rows[0].label != "Try again" || rows[1].label != "Beta notifications: Off" {
+		t.Fatalf("view %v, %d rows, first %q", v, len(rows), rows[0].label)
+	}
+	label := ""
+	for _, it := range (&Options{app: a}).items() {
+		if strings.HasPrefix(it.label, "Updates") {
+			label = it.label
+		}
+	}
+	if label != "Updates - update failed" || !a.updateAvailable() {
+		t.Fatalf("Options says %q, mark %v", label, a.updateAvailable())
+	}
+}
+
+// An updater that never reports keeps its failure on screen: the status file,
+// still from before the launch, does not bring the old state back.
+func TestSilentUpdaterFailureStays(t *testing.T) {
+	a := betaTestApp(t)
+	a.later = make(chan func(), 4)
+	a.updates.nextCheck = time.Now().Add(time.Hour) // no catalogue check here
+	r := updates.Release{ID: "next", Version: "0.3.0-beta.1", Channel: "beta"}
+	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{"beta": r}}
+	a.updates.status = updates.Status{Stage: "download", Release: &r}
+	a.updates.launched = time.Now().Add(-11 * time.Second)
+	for i := 0; i < 2; i++ {
+		a.updates.nextStatus = time.Time{}
+		a.pollUpdates(time.Now())
+		drain(t, a)
+		s := a.updates.status
+		if s.Stage != "failed" || s.Release == nil || s.Release.ID != "next" {
+			t.Fatalf("read %d: %+v", i, s)
+		}
+	}
+	if v, rows := (&Updates{app: a}).view(); v != viewFailed || rows[0].label != "Try again" {
+		t.Fatalf("view %v, %q", v, rows[0].label)
 	}
 }
