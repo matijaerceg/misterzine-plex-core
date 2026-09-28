@@ -265,6 +265,39 @@ func TestSeasonActionRowReturnsToStart(t *testing.T) {
 	}
 }
 
+// The row scrolled to its end with the cursor on the action before Remove;
+// the list then drops the episode. The shorter row is not left scrolled past
+// its end, and the cursor's action still shows.
+func TestSeasonShorterRowIsNotOverScrolled(t *testing.T) {
+	a := continueTestApp(t, newContinueServer(t))
+	ep := &plex.Item{RatingKey: "e1", Type: "episode", ViewOffset: 300, PartID: "p",
+		Subs: []plex.Stream{{ID: "1", Title: "English (SRT)", Selected: true}}}
+	s := &Season{app: a, show: &plex.Item{}, seasons: []*plex.Item{{}}, eps: []*plex.Item{ep}, acts: true,
+		fetched: map[string]bool{"e1": true}}
+	s.cw.keys = map[string]bool{"e1": true}
+	s.rebuild()
+	now := time.Now()
+	s.act = len(s.actions) - 1
+	s.keepActVisible(now)
+	s.act-- // Subtitles
+	s.keepActVisible(now)
+	before := round(s.actX.Target())
+
+	s.cw.pending = make(chan map[string]bool, 1)
+	s.cw.pending <- map[string]bool{} // the list no longer holds it
+	s.pollRefresh(now)
+	if slices.Contains(s.actions, RemoveContinue) || !strings.HasPrefix(s.actions[s.act], "Subtitles") {
+		t.Fatalf("after the list changed: %q, cursor %d", s.actions, s.act)
+	}
+	off, limit := round(s.actX.Target()), max(0, s.actRowW()-(SafeW-24))
+	if off > limit || off >= before {
+		t.Fatalf("the shorter row stays scrolled to %d (was %d, its end is at %d)", off, before, limit)
+	}
+	if l, r := s.actLeft(s.act)-off, s.actLeft(s.act)+s.actW[s.act]-off; l < 0 || r > SafeW {
+		t.Fatalf("the cursor's action is off the row (%d..%d)", l, r)
+	}
+}
+
 // A page left open asks again every refresh interval: an item removed on
 // another client loses the action, and a first fetch that failed is retried.
 func TestContinueListAsksAgain(t *testing.T) {

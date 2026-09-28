@@ -257,6 +257,8 @@ func (s *Season) keepActVisible(now time.Time) {
 	} else if r-off > SafeW-24 {
 		off = r - (SafeW - 24)
 	}
+	// a row that got shorter (an action gone) is not left scrolled past its end
+	off = min(off, max(0, s.actRowW()-(SafeW-24)))
 	s.actX.Go(float64(off), now)
 }
 
