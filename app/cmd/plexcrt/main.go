@@ -29,7 +29,7 @@ import (
 	"plexcrt/internal/ui"
 )
 
-var version = "0.1.0-beta.13"
+var version = "0.1.0-beta.14"
 var build = "development"
 
 // exitToMenu is the exit status after the menu's Exit: the launcher then
