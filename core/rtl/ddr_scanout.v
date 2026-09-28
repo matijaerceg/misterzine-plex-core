@@ -74,8 +74,20 @@
 //       G = 1.164(Y-16) - 0.392(U-128) - 0.813(V-128)
 //       B = 1.164(Y-16) + 2.017(U-128)
 //  in 8.8 fixed point, clamped. The converter is a free-running 3-stage
-//  pipeline, which puts the YUV picture one pixel to the right of the RGB
-//  path. Nobody will ever see that on a CRT.
+//  pipeline; the Y/U/V reads run ahead of hc (y_ahead) to cover it, so each
+//  pixel still leaves at its own hc at both pixel clocks (tests/pixel_tb).
+//
+//  Line ends: in the 15 kHz modes the first 12 and last 8 pixels of every
+//  line leave black, whatever the frame, overlay or sprites hold there.
+//  720 samples at 13.5 MHz is 53.3 us, wider than analog NTSC's 52.7 us
+//  active line, and a picture from pixel 0 starts 9.0 us after the sync
+//  edge where analog video starts at 9.4. Whatever restores an RGB or
+//  component signal's black level after sync (the set, a transcoder, a
+//  receiver) can then sample picture, and each line's black level follows
+//  its leftmost pixels: dark or tinted lines that move with the picture.
+//  One patron's chain needed the first 10 pixels black. Overscan hides the
+//  band. 480p keeps all 720 pixels, and DE is untouched either way, so the
+//  HDMI scaler still sees a 720-pixel line.
 //============================================================================
 
 module ddr_scanout #(
@@ -645,10 +657,21 @@ wire [7:0] lr = scale8(fr, lvl);
 wire [7:0] lg = scale8(fg, lvl);
 wire [7:0] lb = scale8(fb, lvl);
 
+// ---------------- line ends ----------------
+// Black guard bands at both ends of the line in the 15 kHz modes (see the
+// header). Registered like in_osd: hc and active move only on ce_pix, so a
+// clock later this still names the pixel the output register takes, and the
+// compares stay out of the multiplies' path.
+localparam [10:0] EDGE_L = 11'd12;
+localparam [10:0] EDGE_R = 11'd8;
+reg lit = 0;
+always @(posedge clk)
+	lit <= active && !(scan_status[1:0] < 2'd2 && (hc < EDGE_L || hc >= 11'd720 - EDGE_R));
+
 always @(posedge clk) begin
 	if (ce_pix) begin
-		if (active) {r, g, b} <= {dither8(lr, dth), dither8(lg, dth), dither8(lb, dth)};
-		else        {r, g, b} <= 24'h000000;
+		if (lit) {r, g, b} <= {dither8(lr, dth), dither8(lg, dth), dither8(lb, dth)};
+		else     {r, g, b} <= 24'h000000;
 	end
 end
 
