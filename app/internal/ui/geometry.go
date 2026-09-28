@@ -109,9 +109,10 @@ func (a *App) VideoGeometry() string { return a.Cfg.Geometry.Env() }
 
 // The core leaves the first 12 and the last 8 pixels of every line black in
 // 480i and 240p (core/rtl/ddr_scanout.v, "Line ends"), so an edge placed
-// inside them could not be seen. The calibration keeps the left and right
-// edges past them; a saved area that reaches into them only loses what the
-// core blanks.
+// inside them could not be seen. The calibration shows the left and right
+// edges past them, and an edge the user moves is saved past its end. An edge
+// left alone keeps its saved value: the geometry is shared with 480p, and a
+// picture area that reaches into the ends only loses what the core blanks.
 const (
 	LineEndLeft  = 12
 	LineEndRight = 8
@@ -160,12 +161,10 @@ var calNames = [calSteps]string{"Top edge", "Right edge", "Bottom edge", "Left e
 // calFill is the picture area: dark, so the lines and text stand out.
 const calFill gfx.Color = 0x1C2230
 
-// NewCalibrate opens the calibration with the saved geometry, its left and
-// right edges past the blanked line ends.
+// NewCalibrate opens the calibration with the saved geometry.
 func NewCalibrate(a *App) *Calibrate {
-	s := &Calibrate{app: a}
+	s := &Calibrate{app: a, g: a.Cfg.Geometry.Normal()}
 	s.endL, s.endR = a.lineEnds()
-	s.g = s.pastEnds(a.Cfg.Geometry.Normal())
 	// 288 lines (60% of the raster) unless the picture area is too short for
 	// it, as wide as the saved width says a square is
 	s.sqH = min(288, (480-s.g.Top-s.g.Bottom-60)&^1)
@@ -214,9 +213,9 @@ func (s *Calibrate) Key(ev input.Event, now time.Time) {
 	case calBottom:
 		g.Bottom -= dy
 	case calLeft:
-		g.Left += dx
+		g.Left = max(g.Left, s.endL) + dx
 	case calRight:
-		g.Right -= dx
+		g.Right = max(g.Right, s.endR) - dx
 	case calCorner:
 		// the corner stays near where it started, which spans the whole
 		// width range (15% of the square is 49 pixels or 43 lines) but
@@ -234,10 +233,17 @@ func (s *Calibrate) Key(ev input.Event, now time.Time) {
 			s.sqW, s.sqH, g.Width = w, h, width
 		}
 	}
-	*g = s.pastEnds(g.Normal())
+	*g = g.Normal()
+	switch s.sel { // a moved edge stays past its blanked line end
+	case calLeft:
+		g.Left = max(g.Left, s.endL)
+	case calRight:
+		g.Right = max(g.Right, s.endR)
+	}
 }
 
-// pastEnds keeps the left and right edges out of the blanked line ends.
+// pastEnds is g as the screen shows it: left and right edges out of the
+// blanked line ends.
 func (s *Calibrate) pastEnds(g Geometry) Geometry {
 	g.Left, g.Right = max(g.Left, s.endL), max(g.Right, s.endR)
 	return g
@@ -248,10 +254,12 @@ func (s *Calibrate) pastEnds(g Geometry) Geometry {
 // square and circle in the middle with the instructions inside the circle,
 // where overscan cannot hide them.
 func (s *Calibrate) Draw(c *gfx.Canvas, now time.Time) bool {
-	g := s.g.Normal()
+	// the picture where playback puts it; the edges, square and values past
+	// the blanked line ends
+	px, py, pw, ph := s.g.Normal().Fit(4.0/3, 480)
+	g := s.pastEnds(s.g.Normal())
 	f := s.app.F
 	c.Fill(0, 0, c.W, c.H, gfx.Black)
-	px, py, pw, ph := g.Fit(4.0/3, 480)
 	c.Fill(px, py, pw, ph, calFill)
 
 	// the picture area's edges: 2 lines across (1 flickers at 480i), 4
