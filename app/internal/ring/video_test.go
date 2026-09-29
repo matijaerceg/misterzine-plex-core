@@ -38,27 +38,50 @@ func TestVideoRollbackAndLease(t *testing.T) {
 	}
 }
 
+// renewed waits for the lease's next renewal.
+func renewed(t *testing.T, r *Ring) {
+	t.Helper()
+	seq, deadline := atomic.LoadUint32(&r.hdr[28]), time.Now().Add(2*time.Second)
+	for atomic.LoadUint32(&r.hdr[28]) == seq {
+		if time.Now().After(deadline) {
+			t.Fatal("the lease was not renewed")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// lateRenewal holds the request until the renewal due meanwhile comes well
+// over leaseLate after the one before: it waits on the lock from about 250
+// ms in, and the gap is measured at the renewal after it.
+func lateRenewal(t *testing.T, r *Ring) {
+	t.Helper()
+	renewed(t, r)
+	r.video.mu.Lock()
+	time.Sleep(700 * time.Millisecond)
+	r.video.mu.Unlock()
+	renewed(t, r)
+}
+
 func TestLateLeaseRenewalIsLogged(t *testing.T) {
 	r := &Ring{hdr: new([32]uint32)}
 	lines := make(chan string, 4)
 	stop := r.StartVideo(0, func(f string, a ...any) { lines <- fmt.Sprintf(f, a...) })
 	defer stop()
+	renewed(t, r)
 	time.Sleep(300 * time.Millisecond)
 	select {
 	case l := <-lines:
 		t.Fatalf("renewals on time were logged: %q", l)
 	default:
 	}
-	r.video.mu.Lock() // the renewal waits on the request
-	time.Sleep(700 * time.Millisecond)
-	r.video.mu.Unlock()
+	lateRenewal(t, r)
 	select {
 	case l := <-lines:
-		if !strings.HasPrefix(l, "video lease: 1 late renewal(s), the longest 0.") {
+		if !strings.HasPrefix(l, "video lease: 1 late renewal(s), the longest ") {
 			t.Fatalf("logged %q", l)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("a renewal 0.7 s late was not logged")
+	case <-time.After(2 * time.Second):
+		t.Fatal("a late renewal was not logged")
 	}
 }
 
@@ -68,41 +91,47 @@ func TestLateRenewalNotesNeverPileUp(t *testing.T) {
 	r := &Ring{hdr: new([32]uint32)}
 	var mu sync.Mutex
 	inFlight, most := 0, 0
-	release := make(chan struct{})
-	lines := make(chan string, 8)
-	stop := r.StartVideo(0, func(f string, a ...any) { // a log stuck on a slow card
+	entered, release, counts := make(chan struct{}, 8), make(chan struct{}), make(chan int, 8)
+	stop := r.StartVideo(0, func(f string, a ...any) { // a note stuck behind a slow writer
 		mu.Lock()
 		inFlight++
 		most = max(most, inFlight)
 		mu.Unlock()
+		entered <- struct{}{}
 		<-release
-		lines <- fmt.Sprintf(f, a...)
+		counts <- a[0].(int)
 		mu.Lock()
 		inFlight--
 		mu.Unlock()
 	})
 	defer stop()
-	for i := 0; i < 3; i++ { // three late renewals while the first note is stuck
-		r.video.mu.Lock()
-		time.Sleep(600 * time.Millisecond)
-		r.video.mu.Unlock()
-		time.Sleep(300 * time.Millisecond)
+	lateRenewal(t, r)
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the first late renewal was not noted")
 	}
+	lateRenewal(t, r) // two more while that note is stuck
+	lateRenewal(t, r)
+	time.Sleep(300 * time.Millisecond)
 	mu.Lock()
 	if most != 1 {
-		t.Fatalf("%d log writes at once", most)
+		t.Fatalf("%d notes written at once", most)
 	}
 	mu.Unlock()
 	close(release)
-	for _, want := range []string{"video lease: 1 late", "video lease: 2 late"} { // the stuck note, then the rest in one
+	var got []int
+	for len(got) < 2 {
 		select {
-		case l := <-lines:
-			if !strings.HasPrefix(l, want) {
-				t.Fatalf("logged %q, want %q...", l, want)
-			}
-		case <-time.After(time.Second):
-			t.Fatalf("no %q line", want)
+		case n := <-counts:
+			got = append(got, n)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("notes after the stuck one was let go: %v", got)
 		}
+	}
+	// scheduler pauses on a busy machine may add to either count, never take away
+	if got[0] < 1 || got[1] < 2 {
+		t.Fatalf("late renewals counted %v, want the stuck note's then at least the 2 held back", got)
 	}
 }
 

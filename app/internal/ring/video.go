@@ -53,8 +53,9 @@ func (r *Ring) StartVideo(mode uint32, logf func(string, ...any)) func() {
 				late++
 				worst = max(worst, gap)
 			}
-			// Written off this thread, since a log write can wait on the SD
-			// card, and one at a time: renewals late meanwhile go in the next.
+			// Written off this thread, which should only ever renew (the log's
+			// lock is shared with every other writer), and one at a time:
+			// renewals late meanwhile go in the next.
 			if late > 0 && logf != nil && now.Sub(noted) >= leaseNoteEvery && !noting.Load() {
 				noting.Store(true)
 				n, w := late, worst
