@@ -17,12 +17,14 @@ type VideoControl struct {
 }
 
 // The core shows ring video, and keeps the requested mode, only while the
-// lease moves at least every 120 fields (2 s). plexplay runs ffmpeg and
-// plexfb near nice -15, and a renewal thread left at nice 0 could miss that
-// under heavy decoding: the picture went black for a couple of seconds with
-// the sound playing on (a patron's report). So the lease runs on a thread of
-// its own at the player's priority and sleeps in the kernel, not on the Go
-// scheduler's timers, which other nice 0 threads serve.
+// lease moves at least every 120 fields (2 s). A patron saw the picture go
+// black for about 2 s at a time with the sound playing on, which is what a
+// lapsed lease looks like. The lease runs on a thread of its own at the
+// player's priority (plexplay runs ffmpeg and plexfb near nice -15) and
+// sleeps in the kernel rather than on the Go scheduler's timers. That is
+// insurance: on the DE10, eight nice -15 busy loops and a 300 MB SD write
+// together never delayed the old nice 0 goroutine past 0.36 s, so the cause
+// is still open, and the late-renewal line below is there to settle it.
 const (
 	leaseEvery = 250 * time.Millisecond
 	leaseLate  = 500 * time.Millisecond // a renewal further apart than this is logged
