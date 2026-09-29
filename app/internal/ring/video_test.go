@@ -3,6 +3,7 @@ package ring
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -58,6 +59,50 @@ func TestLateLeaseRenewalIsLogged(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("a renewal 0.7 s late was not logged")
+	}
+}
+
+func TestLateRenewalNotesNeverPileUp(t *testing.T) {
+	defer func(d time.Duration) { leaseNoteEvery = d }(leaseNoteEvery)
+	leaseNoteEvery = 0
+	r := &Ring{hdr: new([32]uint32)}
+	var mu sync.Mutex
+	inFlight, most := 0, 0
+	release := make(chan struct{})
+	lines := make(chan string, 8)
+	stop := r.StartVideo(0, func(f string, a ...any) { // a log stuck on a slow card
+		mu.Lock()
+		inFlight++
+		most = max(most, inFlight)
+		mu.Unlock()
+		<-release
+		lines <- fmt.Sprintf(f, a...)
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+	})
+	defer stop()
+	for i := 0; i < 3; i++ { // three late renewals while the first note is stuck
+		r.video.mu.Lock()
+		time.Sleep(600 * time.Millisecond)
+		r.video.mu.Unlock()
+		time.Sleep(300 * time.Millisecond)
+	}
+	mu.Lock()
+	if most != 1 {
+		t.Fatalf("%d log writes at once", most)
+	}
+	mu.Unlock()
+	close(release)
+	for _, want := range []string{"video lease: 1 late", "video lease: 2 late"} { // the stuck note, then the rest in one
+		select {
+		case l := <-lines:
+			if !strings.HasPrefix(l, want) {
+				t.Fatalf("logged %q, want %q...", l, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("no %q line", want)
+		}
 	}
 }
 

@@ -29,11 +29,13 @@ const (
 	leaseNice  = -15
 )
 
+var leaseNoteEvery = 5 * time.Second // tests shorten it
+
 // StartVideo keeps the lease until the returned function is called. logf,
 // when not nil, hears about late renewals, at most one line every 5 s.
 func (r *Ring) StartVideo(mode uint32, logf func(string, ...any)) func() {
 	r.SetVideo(mode)
-	var stopping atomic.Bool
+	var stopping, noting atomic.Bool
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -49,9 +51,15 @@ func (r *Ring) StartVideo(mode uint32, logf func(string, ...any)) func() {
 				late++
 				worst = max(worst, gap)
 			}
-			if late > 0 && logf != nil && now.Sub(noted) >= 5*time.Second {
-				// off this thread: a log write can wait on the SD card
-				go logf("video lease: %d late renewal(s), the longest %.2f s after the one before (the core blanks the picture at 2 s)", late, worst.Seconds())
+			// Written off this thread, since a log write can wait on the SD
+			// card, and one at a time: renewals late meanwhile go in the next.
+			if late > 0 && logf != nil && now.Sub(noted) >= leaseNoteEvery && !noting.Load() {
+				noting.Store(true)
+				n, w := late, worst
+				go func() {
+					defer noting.Store(false)
+					logf("video lease: %d late renewal(s), the longest %.2f s after the one before (the core blanks the picture at 2 s)", n, w.Seconds())
+				}()
 				late, worst, noted = 0, 0, now
 			}
 			last = now
