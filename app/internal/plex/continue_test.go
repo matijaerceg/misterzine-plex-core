@@ -46,6 +46,31 @@ func TestContinueWatchingListAndRemoval(t *testing.T) {
 	}
 }
 
+// A music playlist a month long is a millisecond duration past 2^31, which
+// a 32-bit int (the DE10's) cannot hold. It must not cost the whole row.
+// Run with GOARCH=386 to see the 32-bit case on a 64-bit machine.
+func TestHubsTakeMillisecondsPast32Bits(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `<MediaContainer size="2">`+
+			`<Hub hubIdentifier="home.continue" title="Continue Watching">`+
+			`<Video ratingKey="11" type="movie" title="A" duration="2601097000" viewOffset="2500000000"/></Hub>`+
+			`<Hub hubIdentifier="home.playlists" title="Playlists">`+
+			`<Playlist ratingKey="33" type="playlist" title="All music" duration="2601097000"/></Hub>`+
+			`</MediaContainer>`)
+	}))
+	defer server.Close()
+	hubs, err := New(server.URL, "tok", t.TempDir(), "").Hubs(30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hubs) != 1 || len(hubs[0].Items) != 1 {
+		t.Fatalf("hubs %v", hubs)
+	}
+	if it := hubs[0].Items[0]; it.Duration != 2601097 || it.ViewOffset != 2500000 {
+		t.Fatalf("duration %d, offset %d", it.Duration, it.ViewOffset)
+	}
+}
+
 func TestHubIsContinueWatching(t *testing.T) {
 	for ident, want := range map[string]bool{
 		"home.continue": true, "home.ondeck": true, "home.ondeck.1": true,

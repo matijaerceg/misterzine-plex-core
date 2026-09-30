@@ -233,8 +233,8 @@ type xmlItem struct {
 	Title            string `xml:"title,attr"`
 	SortTitle        string `xml:"titleSort,attr"`
 	Year             int    `xml:"year,attr"`
-	Duration         int    `xml:"duration,attr"`
-	ViewOffset       int    `xml:"viewOffset,attr"`
+	Duration         int64  `xml:"duration,attr"` // ms: a month-long playlist passes the DE10's 32-bit int
+	ViewOffset       int64  `xml:"viewOffset,attr"`
 	ViewCount        int    `xml:"viewCount,attr"`
 	Summary          string `xml:"summary,attr"`
 	Thumb            string `xml:"thumb,attr"`
@@ -289,7 +289,7 @@ type xmlItem struct {
 
 func (x *xmlItem) item() *Item {
 	it := &Item{RatingKey: x.RatingKey, Key: x.Key, Type: x.Type, Title: Fold(x.Title), SortTitle: Fold(x.SortTitle), Year: x.Year,
-		Duration: x.Duration / 1000, ViewOffset: x.ViewOffset / 1000, ViewCount: x.ViewCount,
+		Duration: int(x.Duration / 1000), ViewOffset: int(x.ViewOffset / 1000), ViewCount: x.ViewCount,
 		Summary: Fold(x.Summary), Thumb: x.Thumb, Art: x.Art, Theme: x.Theme, GrandTitle: Fold(x.GrandparentTitle),
 		Index: x.Index, Parent: x.ParentIndex, Rating: x.Rating, Tagline: Fold(x.Tagline), GrandKey: x.GrandparentKey,
 		ParentKey: x.ParentKey, Children: x.ChildCount, Leaves: x.LeafCount, Viewed: x.ViewedLeafCount}
