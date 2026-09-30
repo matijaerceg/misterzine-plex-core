@@ -3,11 +3,13 @@
 Watch your Plex library on MiSTer. Built for CRTs, with controller navigation
 and HDMI support. The app's source is available in this repository.
 
+Clips, features and what early access includes: [misterzine.fyi/plex](https://misterzine.fyi/plex/)
+
 <img width="1920" height="1080" alt="gosling1" src="https://github.com/user-attachments/assets/7ca87cd5-154b-42fc-9b86-88b34d657ad9" />
 
 ## Install
 
-Public releases are free. Pre-release versions are paid early access through Patreon: install/browsing works, but playback requires the code from that version's Patreon post.
+Public releases are free. Pre-release versions are paid early access through [Patreon](https://www.patreon.com/MisterZine): install/browsing works, but playback requires the code from that version's Patreon post.
 
 You'll need a networked MiSTer running current MiSTer Linux, at least 250 MB free on the SD card, and a Plex account with access to a server that can transcode. Run **Update All** or **Downloader** first so MiSTer Linux is current: the installer fails on older system images.
 
