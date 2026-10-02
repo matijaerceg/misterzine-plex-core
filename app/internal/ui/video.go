@@ -97,6 +97,8 @@ func (v *VideoConfirm) accept(now time.Time) {
 			}
 			v.ring.SetVideo(mode)
 			v.app.Notice, v.app.NoticeAt = "Could not save video setting.", now
+		} else {
+			v.app.saveBootMode(v.ring)
 		}
 	}
 	v.app.Pop()

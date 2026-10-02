@@ -160,7 +160,13 @@ detection: RGB-only CRT profiles need **Safe 480i** in the core OSD.
 
 The core OSD has **Video output: App settings / Safe 480i**. Normally leave it
 on App settings. HDMI 480p is selected in the app's Options and requires a fresh
-two-second OK hold to keep the change. It reverts if you do not confirm.
+two-second OK hold to keep the change. It reverts if you do not confirm. The
+kept choice is also saved with the core's own MiSTer settings
+(`config/MisterZine Plex Core.CFG`), so the core starts in that mode next time
+instead of switching from 480i once the app is up. Scalers that lock onto the
+signal as the core loads, such as a RetroTINK 4K in Direct Video, then see one
+mode only. Saving settings from the core's menu can store an older choice. The
+app corrects it the next time it starts.
 
 **Options > Video geometry** fits video to a set that hides the picture's
 edges (overscan) or draws it too wide or too narrow. It affects video only;

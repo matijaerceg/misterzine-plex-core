@@ -164,6 +164,7 @@ func run() int {
 	app.Cfg = cfg
 	app.Version, app.Build = version, build
 	app.Display = ui.ParseDisplayCheck(os.Getenv("MISTERZINE_PLEX_DISPLAY"))
+	app.BootModeFile = coreSettingsFile(*cfgPath)
 	app.SetCacheDir(*cache)
 	player.Reap()
 	defer player.Reap()
@@ -191,6 +192,21 @@ func run() int {
 		return exitToMenu
 	}
 	return 0
+}
+
+// coreSettingsFile is where MiSTer main keeps the core's OSD settings: config/
+// on the card that holds the app's folder (the settings file sits in that
+// folder). Empty when there is no such directory, as off the device.
+func coreSettingsFile(settings string) string {
+	abs, err := filepath.Abs(settings)
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(filepath.Dir(filepath.Dir(abs)), "config")
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return ""
+	}
+	return filepath.Join(dir, "MisterZine Plex Core.CFG")
 }
 
 // merge joins the pad and the simulation FIFO into one stream.

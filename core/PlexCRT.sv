@@ -141,22 +141,34 @@ pll pll
 
 wire reset = RESET | status[0] | buttons[1];
 
+// status[9] is set by the app, in MiSTer's saved settings for this core, while
+// 480p is the confirmed choice. MiSTer main loads it with the core, so the
+// raster starts in 480p instead of switching from 480i once the app is up: a
+// RetroTINK 4K in Direct Video locked onto the 480i raster and kept its pixel
+// repetition after the switch, showing half the picture. It is also the mode
+// to hold when the app's lease lapses.
+wire [1:0] boot_mode = status[9] ? 2'd2 : 2'd0;
 wire [1:0] app_mode;
 wire app_fresh;
 wire [1:0] requested_mode = status[6] ? 2'd0 :
-                         app_fresh ? app_mode : 2'd0;
+                         app_fresh ? app_mode : boot_mode;
 wire crt_locked;
 wire [1:0] wanted_mode;
+wire config_ready;
 crt_profile_guard crt_profile_guard(
  .clk(clk_sys), .io_enable(HPS_BUS[34]), .io_strobe(HPS_BUS[33]),
  .io_din(HPS_BUS[31:16]), .requested_mode(requested_mode),
- .locked(crt_locked), .safe_mode(wanted_mode)
+ .boot_progressive(status[9]),
+ .locked(crt_locked), .safe_mode(wanted_mode), .ready(config_ready)
 );
+// No sync and no DE while the core is in reset or main has not configured it
+// yet; the raster then starts in the mode the guard allows.
+wire raster_off = reset | ~config_ready;
 reg [1:0] scan_mode = 2'd0;
 reg scan_vs = 0;
 always @(posedge clk_sys) begin
 	scan_vs <= vs;
-	if (reset) scan_mode <= 2'd0;
+	if (raster_off) scan_mode <= wanted_mode;
 	else if (vs && !scan_vs) scan_mode <= wanted_mode;
 end
 wire       vs_at_hs  = 1'b1;   // default: textbook placement
@@ -171,7 +183,7 @@ wire  [9:0] vc, next_row;
 crt480i crt480i
 (
 	.clk       (clk_sys),
-	.reset     (reset),
+	.reset     (raster_off),
 	.mode      (scan_mode),
 	.vs_at_hs  (vs_at_hs),
 	.band_grey (band_grey),
@@ -220,7 +232,7 @@ ddr_scanout #(.BASE_WORDS(29'h04400200)) ddr_scanout
 	.hc               (hc),
 	.vc               (vc),
 	.next_row         (next_row),
-	.active           (~(hblank | vblank)),
+	.active           (~(hblank | vblank | raster_off)),
 	.vs               (vs),
 	.joy0             (joystick_0[15:0]),
 	.joy1             (joystick_1[15:0]),
@@ -243,7 +255,7 @@ wire use_ddr = ddr_valid & app_fresh & ~force_card;
 assign CLK_VIDEO = clk_sys;
 assign CE_PIXEL  = ce_pix;
 
-assign VGA_DE = ~(hblank | vblank);
+assign VGA_DE = ~(hblank | vblank | raster_off);
 assign VGA_HS = hs;
 assign VGA_VS = vs;
 assign VGA_F1 = f1;           // the interlace field flag - template hardwires this to 0

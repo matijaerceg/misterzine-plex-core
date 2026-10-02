@@ -86,6 +86,10 @@ type App struct {
 	// Display is what the launcher read in the MiSTer INI; Options warn
 	// about settings that hurt playback.
 	Display DisplayCheck
+	// BootModeFile is MiSTer's saved settings file for the core, where the
+	// confirmed video mode is kept for the core's start; empty leaves it alone.
+	BootModeFile string
+	bootMode     bootModeState
 	// ToMenu is set by the menu's Exit: Run returns, and the launcher loads
 	// the MiSTer menu once the app has stopped.
 	ToMenu bool
@@ -856,6 +860,7 @@ func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
 			mode = 2
 		}
 		defer r.StartVideo(mode, a.Log.Printf)()
+		a.saveBootMode(r)
 	}
 	a.events = events
 	a.dirty = true
