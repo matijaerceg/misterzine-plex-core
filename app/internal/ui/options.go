@@ -33,11 +33,20 @@ type option struct {
 	// locked greys the row: a supporter extra the card has no code for.
 	// Its value says what it needs and OK opens the code entry.
 	locked bool
+	// header is a section's name over its rows: it takes a row in the
+	// list but is never the cursor.
+	header bool
 }
 
+// optionSection is the header row that starts a section of Options.
+func optionSection(name string) option { return option{label: name, header: true} }
+
+// items is the list as shown, section headers included: Playback,
+// Picture, Sound, Extras, Account, App. Version stays the last row.
 func (o *Options) items() []option {
 	cfg := o.app.Cfg
 	items := []option{
+		optionSection("Playback"),
 		{label: "Only show 4:3 media", get: func() bool { return cfg.FourThree }, set: func(v bool) { cfg.FourThree = v }, after: o.app.Reconfigured, busy: o.app.homeUpdating},
 		{label: "Autoplay next episode", get: func() bool { return !cfg.NoAutoplay }, set: func(v bool) { cfg.NoAutoplay = !v }},
 		{label: "Skip intro and credits buttons", get: func() bool { return !cfg.NoSkipButtons }, set: func(v bool) { cfg.NoSkipButtons = !v }},
@@ -64,6 +73,7 @@ func (o *Options) items() []option {
 			i = max(0, min(len(AudioBoosts)-1, i+d))
 			cfg.AudioBoost = AudioBoosts[i].Value
 		}},
+		optionSection("Picture"),
 		{label: "Video output", val: func() string {
 			if o.app.videoLocked() {
 				return "480i (CRT profile)"
@@ -82,11 +92,14 @@ func (o *Options) items() []option {
 		items = append(items, option{label: w.label, val: func() string { return w.value }, do: func() { o.app.Push(NewDisplayNote(o.app, w)) }})
 	}
 	items = append(items, []option{
+		optionSection("Sound"),
 		{label: "Theme music", get: func() bool { return !cfg.NoTheme }, set: func(v bool) { cfg.NoTheme = !v }, after: o.app.syncTheme},
 		{label: "Navigation sounds", get: func() bool { return !cfg.NoTaps }, set: func(v bool) { cfg.NoTaps = !v }},
+		optionSection("Extras"),
 	}...)
 	items = o.app.premiumOptions(items)
 	items = append(items, option{label: "Show beta features", get: func() bool { return cfg.ShowBeta }, set: func(v bool) { cfg.ShowBeta = v }, after: o.app.accessChanged})
+	items = append(items, optionSection("Account"))
 	if cfg.Token != "" {
 		items = append(items, option{label: "Choose server again", do: func() { o.app.Push(NewServerPicker(o.app)) }})
 	}
@@ -94,7 +107,7 @@ func (o *Options) items() []option {
 	if cfg.Token != "" && cfg.AccountName != "" && !o.app.Showcase {
 		label = "Sign out (" + cfg.AccountName + ")"
 	}
-	items = append(items, option{label: label, do: o.app.SignOut})
+	items = append(items, option{label: label, do: o.app.SignOut}, optionSection("App"))
 	updateLabel := "Updates"
 	switch s := o.app.updates.status; {
 	case s.Busy():
@@ -160,12 +173,38 @@ func (a *App) loadAccountName() {
 	}()
 }
 
+// nextOption is the first row past i in direction d (+1 or -1) that is
+// not a header, or i when there is none.
+func nextOption(items []option, i, d int) int {
+	for j := i + d; j >= 0 && j < len(items); j += d {
+		if !items[j].header {
+			return j
+		}
+	}
+	return i
+}
+
+// onOption is cur moved onto a row that can be chosen: the list changes
+// under the cursor (a sign-out, beta rows, warnings) and a header is
+// never the cursor. The next row down is preferred, then the one above.
+func onOption(items []option, cur int) int {
+	cur = max(0, min(len(items)-1, cur))
+	if !items[cur].header {
+		return cur
+	}
+	if i := nextOption(items, cur, 1); i != cur {
+		return i
+	}
+	return nextOption(items, cur, -1)
+}
+
 // Key handles one input event: up/down choose, OK/left/right toggle.
 func (o *Options) Key(ev input.Event, now time.Time) {
 	if ev.Release {
 		return
 	}
 	items := o.items()
+	o.cur = onOption(items, o.cur)
 	if o.cur == len(items)-1 && ev.Key == input.Enter {
 		if ev.Repeat {
 			return
@@ -184,13 +223,9 @@ func (o *Options) Key(ev input.Event, now time.Time) {
 	o.versionPresses = 0
 	switch ev.Key {
 	case input.Up:
-		if o.cur > 0 {
-			o.cur--
-		}
+		o.cur = nextOption(items, o.cur, -1)
 	case input.Down:
-		if o.cur < len(items)-1 {
-			o.cur++
-		}
+		o.cur = nextOption(items, o.cur, 1)
 	case input.Enter, input.Left, input.Right:
 		before := *o.app.Cfg
 		it := items[o.cur]
@@ -228,15 +263,21 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 	o.app.text(c, MenuX, SafeY, f.Title, gfx.Grey, "Options")
 	y := ListY0
 	items := o.items()
+	cur := onOption(items, o.cur)
 	const visibleRows = 9
-	first := max(0, o.cur-visibleRows+1)
+	first := centredFirst(cur, visibleRows, len(items))
 	for i := first; i < min(len(items), first+visibleRows); i++ {
 		it := items[i]
+		if it.header {
+			o.app.text(c, MenuX, y+13, f.SmallBold, gfx.GreyLo, it.label)
+			y += MenuRowH
+			continue
+		}
 		col := gfx.GreyHi
 		if it.locked {
 			col = gfx.GreyLo
 		}
-		if i == o.cur {
+		if i == cur {
 			col = gfx.White
 			menuFocusBar(c, MenuX, y+9, f.Body.Height())
 		}
@@ -268,7 +309,8 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 		}
 		y += MenuRowH
 	}
-	// more rows than the window: a scrollbar from the first row's text to the last's
+	// more rows than the window: a scrollbar from the first row's text to
+	// the last's, headers counted as rows
 	menuScrollbar(c, ListY0+9, visibleRows*MenuRowH-MenuRowH+f.Body.Height(), first, visibleRows, len(items))
 	if o.app.Build != "" {
 		o.app.text(c, MenuX, SafeBottom-48, f.Small, gfx.GreyLo, f.Small.Fit("Build: "+o.app.Build, MenuWidth))

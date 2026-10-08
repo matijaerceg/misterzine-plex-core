@@ -302,17 +302,19 @@ func (p *Preplay) compose(c *gfx.Canvas, now time.Time) bool {
 		if a == "Play" || strings.HasPrefix(a, "Resume") {
 			col = gfx.Amber
 		}
+		// a long track title is cut to the text column, inside the safe area
+		label := f.Body.Fit(a, tw)
 		if i == p.cur {
 			if col != gfx.Amber {
 				col = gfx.White
 			}
 			c.Fill(PreTextX-PreFocusGap-BarW, ay+2, BarW, f.Body.Height()-4, gfx.GreyHi)
 			if starting && (strings.HasPrefix(a, "Play") || strings.HasPrefix(a, "Resume")) {
-				sweep(c, PreTextX, ay+f.Body.Height()+3, f.Body.Width(a), BarW, now.Sub(p.app.Starting))
+				sweep(c, PreTextX, ay+f.Body.Height()+3, f.Body.Width(label), BarW, now.Sub(p.app.Starting))
 				anim = true
 			}
 		}
-		c.Text(PreTextX, ay, f.Body, col, a)
+		c.Text(PreTextX, ay, f.Body, col, label)
 		ay += ah
 	}
 	return anim

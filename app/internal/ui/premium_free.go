@@ -12,7 +12,7 @@ import "time"
 func (a *App) premiumStart() {}
 
 // premiumOptions is the Options rows with the extras' own rows added. Its
-// rows come after the sound toggles, before the account rows.
+// rows are appended under the Extras header, before Show beta features.
 func (a *App) premiumOptions(items []option) []option { return items }
 
 // premiumIdle is given each idle tick before the screen dims: waiting is

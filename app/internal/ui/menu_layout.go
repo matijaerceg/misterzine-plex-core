@@ -15,6 +15,14 @@ func menuFocusBar(c *gfx.Canvas, x, y, h int) {
 	c.Fill(x-MenuBarGap-BarW, y+2, BarW, h-4, gfx.GreyHi)
 }
 
+// centredFirst is the first row in view of a list of total rows shown
+// visible at a time with row cur selected: the selection holds the middle
+// row and walks towards the top or bottom edge only at the list's start
+// and end, where the window stops.
+func centredFirst(cur, visible, total int) int {
+	return max(0, min(total-visible, cur-visible/2))
+}
+
 // menuScrollbar is the library wall's scrollbar, in the same place, for a
 // list shown a window at a time: the track spans the window and the handle
 // covers the rows in view. A list that fits gets none.
