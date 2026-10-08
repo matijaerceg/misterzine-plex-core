@@ -524,8 +524,10 @@ func (c *Client) Page(path string, q url.Values, start, size int) ([]*Item, int,
 		}
 		out = append(out, x.item())
 	}
+	// a hub listing counts its items; a page past the end of a listing has
+	// none, and keeps the listing's size
 	total := mc.Total
-	if total == 0 || len(mc.Items) == 0 {
+	if total == 0 || len(mc.Items) == 0 && len(mc.Hubs) > 0 {
 		total = len(out)
 	}
 	return out, total, nil
