@@ -105,6 +105,56 @@ func TestUpdateMarkShowsOnHome(t *testing.T) {
 	}
 }
 
+// composeHome puts a Home with one film on the stack and composes its page
+// with no backdrop, as a frame has it before the brand marks go over it.
+func composeHome(a *App) *gfx.Canvas {
+	it := &plex.Item{RatingKey: "1", Title: "A film", Type: "movie", Year: 1999}
+	h := &Home{app: a, home: true, hubs: []*plex.Hub{{Title: "Recently Added", Items: []*plex.Item{it}}}, col: []int{0}}
+	a.stack = []Screen{h}
+	c := gfx.NewCanvas(720, 480)
+	h.compose(c, it, nil, nil, false)
+	return c
+}
+
+// wordmarkInk reports whether anything but the background is drawn where
+// Home's wordmark goes: the chevron before it, the lettering and its shadow.
+func wordmarkInk(a *App, c *gfx.Canvas) bool {
+	for y := max(0, SafeY-8-markPad); y < SafeY-8+a.Mark.H+markPad; y++ {
+		for x := SafeX; x < SafeX+16+a.Mark.W+markPad; x++ {
+			o := (y*c.W + x) * 4
+			if gfx.Color(uint32(c.Pix[o+2])<<16|uint32(c.Pix[o+1])<<8|uint32(c.Pix[o])) != gfx.Bg {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// markAt reports whether the canvas holds im with its top-left at x, y.
+func markAt(c *gfx.Canvas, im *gfx.Image, x, y int) bool {
+	for j := 0; j < im.H; j++ {
+		for i := 0; i < im.W; i++ {
+			o, p := ((y+j)*c.W+x+i)*4, (j*im.W+i)*4
+			if c.Pix[o] != im.Pix[p] || c.Pix[o+1] != im.Pix[p+1] || c.Pix[o+2] != im.Pix[p+2] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func TestHomeDrawsItsWordmarkWithTheMarksBesideIt(t *testing.T) {
+	a := betaTestApp(t)
+	c := composeHome(a)
+	if !wordmarkInk(a, c) {
+		t.Fatal("Home composed without its wordmark")
+	}
+	a.drawBrand(c)
+	if !markAt(c, a.mark("BETA", gfx.Amber), SafeX+16+a.Mark.W+12, SafeY) {
+		t.Fatal("the BETA mark is not beside the wordmark")
+	}
+}
+
 func TestScrubRunTopsOutAtTheSecondSpeed(t *testing.T) {
 	t0 := time.Now()
 	p := &Playing{heldAt: t0}

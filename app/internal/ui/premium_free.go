@@ -20,5 +20,10 @@ func (a *App) premiumOptions(items []option) []option { return items }
 // extra has taken the screen (a screensaver), so dimming waits.
 func (a *App) premiumIdle(now time.Time, waiting bool, since time.Duration) bool { return false }
 
+// premiumHomeLogo reports whether Home draws the app's wordmark and the
+// chevron before it. Without them the BETA and UPDATE marks start where the
+// wordmark would.
+func (a *App) premiumHomeLogo() bool { return true }
+
 // premiumVersion is the extras' line for -version; "" in the public build.
 func PremiumVersion() string { return "" }

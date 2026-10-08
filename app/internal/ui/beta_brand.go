@@ -11,8 +11,13 @@ import (
 func (a *App) drawBrand(c *gfx.Canvas) {
 	x, y := SafeX+SafeW-2-betaBadgeW, SafeY
 	switch a.top().(type) {
-	case *Home, *Login:
-		x, y = SafeX+16+a.Mark.W+12, SafeY
+	case *Home:
+		x = SafeX + 16 // where the wordmark starts, when Home has none
+		if a.premiumHomeLogo() {
+			x += a.Mark.W + 12
+		}
+	case *Login:
+		x = SafeX + 16 + a.Mark.W + 12
 	case *Drawer:
 		return // drawn on the moving drawer panel
 	}

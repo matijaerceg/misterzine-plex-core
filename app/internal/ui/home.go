@@ -597,6 +597,9 @@ func (h *Home) drawPage(c *gfx.Canvas, now time.Time) bool {
 			logoPending = !failed
 		}
 	}
+	if h.home && !h.app.premiumHomeLogo() {
+		key += "|nomark" // hidden in Options: compose again when it changes
+	}
 	sliding := h.pageFade().Transitioning(now)
 	if key != h.pageKey && !sliding {
 		h.pageFade().Done() // the worker may still be reading the previous page
@@ -666,7 +669,7 @@ func (h *Home) compose(c *gfx.Canvas, it *plex.Item, img, logo *gfx.Image, logoP
 	} else {
 		c.Fill(0, 0, c.W, c.H, gfx.Bg)
 	}
-	if h.home {
+	if h.home && h.app.premiumHomeLogo() {
 		// a left chevron: the drawer is off the left edge
 		chevronLeft(c, SafeX+3, SafeY-8+h.app.Mark.H*60/100-6, gfx.GreyLo)
 		h.app.Mark.Place(c, SafeX+16, SafeY-8)
