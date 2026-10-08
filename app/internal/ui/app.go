@@ -111,8 +111,9 @@ type App struct {
 	dirty  bool
 	events <-chan input.Event
 
-	secs   []plex.Section    // the libraries, fetched in the background
-	pagers map[string]*Pager // listings kept for the session, by path and query
+	secs   []plex.Section        // the libraries, fetched in the background
+	pagers map[string]*Pager     // listings kept for the session, by path and query
+	places map[string]*wallPlace // the libraries' views that keep their place, by section key
 	// CacheDir is where artwork is kept (for a client made after sign-in).
 	cacheDir      string
 	aspects       Aspects // show shapes for the 4:3 filter
@@ -801,6 +802,7 @@ func (a *App) Connect() {
 	a.Art.SetClient(c)
 	a.secs = nil
 	a.pagers = map[string]*Pager{}
+	a.places = nil
 	if a.Player != nil {
 		a.Player.Env = []string{"PLEX_HOST=" + cfg.ServerURL, "PLEX_TOKEN=" + cfg.ServerToken, "PLEX_CLIENT_ID=" + cfg.ClientID}
 	}
@@ -818,6 +820,7 @@ func (a *App) SignOut() {
 	a.Plex = nil
 	a.secs = nil
 	a.pagers = map[string]*Pager{}
+	a.places = nil
 	a.stack = nil
 	a.Push(NewLogin(a))
 }

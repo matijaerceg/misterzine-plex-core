@@ -2,7 +2,11 @@
 
 package ui
 
-import "time"
+import (
+	"time"
+
+	"plexcrt/internal/plex"
+)
 
 // The public build's side of the hooks in premium.go: none of them changes
 // anything.
@@ -26,6 +30,11 @@ func (a *App) premiumIdle(now time.Time, waiting bool, since time.Duration) bool
 // chevron before it. Without them the BETA and UPDATE marks start where the
 // wordmark would.
 func (a *App) premiumHomeLogo() bool { return true }
+
+// premiumWallViews is the extras' views of a library, its tabs after
+// Released; nil for none. It is asked on every frame the library shows,
+// so it should not allocate; the tabs are remade when the names change.
+func (a *App) premiumWallViews(s plex.Section) []wallView { return nil }
 
 // premiumVersion is the extras' line for -version; "" in the public build.
 func PremiumVersion() string { return "" }

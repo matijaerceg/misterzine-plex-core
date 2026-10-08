@@ -19,7 +19,10 @@ import (
 type Wall struct {
 	app     *App
 	section plex.Section
-	view    int
+	view    int        // in views
+	views   []wallView // the library's views: wallViews with the extras' (syncViews)
+	extras  []wallView // the extras' views that views was made with
+	seek    string     // a remembered place's item, looked for once the listing is in
 	coll    *plex.Item // the collection whose items this wall shows; nil for the library's views
 	pager   *Pager
 	letters []plex.Letter
@@ -79,6 +82,11 @@ const (
 	WallPeekTop  = WallTabsY + 30               // peeking rows show from under the tabs
 	WallBarW     = 4
 	WallBarX     = SafeX + SafeW - WallBarW
+	// the view tabs: this far apart, closing up evenly (to no less than
+	// WallTabMinGap) when there are too many to end before WallTabsRight
+	WallTabGap    = 26
+	WallTabMinGap = 12
+	WallTabsRight = WallBarX - WallGap
 )
 
 const WallPrefetchRows = 3 // in both directions once the focused row rests
@@ -88,30 +96,60 @@ const WallPrefetchRows = 3 // in both directions once the focused row rests
 const CollectionsRetry = 30 * time.Second
 
 type wallView struct {
-	name        string
+	name        string // the tab's label, which also names the view
 	path        string // with %s for the section key
 	query       url.Values
 	az          bool
 	collections bool // the library's collections: a tab only once it has one
+	// order, when set, shows the whole listing in an order of the view's
+	// own: for the library and the listing's items, the index of each
+	// position's item (NewOrderedPager)
+	order func(s plex.Section, items []*plex.Item) []int
+	// remember keeps the view's place for the session: the cursor comes
+	// back with it, on the same item where the listing has it now, and
+	// while it is the view the library was left on, the library opens on
+	// it again (NewWall)
+	remember bool
+	// renew is OK on the view's tab while the cursor is on the tabs: the
+	// view starts over (a fresh order) with its place forgotten, and the
+	// cursor stays on the tab. Without it OK goes down to the grid.
+	renew func(s plex.Section)
 }
 
-// The labels are short enough for all five tabs to fit across the frame.
+// The labels are short enough for all five tabs to fit across the frame,
+// six with the tabs closed up.
 var wallViews = []wallView{
-	{"A to Z", "/library/sections/%s/all", url.Values{"sort": {"titleSort"}}, true, false},
-	{"Added", "/library/sections/%s/all", url.Values{"sort": {"addedAt:desc"}}, false, false},
-	{"Released", "/library/sections/%s/all", url.Values{"sort": {"originallyAvailableAt:desc"}}, false, false},
-	{"Continue Watching", "/hubs/sections/%s/continueWatching/items", nil, false, false},
+	{name: "A to Z", path: "/library/sections/%s/all", query: url.Values{"sort": {"titleSort"}}, az: true},
+	{name: "Added", path: "/library/sections/%s/all", query: url.Values{"sort": {"addedAt:desc"}}},
+	{name: "Released", path: "/library/sections/%s/all", query: url.Values{"sort": {"originallyAvailableAt:desc"}}},
+	{name: "Continue Watching", path: "/hubs/sections/%s/continueWatching/items"},
 	// last, so a library without collections shows the views before it
-	{"Collections", "/library/sections/%s/collections", nil, false, true},
+	{name: "Collections", path: "/library/sections/%s/collections", collections: true},
 }
 
-// NewWall opens a section in its A to Z view.
-func NewWall(app *App, s plex.Section) *Wall { return NewWallView(app, s, 0) }
+// wallExtrasAt is where the extras' views go among a library's: after
+// the sorts of the whole library, before Continue Watching.
+const wallExtrasAt = 3
+
+// extraWallViews is the extras' views for a library (premium.go); the
+// tests put their own in its place.
+var extraWallViews = (*App).premiumWallViews
+
+// NewWall opens a section in its A to Z view, or in the view that keeps
+// its place when the library was left on it (and it is still offered).
+func NewWall(app *App, s plex.Section) *Wall {
+	w := newWall(app, s, nil)
+	if p := app.places[s.Key]; p != nil {
+		w.view = max(0, viewNamed(w.views, p.last))
+	}
+	w.load()
+	return w
+}
 
 // NewWallView opens a section in one of its views.
 func NewWallView(app *App, s plex.Section, view int) *Wall {
-	w := &Wall{app: app, section: s, view: view}
-	w.band = gfx.NewCanvas(WallBandW, WallBandH)
+	w := newWall(app, s, nil)
+	w.view = max(0, min(len(w.views)-1, view))
 	w.load()
 	return w
 }
@@ -120,14 +158,139 @@ func NewWallView(app *App, s plex.Section, view int) *Wall {
 // order, under the library's title with the collection's as the only tab.
 // Back leaves it for the Collections tab where it was.
 func NewCollectionWall(app *App, s plex.Section, coll *plex.Item) *Wall {
-	w := &Wall{app: app, section: s, coll: coll}
-	w.band = gfx.NewCanvas(WallBandW, WallBandH)
+	w := newWall(app, s, coll)
 	w.load()
 	return w
 }
 
+func newWall(app *App, s plex.Section, coll *plex.Item) *Wall {
+	w := &Wall{app: app, section: s, coll: coll}
+	w.band = gfx.NewCanvas(WallBandW, WallBandH)
+	w.syncViews()
+	return w
+}
+
+// syncViews keeps the library's views in step with the extras: made once,
+// and again when the extras offer other views (one turned on or off). The
+// view shown stays by name; when it has gone, A to Z shows instead. A
+// collection's wall has the library's own views, unused.
+func (w *Wall) syncViews() {
+	if w.coll != nil {
+		w.views = wallViews
+		return
+	}
+	extras := extraWallViews(w.app, w.section)
+	if w.views != nil && sameViews(extras, w.extras) {
+		return
+	}
+	views := wallViews
+	if len(extras) > 0 {
+		views = make([]wallView, 0, len(wallViews)+len(extras))
+		views = append(append(append(views, wallViews[:wallExtrasAt]...), extras...), wallViews[wallExtrasAt:]...)
+	}
+	old := w.views
+	w.views, w.extras = views, extras
+	w.pageKey = ""
+	if old == nil {
+		return // being made: the view is chosen and loaded next
+	}
+	if at := viewNamed(views, old[w.view].name); at >= 0 {
+		w.view = at
+		return
+	}
+	w.view = 0
+	w.load()
+}
+
+// sameViews reports whether two lists of extras' views name the same views.
+func sameViews(a, b []wallView) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].name != b[i].name {
+			return false
+		}
+	}
+	return true
+}
+
+// viewNamed is the index of the view called name, or -1.
+func viewNamed(views []wallView, name string) int {
+	for i, v := range views {
+		if name != "" && v.name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+// wallPlace is what the session remembers of a library's views that keep
+// their place (wallView.remember).
+type wallPlace struct {
+	last  string              // the view the library was left on, if it is one of them
+	spots map[string]wallSpot // where the cursor was in each, by name
+}
+
+// wallSpot is a cursor's place: its position and the item there.
+type wallSpot struct {
+	cur int
+	key string // the item's rating key; "" when it had not loaded
+}
+
+// wallPlace is a library's remembered places, made on first use.
+func (a *App) wallPlace(section string) *wallPlace {
+	if a.places == nil {
+		a.places = map[string]*wallPlace{}
+	}
+	p := a.places[section]
+	if p == nil {
+		p = &wallPlace{spots: map[string]wallSpot{}}
+		a.places[section] = p
+	}
+	return p
+}
+
+// forgetWallView drops what the session remembers of a library's view:
+// its cursor, and that the library was left on it.
+func (a *App) forgetWallView(section, view string) {
+	if p := a.places[section]; p != nil {
+		delete(p.spots, view)
+		if p.last == view {
+			p.last = ""
+		}
+	}
+}
+
+// keep remembers the cursor of a view that keeps its place, once the
+// place it came back to has been found.
+func (w *Wall) keep() {
+	if v := w.views[w.view]; w.coll == nil && v.remember && w.seek == "" {
+		spot := wallSpot{cur: w.cur}
+		if it := w.pager.Get(w.cur); it != nil {
+			spot.key = it.RatingKey
+		}
+		w.app.wallPlace(w.section.Key).spots[v.name] = spot
+	}
+}
+
+// findPlace puts the cursor back on a remembered place's item once the
+// listing is in, wherever the listing has it now; without it the cursor
+// stays at the remembered position.
+func (w *Wall) findPlace() {
+	if w.seek == "" || w.total() == 0 || !w.pager.Done() {
+		return
+	}
+	if i := w.pager.Find(w.seek); i >= 0 && i != w.cur {
+		w.cur = i
+		w.rowY.Set(float64(w.cur / WallCols * WallRowPitch))
+	}
+	w.seek = ""
+	w.keep()
+}
+
 func (w *Wall) load() {
-	v := wallViews[w.view]
+	v := w.views[w.view]
 	if w.coll != nil {
 		// the path the server gave for the collection's items, else the usual one
 		path := w.coll.Key
@@ -150,6 +313,9 @@ func (w *Wall) load() {
 		// their own to judge, the 4:3 filter applies to their items
 		filter = nil
 		w.pager = w.collections()
+	} else if v.order != nil {
+		s, order := w.section, v.order
+		w.pager = NewOrderedPager(w.app.pager(path, q, filter), func(items []*plex.Item) []int { return order(s, items) })
 	} else {
 		w.pager = w.app.pager(path, q, filter)
 	}
@@ -162,8 +328,17 @@ func (w *Wall) load() {
 			}
 		}()
 	}
-	w.cur = 0
-	w.rowY.Set(0)
+	w.cur, w.seek = 0, ""
+	if w.coll == nil {
+		if v.remember {
+			p := w.app.wallPlace(w.section.Key)
+			spot := p.spots[v.name]
+			p.last, w.cur, w.seek = v.name, spot.cur, spot.key
+		} else if p := w.app.places[w.section.Key]; p != nil {
+			p.last = ""
+		}
+	}
+	w.rowY.Set(float64(w.cur / WallCols * WallRowPitch))
 	w.bandKey = ""
 }
 
@@ -176,7 +351,13 @@ func (w *Wall) total() int {
 }
 
 // az reports whether the view is the library's A to Z, with its letters.
-func (w *Wall) az() bool { return w.coll == nil && wallViews[w.view].az }
+func (w *Wall) az() bool {
+	views := w.views
+	if views == nil {
+		views = wallViews // a wall made bare, in the tests
+	}
+	return w.coll == nil && views[w.view].az
+}
 
 // collections is the library's collections listing, kept for the session
 // like the views'; asking for it starts the fetch that decides the tab.
@@ -196,8 +377,8 @@ func (w *Wall) tabCount() int {
 	if w.coll != nil {
 		return 1
 	}
-	n := len(wallViews)
-	if w.view == n-1 {
+	n := len(w.views)
+	if w.view == n-1 || !w.views[n-1].collections {
 		return n
 	}
 	if !w.holdsCollections() || w.collections().Total() <= 0 {
@@ -216,7 +397,7 @@ func (w *Wall) holdsCollections() bool {
 // Once on each opening of the library, then every CollectionsRetry; the
 // run loop redraws at least once a second, so an idle wall retries too.
 func (w *Wall) retryCollections(now time.Time) {
-	if w.coll != nil || w.view == len(wallViews)-1 || !w.holdsCollections() {
+	if w.coll != nil || w.views[w.view].collections || !w.holdsCollections() {
 		return
 	}
 	p := w.collections()
@@ -229,6 +410,8 @@ func (w *Wall) retryCollections(now time.Time) {
 
 // Key handles one input event.
 func (w *Wall) Key(ev input.Event, now time.Time) {
+	w.syncViews()
+	w.findPlace()
 	n := w.total()
 	if ev.Release {
 		w.rowY.Settle(now)
@@ -248,7 +431,17 @@ func (w *Wall) Key(ev input.Event, now time.Time) {
 				w.view++
 				w.load()
 			}
-		case input.Down, input.Enter:
+		case input.Enter:
+			if v := w.views[w.view]; v.renew != nil {
+				if !ev.Repeat {
+					v.renew(w.section)
+					w.app.forgetWallView(w.section.Key, v.name)
+					w.load()
+				}
+				return
+			}
+			w.tabs = false
+		case input.Down:
 			w.tabs = false
 		}
 		return
@@ -292,6 +485,7 @@ func (w *Wall) Key(ev input.Event, now time.Time) {
 	w.pager.Want(w.cur)
 	w.focusAt = now
 	w.rowY.Move(float64(w.cur/WallCols*WallRowPitch), now, ev.Repeat)
+	w.keep()
 }
 
 // Back moves the cursor up to the view tabs from anywhere in the grid;
@@ -327,7 +521,7 @@ func (w *Wall) jump(dir int) {
 			w.cur = 0
 		}
 		if w.cur > n-1 {
-			w.cur = n - 1
+			w.cur = max(0, n-1)
 		}
 		return
 	}
@@ -363,7 +557,15 @@ func (w *Wall) Refresh(it *plex.Item) {
 
 // Draw paints the wall.
 func (w *Wall) Draw(c *gfx.Canvas, now time.Time) bool {
+	w.syncViews()
+	w.findPlace()
 	n := w.total()
+	if n > 0 && w.cur >= n && w.pager.Done() {
+		// a remembered place in a listing that has shrunk since
+		w.cur = n - 1
+		w.rowY.Set(float64(w.cur / WallCols * WallRowPitch))
+		w.keep()
+	}
 	oy := round(w.rowY.At(now))
 	rows := (n + WallCols - 1) / WallCols
 	firstRow := max(0, (oy-WallRowPitch)/WallRowPitch)
@@ -458,7 +660,7 @@ func (w *Wall) drawPage(c *gfx.Canvas, now time.Time) (*gfx.Canvas, bool) {
 		img = &gfx.Image{W: w.blob.W, H: w.blob.H, Pix: w.blob.Pix}
 	}
 	tabs := w.tabCount()
-	if tabs < len(wallViews) {
+	if tabs < len(w.views) {
 		w.retryCollections(now)
 	}
 	key := itoa(w.view) + "/" + itoa(tabs)
@@ -511,8 +713,9 @@ func (w *Wall) compose(c *gfx.Canvas, img *gfx.Image, total, tabs int) {
 	// when navigation is on the tabs, without surrounding the label in a box.
 	x := SafeX
 	ty := WallTabsY
+	gap := w.tabGap(tabs)
 	for i := 0; i < tabs; i++ {
-		name := wallViews[i].name
+		name := w.views[i].name
 		if w.coll != nil {
 			name = f.SmallBold.Fit(w.coll.Title, WallBandW)
 		}
@@ -532,8 +735,21 @@ func (w *Wall) compose(c *gfx.Canvas, img *gfx.Image, total, tabs int) {
 			}
 			c.Fill(x, ty+f.SmallBold.Height()+4, tw, lineH, lineColor)
 		}
-		x += tw + 26
+		x += tw + gap
 	}
+}
+
+// tabGap is the space between the view tabs when tabs of them show:
+// WallTabGap, closed up evenly when they would run past WallTabsRight.
+func (w *Wall) tabGap(tabs int) int {
+	if tabs < 2 || w.coll != nil {
+		return WallTabGap
+	}
+	width := 0
+	for _, v := range w.views[:tabs] {
+		width += w.app.F.SmallBold.Width(v.name)
+	}
+	return max(WallTabMinGap, min(WallTabGap, (WallTabsRight-SafeX-width)/(tabs-1)))
 }
 
 // marker is what rides beside the scrollbar handle: the letter in A to Z

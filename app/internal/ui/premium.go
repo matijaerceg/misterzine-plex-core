@@ -13,6 +13,11 @@ import (
 // its Options row shows to everyone, greyed with "Needs a code" until a
 // code covering it has been entered, and beta ones only with "Show beta
 // features" on.
+//
+// An extra's library view (premiumWallViews) is a wallView: it can show
+// the listing in an order of its own (NewOrderedPager), keep its place
+// for the session (forgetWallView drops it) and start over on OK on its
+// tab.
 
 // accessDir is where receipts live: beside the settings file.
 func (a *App) accessDir() string {
