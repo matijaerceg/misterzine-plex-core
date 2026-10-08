@@ -27,7 +27,7 @@ func TestBetaAccessMovedFromOptionsToPatreon(t *testing.T) {
 	p := NewPatreon(a)
 	a.Push(p)
 	rows := p.rows()
-	if len(rows) != 1 || rows[0].label != "Beta access" || rows[0].val() != "Locked" {
+	if len(rows) != 2 || rows[0].label != "Beta access" || rows[0].val() != "Locked" || rows[1].label != "MisterZine code" {
 		t.Fatalf("Patreon rows on a locked beta: %+v", rows)
 	}
 	p.Key(input.Event{Key: input.Enter}, time.Now())
