@@ -73,6 +73,9 @@ func (a *App) idle(now time.Time, waiting bool) {
 		a.setDimmed(false)
 		return
 	}
+	if a.premiumIdle(now, waiting, now.Sub(d.last)) {
+		return // an extra has the screen (a screensaver): no dimming over it
+	}
 	if !d.on && now.Sub(d.last) >= DimAfter {
 		a.setDimmed(true)
 	}

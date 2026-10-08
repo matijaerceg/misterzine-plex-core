@@ -61,16 +61,16 @@ func TestPatreonOnAPublicBuildPointsAtUpdates(t *testing.T) {
 	beta.Channel = "public"
 	t.Setenv("PLEXCRT_CATALOGUE_FILE", filepath.Join(t.TempDir(), "missing.json")) // no network
 	p := NewPatreon(a)
-	if rows := p.rows(); len(rows) != 0 {
+	// only the MisterZine code row, on every build
+	if rows := p.rows(); len(rows) != 1 || rows[0].label != "MisterZine code" {
 		t.Fatalf("rows without early access on offer: %+v", rows)
 	}
-	p.Key(input.Event{Key: input.Enter}, time.Now()) // nothing to choose: nothing happens
 	p.Key(input.Event{Key: input.Down}, time.Now())
 	// the catalogue keeps the beta that became this public release: not on offer
 	a.Version = "1.0.0"
 	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{
 		"public": {ID: "pub", Version: "1.0.0", Channel: "public"}, "beta": {ID: "old", Version: "1.0.0-beta.1", Channel: "beta"}}}
-	if v, rows := a.earlyAccess(), p.rows(); v != "" || len(rows) != 0 {
+	if v, rows := a.earlyAccess(), p.rows(); v != "" || len(rows) != 1 {
 		t.Fatalf("an older beta offered as %q, rows %+v", v, rows)
 	}
 	a.updates.catalogue.Releases["beta"] = updates.Release{ID: "next", Version: "1.1.0-beta.1", Channel: "beta"}

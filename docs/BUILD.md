@@ -15,6 +15,25 @@ cd ..
 Normal source builds are unlocked. See [beta builds](BETA_RELEASES.md)
 for explicit release-channel builds. The app's version is available via -version.
 
+### Supporter extras
+
+The official app is this source plus the supporter extras, which live in a
+private repository as an overlay of extra files at the same paths. The overlay
+only adds files; every Go file in it is limited to the `premium` build tag, so
+this repository builds the complete public app on its own and a public change is
+never shadowed by a private copy. Each extra is a `Feature` in
+`app/internal/access`: its Options row shows to everyone and is greyed with
+"Needs a code" until a MisterZine code covering it has been entered (saved for
+good under `unlocks/` beside the settings; the beta's own receipt counts).
+Beta features show only with Options > Show beta features on. The public
+build has no code registry, so no code unlocks anything in it.
+
+The hooks the extras plug into are in `app/internal/ui/premium.go`; the public
+build's stubs, behind `//go:build !premium`, are in `premium_free.go`. To add
+an extra, land the smallest hook it needs here first, then the extra in the
+private repository. `release/beta_release.py build --tags premium` builds with
+the overlay in place.
+
 ## FPGA core
 
 ```sh

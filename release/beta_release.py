@@ -55,9 +55,11 @@ def create_code(batch, private=PRIVATE):
     return path
 
 
-def build(channel, batch, go, version, ident, private=PRIVATE):
+def build(channel, batch, go, version, ident, private=PRIVATE, tags=''):
     if channel not in ('beta', 'public'):
         raise ValueError('Unknown release channel')
+    if tags and not re.fullmatch(r'[a-z0-9_,]+', tags):
+        raise ValueError('Build tags must be lowercase names separated by commas')
     flags = ['-s', '-w', '-X', 'plexcrt/internal/beta.Channel=' + channel]
     # Metadata is passed inside Go's linker argument syntax. Reject whitespace
     # and quotes so it cannot introduce additional linker options.
@@ -86,8 +88,9 @@ def build(channel, batch, go, version, ident, private=PRIVATE):
     elif batch:
         raise ValueError('Public builds must not specify a beta batch')
     env = dict(os.environ, GOOS='linux', GOARCH='arm', GOARM='7', CGO_ENABLED='0')
-    subprocess.run([go, 'build', '-trimpath', '-ldflags', ' '.join(flags),
-                    '-o', 'dist/plexcrt', './cmd/plexcrt'], cwd=ROOT / 'app', env=env, check=True)
+    command = [go, 'build', '-trimpath'] + (['-tags', tags] if tags else []) + ['-ldflags', ' '.join(flags),
+               '-o', 'dist/plexcrt', './cmd/plexcrt']
+    subprocess.run(command, cwd=ROOT / 'app', env=env, check=True)
     access = {'batch': batch, 'sha256': hashlib.sha256(key).hexdigest()} if channel == 'beta' else None
     if channel == 'beta' and verifier != 'CodeSHA256':
         access['legacy_file_key'] = True
@@ -114,13 +117,14 @@ def main():
     app.add_argument('--go', default='go')
     app.add_argument('--version', required=True)
     app.add_argument('--id', required=True)
+    app.add_argument('--tags', default='', help='Go build tags; the official build adds the supporter extras with "premium"')
     args = parser.parse_args()
     if args.command == 'create-key':
         print('Patron-only ZIP:', create_key(args.batch))
     elif args.command == 'create-code':
         print('Private code file:', create_code(args.batch))
     else:
-        build(args.channel, args.batch, args.go, args.version, args.id)
+        build(args.channel, args.batch, args.go, args.version, args.id, tags=args.tags)
         print('Built app/dist/plexcrt:', args.channel, args.batch)
 
 

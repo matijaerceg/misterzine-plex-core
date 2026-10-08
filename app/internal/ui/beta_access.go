@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"plexcrt/internal/access"
 	"plexcrt/internal/beta"
 	"plexcrt/internal/gfx"
 	"plexcrt/internal/input"
@@ -30,6 +31,9 @@ type accessPageState struct {
 // after access has been saved and the success animation has finished.
 type BetaAccess struct {
 	requirement beta.Requirement
+	// premium is the supporter-code entry: the code goes to package access
+	// (the extras) instead of the beta's playback gate.
+	premium     bool
 	version     string
 	titleFont   *gfx.Font
 	versionFont *gfx.Font
@@ -56,6 +60,17 @@ func NewBetaAccess(a *App, then func()) *BetaAccess {
 	b.back.BlendSolidClip(0, 0, image, 0, 256-112, 0, 0, 720, 480)
 	return b
 }
+
+// NewCodeEntry is the supporter-code entry: a MisterZine code covering the
+// extras, saved for good. then runs once it is accepted.
+func NewCodeEntry(a *App, then func()) *BetaAccess {
+	b := NewBetaAccess(a, then)
+	b.premium = true
+	return b
+}
+
+// hasCode reports whether this screen takes a code at all.
+func (b *BetaAccess) hasCode() bool { return b.premium || b.requirement.CodeSHA256 != "" }
 
 func (a *App) betaDir() string {
 	if a.Cfg == nil || a.Cfg.path == "" {
@@ -115,7 +130,7 @@ func (b *BetaAccess) Key(ev input.Event, now time.Time) {
 		if ev.Repeat {
 			return
 		}
-		if b.requirement.CodeSHA256 == "" {
+		if !b.hasCode() {
 			b.Back()
 			return
 		}
@@ -127,12 +142,21 @@ func (b *BetaAccess) Key(ev input.Event, now time.Time) {
 			b.message = "Could not save access. Check storage and retry."
 			return
 		}
-		err := b.requirement.Unlock(b.app.betaDir(), string(code))
+		var err error
+		if b.premium {
+			_, err = access.Unlock(b.app.betaDir(), string(code))
+		} else {
+			err = b.requirement.Unlock(b.app.betaDir(), string(code))
+		}
 		switch err {
 		case nil:
 			b.opened = now
 			b.message = "Playback enabled"
-		case beta.ErrLocked:
+			if b.premium {
+				b.message = "Unlocked"
+			}
+			b.app.accessChanged()
+		case beta.ErrLocked, access.ErrCode:
 			b.message = "Invalid code."
 		case beta.ErrBuild:
 			b.message = beta.ErrBuild.Error()
@@ -177,7 +201,7 @@ func (b *BetaAccess) Draw(c *gfx.Canvas, now time.Time) bool {
 		b.pageReady = true
 	}
 	moving := !b.opened.IsZero()
-	if b.requirement.CodeSHA256 != "" {
+	if b.hasCode() {
 		b.page.Fill(210, 266, 300, 47, accessSurface)
 		if b.digitCell == nil {
 			b.digitCell = gfx.NewCanvas(40, 36)
@@ -217,6 +241,17 @@ func (b *BetaAccess) compose(c *gfx.Canvas, now time.Time) bool {
 	f := b.app.F
 	center := func(yy int, font *gfx.Font, color gfx.Color, s string) {
 		c.Text((c.W-font.Width(s))/2, yy, font, color, s)
+	}
+	if b.premium {
+		center(128, b.titleFont, gfx.Purple, "MISTERZINE CODE")
+		center(158, b.versionFont, gfx.Amber, "Your access: "+b.app.Access().Short())
+		center(203, f.Body, gfx.White, "Supporter extras need a code from the")
+		center(228, f.Body, gfx.White, "Patreon posts. It unlocks them for good.")
+		for i, line := range wrap(f.SmallBold, b.message, w-32, 2) {
+			center(321+i*19, f.SmallBold, gfx.Purple, line)
+		}
+		center(374, f.Body, gfx.Purple, patreonAddress)
+		return !b.opened.IsZero()
 	}
 	center(128, b.titleFont, gfx.Purple, "EARLY ACCESS")
 	center(158, b.versionFont, gfx.Amber, b.version)

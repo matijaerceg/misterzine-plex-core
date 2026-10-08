@@ -3,6 +3,7 @@ package ui
 import (
 	"time"
 
+	"plexcrt/internal/access"
 	"plexcrt/internal/beta"
 	"plexcrt/internal/gfx"
 	"plexcrt/internal/input"
@@ -45,7 +46,10 @@ func (s *ForgetBetaAccess) Key(ev input.Event, now time.Time) {
 		s.confirm = true
 	case input.Enter:
 		if s.confirm {
-			if err := beta.Forget(s.app.betaDir()); err != nil {
+			_, accessErr := access.Forget(s.app.betaDir())
+			err := beta.Forget(s.app.betaDir())
+			s.app.accessChanged()
+			if err != nil || accessErr != nil {
 				s.app.Notice = "Could not forget all beta access. Check storage and retry."
 				s.app.NoticeAt = now
 				return
@@ -62,8 +66,8 @@ func (s *ForgetBetaAccess) Draw(c *gfx.Canvas, now time.Time) bool {
 	c.Fill(0, 0, c.W, c.H, gfx.Bg)
 	a.text(c, MenuX, SafeY, f.Title, gfx.Grey, "Forget beta access?")
 	for i, line := range []string{
-		"Clears all saved beta unlocks on this installation.",
-		"You'll need a code again to play beta releases.",
+		"Clears all saved codes on this installation.",
+		"You'll need a code again for beta releases and extras.",
 		"Plex sign-in and settings will be kept.",
 	} {
 		a.text(c, MenuX, ListY0+i*30, f.Small, gfx.GreyHi, line)

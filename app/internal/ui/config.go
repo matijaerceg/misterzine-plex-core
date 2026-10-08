@@ -24,15 +24,19 @@ type Config struct {
 	AudioBoost         int      `json:"audio_boost,omitempty"` // gain when the server folds surround to stereo; 0 is the default
 	Geometry           Geometry `json:"geometry"`              // where video goes on the raster (menus ignore it)
 	Crop               Crop     `json:"crop,omitempty"`        // what each playback starts cropping; nothing saved is off
-	ClientID           string   `json:"client_id"`
-	Token              string   `json:"token"` // the plex.tv account token
-	AccountName        string   `json:"account_name,omitempty"`
-	ServerURL          string   `json:"server_url"`   // the chosen server
-	ServerToken        string   `json:"server_token"` // the token for that server
-	ServerName         string   `json:"server_name"`
-	LoadWarning        string   `json:"-"`
-	LoadError          error    `json:"-"`
-	path               string
+	ShowBeta           bool     `json:"show_beta_features"`    // show (and run) the features still in beta
+	// Premium is the supporter extras' own settings, by key; the public
+	// build keeps them without using them.
+	Premium     map[string]string `json:"premium,omitempty"`
+	ClientID    string            `json:"client_id"`
+	Token       string            `json:"token"` // the plex.tv account token
+	AccountName string            `json:"account_name,omitempty"`
+	ServerURL   string            `json:"server_url"`   // the chosen server
+	ServerToken string            `json:"server_token"` // the token for that server
+	ServerName  string            `json:"server_name"`
+	LoadWarning string            `json:"-"`
+	LoadError   error             `json:"-"`
+	path        string
 }
 
 // LoadConfig reads the config file; a missing file gives the defaults. A

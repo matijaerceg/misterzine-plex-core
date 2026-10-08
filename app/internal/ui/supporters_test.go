@@ -178,15 +178,17 @@ func TestSupportersRowOpensTheList(t *testing.T) {
 	a := betaTestApp(t)
 	p := NewPatreon(a)
 	a.Push(p)
-	if rows := p.rows(); len(rows) != 1 {
+	// beta access, the MisterZine code, and then the supporters once listed
+	if rows := p.rows(); len(rows) != 2 {
 		t.Fatalf("rows before the list has come: %+v", rows)
 	}
 	s, _ := DecodeSupporters([]byte(supportersFixture))
 	a.supporters.list = s
 	rows := p.rows()
-	if len(rows) != 2 || rows[1].label != "Our 2 supporters" {
+	if len(rows) != 3 || rows[2].label != "Our 2 supporters" {
 		t.Fatalf("rows with the list: %+v", rows)
 	}
+	p.Key(input.Event{Key: input.Down}, time.Now())
 	p.Key(input.Event{Key: input.Down}, time.Now())
 	p.Key(input.Event{Key: input.Enter}, time.Now())
 	if _, ok := a.top().(*SupportersPage); !ok {

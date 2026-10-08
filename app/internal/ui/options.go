@@ -30,6 +30,9 @@ type option struct {
 	// busy reports that the last change is still being applied off-thread;
 	// the row says so beside its value.
 	busy func() bool
+	// locked greys the row: a supporter extra the card has no code for.
+	// Its value says what it needs and OK opens the code entry.
+	locked bool
 }
 
 func (o *Options) items() []option {
@@ -81,6 +84,8 @@ func (o *Options) items() []option {
 		{label: "Theme music", get: func() bool { return !cfg.NoTheme }, set: func(v bool) { cfg.NoTheme = !v }, after: o.app.syncTheme},
 		{label: "Navigation sounds", get: func() bool { return !cfg.NoTaps }, set: func(v bool) { cfg.NoTaps = !v }},
 	}...)
+	items = o.app.premiumOptions(items)
+	items = append(items, option{label: "Show beta features", get: func() bool { return cfg.ShowBeta }, set: func(v bool) { cfg.ShowBeta = v }, after: o.app.accessChanged})
 	if cfg.Token != "" {
 		items = append(items, option{label: "Choose server again", do: func() { o.app.Push(NewServerPicker(o.app)) }})
 	}
@@ -227,6 +232,9 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 	for i := first; i < min(len(items), first+visibleRows); i++ {
 		it := items[i]
 		col := gfx.GreyHi
+		if it.locked {
+			col = gfx.GreyLo
+		}
 		if i == o.cur {
 			col = gfx.White
 			menuFocusBar(c, MenuX, y+9, f.Body.Height())
@@ -251,7 +259,11 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 			}
 		}
 		if it.val != nil {
-			o.app.textRight(c, MenuRight, y+9, f.Body, gfx.Amber, it.val())
+			vc := gfx.Amber
+			if it.locked {
+				vc = gfx.GreyLo
+			}
+			o.app.textRight(c, MenuRight, y+9, f.Body, vc, it.val())
 		}
 		y += MenuRowH
 	}

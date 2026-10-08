@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"plexcrt/internal/access"
 	"plexcrt/internal/beta"
 	"plexcrt/internal/gfx"
 	"plexcrt/internal/input"
@@ -116,7 +117,8 @@ type App struct {
 	theme         Theme
 	lastFocus     focusPosition
 	focusReady    bool
-	accountLookup bool // UI-thread owned; prevents overlapping account-name requests
+	accountLookup bool         // UI-thread owned; prevents overlapping account-name requests
+	access        access.Month // the coverage of the codes on this card (premium.go)
 }
 
 // SetCacheDir sets where artwork is cached.
@@ -695,6 +697,8 @@ func (a *App) Start() {
 		a.osd.Dot(0, 0, 0, false)
 		a.osd.Bar(0, 0, 0, 0, 0, false)
 	}
+	a.loadAccess()
+	a.premiumStart()
 	if a.Plex != nil {
 		a.Push(NewHome(a))
 		return

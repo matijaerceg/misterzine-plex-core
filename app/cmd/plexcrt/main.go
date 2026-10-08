@@ -61,6 +61,9 @@ func run() int {
 			channel = "development"
 		}
 		fmt.Printf("Release channel: %s\n", channel)
+		if extras := ui.PremiumVersion(); extras != "" {
+			fmt.Printf("Supporter extras: %s\n", extras)
+		}
 		if beta.Batch != "" || beta.KeySHA256 != "" || beta.CodeSHA256 != "" {
 			fmt.Printf("Patreon beta batch: %s\n", beta.Batch)
 		}
@@ -152,7 +155,7 @@ func run() int {
 	}
 	// The ring stays mapped until the process ends: the pad poller and the
 	// watchdog may still be reading it as the app stops, and exiting unmaps it.
-	player :=&ui.Player{Script: *script, Fifo: "/tmp/plexplay.ctl", LogTo: filepath.Join(os.TempDir(), "plexplay.log"),
+	player := &ui.Player{Script: *script, Fifo: "/tmp/plexplay.ctl", LogTo: filepath.Join(os.TempDir(), "plexplay.log"),
 		Status: "/tmp/plexfb.stat", Env: playerEnv, Kbps: cfg.BitrateKbps, Boost: cfg.AudioBoostValue}
 	player.Access = func() error { return beta.Check(filepath.Dir(*cfgPath)) }
 	app := ui.New(client, r, player, lg)
