@@ -118,7 +118,7 @@ func (h *Home) focusSeason(i int) {
 // recently added, fetched together.
 func (h *Home) reload() {
 	h.refreshResult = nil // discard any older background request
-	hubs, secs, err := fetchHome(h.app.Plex, h.app.Log)
+	hubs, secs, err := fetchHome(h.app.Plex, h.app.hiddenLibraries(), h.app.Log)
 	if err == nil {
 		h.app.measureHubs(hubs)
 	}
@@ -176,8 +176,9 @@ type homeResult struct {
 // A row that fails is dropped and logged rather than failing the screen:
 // a large library answers /hubs slowly, and one broken library must not
 // hide the others. Only a server that answers nothing is an error. The
-// libraries come back too, for the menu and the rows' "See all" tiles.
-func fetchHome(client *plex.Client, lg *log.Logger) ([]*plex.Hub, []plex.Section, error) {
+// libraries come back too, all of them, for the menu, Options and the
+// rows' "See all" tiles; the hidden ones (keys in hidden) get no row.
+func fetchHome(client *plex.Client, hidden []string, lg *log.Logger) ([]*plex.Hub, []plex.Section, error) {
 	var hubs []*plex.Hub
 	var hubsErr error
 	var wg sync.WaitGroup
@@ -191,9 +192,10 @@ func fetchHome(client *plex.Client, lg *log.Logger) ([]*plex.Hub, []plex.Section
 		wg.Wait()
 		return nil, nil, err
 	}
-	rows := make([]*plex.Hub, len(secs))
-	errs := make([]error, len(secs))
-	for i, s := range secs {
+	shown := shownSections(secs, hidden)
+	rows := make([]*plex.Hub, len(shown))
+	errs := make([]error, len(shown))
+	for i, s := range shown {
 		wg.Add(1)
 		go func(i int, s plex.Section) {
 			defer wg.Done()
@@ -221,10 +223,10 @@ func fetchHome(client *plex.Client, lg *log.Logger) ([]*plex.Hub, []plex.Section
 	for i, err := range errs {
 		if err != nil {
 			failed++
-			lg.Printf("home: library %q skipped: %v", secs[i].Title, err)
+			lg.Printf("home: library %q skipped: %v", shown[i].Title, err)
 		}
 	}
-	if hubsErr != nil && len(secs) > 0 && failed == len(secs) {
+	if hubsErr != nil && len(shown) > 0 && failed == len(shown) {
 		return nil, nil, errs[0]
 	}
 	for _, r := range rows {
@@ -279,9 +281,9 @@ func (h *Home) pollHome(now time.Time) {
 	}
 	result := make(chan homeResult, 1)
 	h.refreshResult = result
-	client, lg := h.app.Plex, h.app.Log
+	client, hidden, lg := h.app.Plex, h.app.hiddenLibraries(), h.app.Log
 	go func() {
-		hubs, secs, err := fetchHome(client, lg)
+		hubs, secs, err := fetchHome(client, hidden, lg)
 		if err == nil {
 			h.app.measureHubs(hubs)
 		}
@@ -506,6 +508,9 @@ func (h *Home) Draw(c *gfx.Canvas, now time.Time) bool {
 	if h.empty {
 		c.Fill(0, 0, c.W, c.H, gfx.Bg)
 		h.app.text(c, SafeX, SafeY+40, h.app.F.Body, gfx.GreyHi, "Nothing to show yet.")
+		if h.home && h.app.allLibrariesHidden() {
+			h.app.text(c, SafeX, SafeY+70, h.app.F.Small, gfx.GreyLo, h.app.F.Small.Fit("Every library is hidden. Back: menu, then Options to show them.", SafeW))
+		}
 		return false
 	}
 	// the page is copied in around the posters, so each frame pixel is

@@ -112,7 +112,7 @@ func (s *Search) accept(gen int, items []*plex.Item, err error) {
 	}
 	s.app.aspects.apply(items)
 	for _, it := range items {
-		if s.app.Keep(it) {
+		if s.app.Keep(it) && s.app.libraryShown(it) {
 			s.items = append(s.items, it)
 		}
 	}

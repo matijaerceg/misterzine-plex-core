@@ -16,7 +16,7 @@ func TestSearchLocalTitles(t *testing.T) {
 		if r.Header.Get("X-Plex-Token") != "test-secret" || r.URL.Query().Has("X-Plex-Token") {
 			t.Error("token must be in header only")
 		}
-		fmt.Fprint(w, `<MediaContainer><Hub><Video type="movie" ratingKey="1" key="/library/metadata/1" title="A &amp; B" year="1990"/><Video type="episode" ratingKey="2" key="/library/metadata/2"/></Hub><Hub><Directory type="show" ratingKey="3" key="/library/metadata/3/children" title="A show"/><Video type="movie" ratingKey="1" key="/library/metadata/1"/><Directory type="show" ratingKey="external" key="https://external/1"/></Hub></MediaContainer>`)
+		fmt.Fprint(w, `<MediaContainer><Hub><Video type="movie" ratingKey="1" key="/library/metadata/1" title="A &amp; B" year="1990" librarySectionID="4"/><Video type="episode" ratingKey="2" key="/library/metadata/2"/></Hub><Hub><Directory type="show" ratingKey="3" key="/library/metadata/3/children" title="A show"/><Video type="movie" ratingKey="1" key="/library/metadata/1"/><Directory type="show" ratingKey="external" key="https://external/1"/></Hub></MediaContainer>`)
 	}))
 	defer server.Close()
 	c := New(server.URL, "test-secret", t.TempDir(), "")
@@ -24,7 +24,7 @@ func TestSearchLocalTitles(t *testing.T) {
 	if err != nil || len(items) != 2 {
 		t.Fatalf("got %d items, error %v", len(items), err)
 	}
-	if items[0].Title != "A & B" || items[1].Type != "show" {
+	if items[0].Title != "A & B" || items[1].Type != "show" || items[0].Library != "4" || items[1].Library != "" {
 		t.Fatal("incorrect metadata")
 	}
 	ctx, cancel := context.WithCancel(context.Background())

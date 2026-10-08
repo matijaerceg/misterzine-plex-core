@@ -72,6 +72,7 @@ func TestOptionsSections(t *testing.T) {
 func TestOptionsCursorSkipsHeaders(t *testing.T) {
 	a := betaTestApp(t)
 	a.Plex = &plex.Client{}
+	a.secs = []plex.Section{{Key: "1", Title: "Films", Type: "movie"}} // the Libraries section too
 	o := NewOptions(a)
 	a.Push(o)
 	items := o.items()
@@ -185,6 +186,7 @@ func focusRow(c *gfx.Canvas) int {
 func TestOptionsWindowKeepsTheCursorCentred(t *testing.T) {
 	a := betaTestApp(t)
 	a.Plex = &plex.Client{}
+	a.secs = []plex.Section{{Key: "1", Title: "Films", Type: "movie"}} // the Libraries section too
 	o := &Options{app: a}
 	items := o.items()
 	n := len(items)

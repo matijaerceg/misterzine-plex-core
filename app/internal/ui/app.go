@@ -695,10 +695,11 @@ func (a *App) Menu() {
 	a.Push(NewDrawer(a, a.stack[0], items, cur))
 }
 
-// menuItems lists the drawer's entries, with the one to open on.
+// menuItems lists the drawer's entries, with the one to open on: the
+// library opened last, Home when there is none or it is hidden.
 func (a *App) menuItems() ([]*plex.Item, int) {
 	items := []*plex.Item{{Title: "Home", Type: "home"}, {Title: "Search", Type: "search"}}
-	for _, s := range a.secs {
+	for _, s := range a.libraries() {
 		items = append(items, &plex.Item{RatingKey: s.Key, Title: s.Title, Type: "section", Key: s.Key})
 	}
 	items = append(items, &plex.Item{Title: "Options", Type: "options"}, &plex.Item{Title: "Exit to MiSTer menu", Type: "exit"},

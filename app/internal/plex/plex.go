@@ -116,6 +116,7 @@ type Item struct {
 	PartID     string    // the first media part, whose streams can be chosen
 	Audio      []Stream  // its audio streams
 	Subs       []Stream  // its subtitle streams
+	Library    string    // the key of its library, when the server says (search results do)
 }
 
 // Marker is a span the server has found: "intro" or "credits", in seconds.
@@ -249,6 +250,7 @@ type xmlItem struct {
 	ChildCount       int    `xml:"childCount,attr"`
 	LeafCount        int    `xml:"leafCount,attr"`
 	ViewedLeafCount  int    `xml:"viewedLeafCount,attr"`
+	LibrarySectionID string `xml:"librarySectionID,attr"`
 	Images           []struct {
 		Type string `xml:"type,attr"`
 		URL  string `xml:"url,attr"`
@@ -294,7 +296,7 @@ func (x *xmlItem) item() *Item {
 		Duration: int(x.Duration / 1000), ViewOffset: int(x.ViewOffset / 1000), ViewCount: x.ViewCount,
 		Summary: Fold(x.Summary), Thumb: x.Thumb, Art: x.Art, Theme: x.Theme, GrandTitle: Fold(x.GrandparentTitle),
 		Index: x.Index, Parent: x.ParentIndex, Rating: x.Rating, Tagline: Fold(x.Tagline), GrandKey: x.GrandparentKey,
-		ParentKey: x.ParentKey, Children: x.ChildCount, Leaves: x.LeafCount, Viewed: x.ViewedLeafCount}
+		ParentKey: x.ParentKey, Children: x.ChildCount, Leaves: x.LeafCount, Viewed: x.ViewedLeafCount, Library: x.LibrarySectionID}
 	if it.Type == "episode" && x.GrandparentThumb != "" {
 		it.Still = x.Thumb
 		it.Thumb = x.GrandparentThumb // the poster wall wants the show's poster

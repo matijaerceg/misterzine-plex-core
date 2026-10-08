@@ -42,7 +42,8 @@ type option struct {
 func optionSection(name string) option { return option{label: name, header: true} }
 
 // items is the list as shown, section headers included: Playback,
-// Picture, Sound, Extras, Account, App. Version stays the last row.
+// Libraries (once the libraries are loaded), Picture, Sound, Extras,
+// Account, App. Version stays the last row.
 func (o *Options) items() []option {
 	cfg := o.app.Cfg
 	items := []option{
@@ -73,6 +74,9 @@ func (o *Options) items() []option {
 			i = max(0, min(len(AudioBoosts)-1, i+d))
 			cfg.AudioBoost = AudioBoosts[i].Value
 		}},
+	}
+	items = o.app.libraryOptions(items)
+	items = append(items, []option{
 		optionSection("Picture"),
 		{label: "Video output", val: func() string {
 			if o.app.videoLocked() {
@@ -87,7 +91,7 @@ func (o *Options) items() []option {
 		{label: "Video crop", val: func() string { return cfg.Crop.Label() }, step: func(d int) {
 			cfg.Crop = Crops[max(0, min(len(Crops)-1, cfg.Crop.index()+d))].Mode
 		}},
-	}
+	}...)
 	for _, w := range o.app.Display.Warnings() {
 		items = append(items, option{label: w.label, val: func() string { return w.value }, do: func() { o.app.Push(NewDisplayNote(o.app, w)) }})
 	}
@@ -262,7 +266,11 @@ func (o *Options) Key(ev input.Event, now time.Time) {
 }
 
 // labelledOption is the row of items labelled label, or cur when no row is.
+// cur itself wins when it has the label: two libraries can share a name.
 func labelledOption(items []option, label string, cur int) int {
+	if cur >= 0 && cur < len(items) && !items[cur].header && items[cur].label == label {
+		return cur
+	}
 	for i, it := range items {
 		if !it.header && it.label == label {
 			return i

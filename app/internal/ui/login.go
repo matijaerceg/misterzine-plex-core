@@ -187,6 +187,10 @@ func (l *Login) finishConnect(gen int, s plex.Server, uri string) {
 	if next.Token != l.tok {
 		next.AccountName = ""
 	}
+	if next.ServerName != s.Name {
+		// library keys are the server's own: another server's "1" is another library
+		next.HiddenLibraries = nil
+	}
 	next.Token, next.ServerURL, next.ServerToken, next.ServerName = l.tok, uri, s.AccessToken, s.Name
 	if err := next.Save(); err != nil {
 		l.app.Log.Printf("config: %v", err)

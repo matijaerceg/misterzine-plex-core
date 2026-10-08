@@ -26,6 +26,9 @@ type Config struct {
 	Geometry           Geometry `json:"geometry"`              // where video goes on the raster (menus ignore it)
 	Crop               Crop     `json:"crop,omitempty"`        // what each playback starts cropping; nothing saved is off
 	ShowBeta           bool     `json:"show_beta_features"`    // show (and run) the features still in beta
+	// HiddenLibraries are the keys of the chosen server's libraries left
+	// off Home, the menu and search (Options > Libraries).
+	HiddenLibraries []string `json:"hidden_libraries,omitempty"`
 	// Premium is the supporter extras' own settings, by key; the public
 	// build keeps them without using them.
 	Premium     map[string]string `json:"premium,omitempty"`
@@ -144,6 +147,7 @@ func (c *Config) SignedIn() bool { return c.ServerURL != "" && c.ServerToken != 
 func (c *Config) SignOut() error {
 	next := *c
 	next.RecentSearches = nil
+	next.HiddenLibraries = nil // the keys belong to the server forgotten here
 	next.AccountName = ""
 	next.Token, next.ServerURL, next.ServerToken, next.ServerName = "", "", "", ""
 	data, _ := json.MarshalIndent(&next, "", "  ")

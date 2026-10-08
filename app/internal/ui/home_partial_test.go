@@ -34,7 +34,7 @@ func TestHomeKeepsRowsThatAnswered(t *testing.T) {
 	}))
 	defer server.Close()
 	client := plex.New(server.URL, "tok", t.TempDir(), "")
-	hubs, secs, err := fetchHome(client, log.New(io.Discard, "", 0))
+	hubs, secs, err := fetchHome(client, nil, log.New(io.Discard, "", 0))
 	if err != nil {
 		t.Fatalf("one failed library sank the home screen: %v", err)
 	}
@@ -46,12 +46,12 @@ func TestHomeKeepsRowsThatAnswered(t *testing.T) {
 	}
 
 	fail["/hubs/sections/1"] = true
-	if _, _, err := fetchHome(client, log.New(io.Discard, "", 0)); err == nil {
+	if _, _, err := fetchHome(client, nil, log.New(io.Discard, "", 0)); err == nil {
 		t.Fatal("a server that answered nothing did not fail")
 	}
 
 	fail["/library/sections"] = true
-	if _, _, err := fetchHome(client, log.New(io.Discard, "", 0)); err == nil {
+	if _, _, err := fetchHome(client, nil, log.New(io.Discard, "", 0)); err == nil {
 		t.Fatal("an unreachable library list did not fail")
 	}
 }
