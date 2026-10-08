@@ -47,6 +47,8 @@ type Wall struct {
 	blob           *gfx.Canvas // the abstract page for the lingered item's palette
 	blobFor        [4]uint32
 	blobBusy       bool
+
+	collAsked time.Time // when a failed collections listing was last asked again
 }
 
 // LingerRest is how long the cursor must rest before the page follows it.
@@ -79,6 +81,10 @@ const (
 )
 
 const WallPrefetchRows = 3 // in both directions once the focused row rests
+
+// CollectionsRetry spaces the requests for a collections listing that has
+// failed, while a library's wall is on screen.
+const CollectionsRetry = 30 * time.Second
 
 type wallView struct {
 	name        string
@@ -179,10 +185,30 @@ func (w *Wall) tabCount() int {
 	if w.view == n-1 {
 		return n
 	}
-	if (w.section.Type != "movie" && w.section.Type != "show") || w.collections().Total() <= 0 {
+	if !w.holdsCollections() || w.collections().Total() <= 0 {
 		n--
 	}
 	return n
+}
+
+// holdsCollections reports whether the library is of a kind that has them.
+func (w *Wall) holdsCollections() bool {
+	return w.section.Type == "movie" || w.section.Type == "show"
+}
+
+// retryCollections asks again for a collections listing that failed (a
+// timeout, a server restarting): with its tab hidden nothing else would.
+// Once on each opening of the library, then every CollectionsRetry.
+func (w *Wall) retryCollections(now time.Time) {
+	if w.coll != nil || w.view == len(wallViews)-1 || !w.holdsCollections() {
+		return
+	}
+	p := w.collections()
+	if p.Total() >= 0 || p.Err() == nil || (!w.collAsked.IsZero() && now.Sub(w.collAsked) < CollectionsRetry) {
+		return
+	}
+	w.collAsked = now
+	p.Want(0)
 }
 
 // Key handles one input event.
@@ -415,6 +441,7 @@ func (w *Wall) drawPage(c *gfx.Canvas, now time.Time) (*gfx.Canvas, bool) {
 	if w.blob != nil {
 		img = &gfx.Image{W: w.blob.W, H: w.blob.H, Pix: w.blob.Pix}
 	}
+	w.retryCollections(now)
 	tabs := w.tabCount()
 	key := itoa(w.view) + "/" + itoa(tabs)
 	if w.blob != nil {

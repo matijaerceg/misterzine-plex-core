@@ -17,12 +17,14 @@ import (
 
 // collectionServer is a synthetic server: library 1 (films) has two
 // collections, library 2 (shows) none. The collections listing of
-// library 1 waits for hold to close, so a test can look before it lands.
+// library 1 waits for hold to close, so a test can look before it lands,
+// and answers with an error while failing is set.
 type collectionServer struct {
 	*httptest.Server
-	hold chan struct{}
-	mu   sync.Mutex
-	asks map[string]int
+	hold    chan struct{}
+	mu      sync.Mutex
+	asks    map[string]int
+	failing bool
 }
 
 func newCollectionServer(t *testing.T) *collectionServer {
@@ -30,9 +32,14 @@ func newCollectionServer(t *testing.T) *collectionServer {
 	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		s.asks[r.URL.Path]++
+		failing := s.failing
 		s.mu.Unlock()
 		switch r.URL.Path {
 		case "/library/sections/1/collections":
+			if failing {
+				http.Error(w, "busy", http.StatusServiceUnavailable)
+				return
+			}
 			<-s.hold
 			io.WriteString(w, `<MediaContainer size="2" totalSize="2">`+
 				`<Directory ratingKey="901" key="/library/collections/901/children" type="collection" subtype="movie" title="First Set" thumb="/c/901" childCount="2"/>`+
@@ -152,6 +159,52 @@ func TestWallCollectionsTabOnlyWithCollections(t *testing.T) {
 	other := NewWall(a, plex.Section{Key: "3", Title: "Clips", Type: "artist"})
 	if n := other.tabCount(); n != len(wallViews)-1 || s.asked("/library/sections/3/collections") != 0 {
 		t.Fatal("a library that cannot hold collections was asked for them")
+	}
+}
+
+// A collections listing that failed is asked again while the library is
+// on screen, spaced out, so the tab still appears once the server answers.
+func TestWallCollectionsRetryAfterFailure(t *testing.T) {
+	s := newCollectionServer(t)
+	close(s.hold)
+	s.mu.Lock()
+	s.failing = true
+	s.mu.Unlock()
+	a := collectionTestApp(t, s, false)
+	const path = "/library/sections/1/collections"
+	films := NewWall(a, filmsLibrary)
+	p := films.collections()
+	idle := func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return len(p.inFlt) == 0
+	}
+	waitUntil(t, "the failed listing", func() bool { return p.Err() != nil && idle() })
+	if films.tabCount() != len(wallViews)-1 {
+		t.Fatal("a failed listing showed the tab")
+	}
+	now := time.Now()
+	asked := s.asked(path)
+	films.retryCollections(now)
+	waitUntil(t, "the first retry", func() bool { return s.asked(path) > asked && idle() })
+	asked = s.asked(path)
+	films.retryCollections(now.Add(CollectionsRetry - time.Second))
+	if !idle() || s.asked(path) != asked {
+		t.Fatal("asked again before the retry interval")
+	}
+	s.mu.Lock()
+	s.failing = false
+	s.mu.Unlock()
+	films.retryCollections(now.Add(CollectionsRetry))
+	waitUntil(t, "the recovered listing", func() bool { return p.Total() >= 0 })
+	if films.tabCount() != len(wallViews) {
+		t.Fatal("the tab did not appear once the server answered")
+	}
+	waitUntil(t, "the retry to settle", idle)
+	asked = s.asked(path)
+	films.retryCollections(now.Add(3 * CollectionsRetry))
+	if !idle() || s.asked(path) != asked {
+		t.Fatal("a listing that landed was asked for again")
 	}
 }
 
