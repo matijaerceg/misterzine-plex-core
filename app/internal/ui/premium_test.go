@@ -13,8 +13,9 @@ import (
 )
 
 // registerTestGrant registers one code for the tests. The registry keeps
-// it for the process (only the private registry fills it for real), so each
-// test here uses its own month and code.
+// it for the process, and the official build's tests run with the real
+// registry in place, so each test here uses its own far-future month and a
+// code no real grant has.
 func registerTestGrant(t *testing.T, month access.Month, code, legacy string) {
 	t.Helper()
 	sum := sha256.Sum256([]byte(code))
@@ -22,7 +23,7 @@ func registerTestGrant(t *testing.T, month access.Month, code, legacy string) {
 }
 
 func TestGatedRowLockedUntilCovered(t *testing.T) {
-	registerTestGrant(t, 202609, "246810", "")
+	registerTestGrant(t, 999901, "246810", "")
 	a := betaTestApp(t)
 	a.loadAccess()
 	f := access.Feature{Premium: true, Since: 202609}
@@ -38,7 +39,7 @@ func TestGatedRowLockedUntilCovered(t *testing.T) {
 		a.key(input.Event{Keyboard: true, Text: ch, Key: input.None}, time.Now())
 	}
 	a.key(input.Event{Key: input.Enter}, time.Now())
-	if a.Access() != 202609 {
+	if a.Access() != 999901 {
 		t.Fatalf("access after the code: %v", a.Access())
 	}
 	row, ok = a.gated(option{label: "Screensaver", val: func() string { return "DVD" }}, f)
@@ -58,11 +59,11 @@ func TestGatedRowLockedUntilCovered(t *testing.T) {
 
 func TestBetaReceiptCountsAsAccess(t *testing.T) {
 	a := betaTestApp(t)
-	registerTestGrant(t, 202610, "012345", "fixture")
+	registerTestGrant(t, 999902, "012345", "fixture")
 	// the beta's own unlock writes beta-unlocks/fixture-<sha>.receipt
 	a.Push(NewBetaAccess(a, nil))
 	enterFixture(a, time.Now())
-	if a.Access() != 202610 {
+	if a.Access() != 999902 {
 		t.Fatalf("access after the beta unlock: %v", a.Access())
 	}
 	a.Push(&ForgetBetaAccess{app: a})
