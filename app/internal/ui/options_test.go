@@ -130,6 +130,21 @@ func TestOptionsCursorSkipsHeaders(t *testing.T) {
 	}
 }
 
+func TestOptionsCursorStaysOnTheChangedRow(t *testing.T) {
+	// Show beta features brings beta extras in above itself and takes them away
+	without := []option{optionSection("Extras"), {label: "Show beta features"}, optionSection("Account"), {label: "Sign out"}}
+	with := []option{optionSection("Extras"), {label: "A beta extra"}, {label: "Another"}, {label: "Show beta features"}, optionSection("Account"), {label: "Sign out"}}
+	if got := labelledOption(with, "Show beta features", 1); got != 3 {
+		t.Fatalf("rows added above: cursor on %d, want the toggle at 3", got)
+	}
+	if got := labelledOption(without, "Show beta features", 3); got != 1 {
+		t.Fatalf("rows taken away above: cursor on %d, want the toggle at 1", got)
+	}
+	if got := labelledOption(without, "Updates - downloading", 3); got != 3 {
+		t.Fatalf("a row whose label changed moved the cursor to %d", got)
+	}
+}
+
 func TestCentredFirst(t *testing.T) {
 	for _, tc := range []struct{ cur, visible, total, want int }{
 		{0, 9, 20, 0}, {4, 9, 20, 0}, // the start: the cursor walks down to the middle

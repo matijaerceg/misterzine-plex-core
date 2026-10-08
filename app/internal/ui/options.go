@@ -253,7 +253,22 @@ func (o *Options) Key(ev input.Event, now time.Time) {
 		if it.after != nil {
 			it.after()
 		}
+		// the change can add or take away rows above this one (Show beta
+		// features and the beta extras): the cursor stays on the row it
+		// changed rather than on whatever row now has its place
+		next := o.items()
+		o.cur = onOption(next, labelledOption(next, it.label, o.cur))
 	}
+}
+
+// labelledOption is the row of items labelled label, or cur when no row is.
+func labelledOption(items []option, label string, cur int) int {
+	for i, it := range items {
+		if !it.header && it.label == label {
+			return i
+		}
+	}
+	return cur
 }
 
 // Draw paints the list of options with their values on the right.

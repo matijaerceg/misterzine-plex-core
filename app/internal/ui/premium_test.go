@@ -102,6 +102,17 @@ func TestShowBetaFeaturesToggle(t *testing.T) {
 	if !saved.ShowBeta {
 		t.Fatal("toggle not saved")
 	}
+	// beta extras come and go above the toggle: the cursor stays on it
+	if got := o.items()[o.cur].label; got != "Show beta features" {
+		t.Fatalf("after turning beta on the cursor is on %q", got)
+	}
+	o.Key(input.Event{Key: input.Enter}, time.Now())
+	if a.Cfg.ShowBeta {
+		t.Fatal("toggle did not turn beta off")
+	}
+	if got := o.items()[o.cur].label; got != "Show beta features" {
+		t.Fatalf("after turning beta off the cursor is on %q", got)
+	}
 }
 
 func TestPremiumSettingsRoundTrip(t *testing.T) {
