@@ -41,7 +41,7 @@ func TestOptionsSections(t *testing.T) {
 		t.Fatalf("the list starts with %q, not a section", items[0].label)
 	}
 	for label, want := range map[string]string{
-		"Only show 4:3 media": "Playback", "Autoplay next episode": "Playback",
+		"Only show 4:3 media": "Playback", "Autoplay next episode": "Playback", "Skip intro and credits buttons": "Playback",
 		"Video bitrate": "Playback", "Surround downmix boost": "Playback",
 		"Video output": "Picture", "Video geometry": "Picture", "Video crop": "Picture", "HDMI VRR": "Picture",
 		"Theme music": "Sound", "Navigation sounds": "Sound",
