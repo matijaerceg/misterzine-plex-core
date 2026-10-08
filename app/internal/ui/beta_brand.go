@@ -20,6 +20,8 @@ func (a *App) drawBrand(c *gfx.Canvas) {
 		x = SafeX + 16 + a.Mark.W + 12
 	case *Drawer:
 		return // drawn on the moving drawer panel
+	case fullScreen:
+		return // nothing still over a screensaver
 	}
 	for _, m := range a.brandMarks() {
 		im := a.mark(m.text, m.fill)
@@ -27,6 +29,10 @@ func (a *App) drawBrand(c *gfx.Canvas) {
 		x += im.W + 6
 	}
 }
+
+// fullScreen is a screen that takes the whole picture, such as an extra's
+// screensaver: no marks are drawn over it, so nothing on it stands still.
+type fullScreen interface{ fullScreen() }
 
 type brandMark struct {
 	text string

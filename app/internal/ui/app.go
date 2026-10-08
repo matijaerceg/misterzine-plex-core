@@ -105,6 +105,7 @@ type App struct {
 	osd        OSD  // the playback overlay: the core's plane
 	crop       Crop // the playback's crop: Options' at the start, then the playback menu's
 	dim        idleDim
+	playing    bool // a playback has the screen (playLoop), paused or not
 
 	stack  []Screen
 	dirty  bool
@@ -487,6 +488,8 @@ func (a *App) playLoop(sess *Session, ctl *Playing) (int, bool) {
 	var lastFrame uint32
 	// two cores: more Ps only spin looking for work against the decoder
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(2))
+	a.playing = true
+	defer func() { a.playing = false }()
 	up := false
 	stopped := false
 	var lastPlayFocus playFocus

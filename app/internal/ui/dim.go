@@ -65,15 +65,18 @@ func sameButton(a, b input.Event) bool {
 
 // idle dims the screen once it has been waiting DimAfter since the last
 // press. Anything that is not waiting (playing, a stream starting, the
-// sign-in code) holds the clock at now and brings the screen back.
+// sign-in code) holds the clock at now and brings the screen back. The
+// extras hear every tick, but only the menus count as waiting for them: a
+// paused playback dims as it always has.
 func (a *App) idle(now time.Time, waiting bool) {
 	d := &a.dim
 	if !waiting || d.last.IsZero() {
 		d.last = now
+		a.premiumIdle(now, false, 0)
 		a.setDimmed(false)
 		return
 	}
-	if a.premiumIdle(now, waiting, now.Sub(d.last)) {
+	if a.premiumIdle(now, !a.playing, now.Sub(d.last)) {
 		return // an extra has the screen (a screensaver): no dimming over it
 	}
 	if !d.on && now.Sub(d.last) >= DimAfter {
