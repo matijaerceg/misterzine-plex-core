@@ -48,6 +48,7 @@ type Wall struct {
 	blobFor        [4]uint32
 	blobBusy       bool
 
+	collPager *Pager    // the library's collections listing, once asked for
 	collAsked time.Time // when a failed collections listing was last asked again
 }
 
@@ -128,20 +129,30 @@ func NewCollectionWall(app *App, s plex.Section, coll *plex.Item) *Wall {
 func (w *Wall) load() {
 	v := wallViews[w.view]
 	if w.coll != nil {
-		v = wallView{name: w.coll.Title, path: "/library/collections/" + w.coll.RatingKey + "/children"}
+		// the path the server gave for the collection's items, else the usual one
+		path := w.coll.Key
+		if !strings.HasPrefix(path, "/library/") || !strings.HasSuffix(path, "/children") {
+			path = "/library/collections/" + w.coll.RatingKey + "/children"
+		}
+		v = wallView{name: w.coll.Title, path: path}
 	}
 	q := url.Values{}
 	for k, vals := range v.query {
 		q[k] = vals
 	}
 	var filter func(*plex.Item) bool
-	// every view: the listing is walked and packed. Collections have no
-	// picture of their own to judge; the filter applies to their items.
-	if w.app.Cfg != nil && w.app.Cfg.FourThree && !v.collections {
-		filter = w.app.Keep
+	if w.app.Cfg != nil && w.app.Cfg.FourThree {
+		filter = w.app.Keep // every view: the listing is walked and packed
 	}
 	path := strings.Replace(v.path, "%s", w.section.Key, 1)
-	w.pager = w.app.pager(path, q, filter)
+	if v.collections {
+		// the listing that decided the tab; collections have no picture of
+		// their own to judge, the 4:3 filter applies to their items
+		filter = nil
+		w.pager = w.collections()
+	} else {
+		w.pager = w.app.pager(path, q, filter)
+	}
 	w.letters = nil
 	if v.az && filter == nil {
 		go func() {
@@ -169,8 +180,12 @@ func (w *Wall) az() bool { return w.coll == nil && wallViews[w.view].az }
 
 // collections is the library's collections listing, kept for the session
 // like the views'; asking for it starts the fetch that decides the tab.
+// The wall holds on to it, so drawing does not look it up every frame.
 func (w *Wall) collections() *Pager {
-	return w.app.pager("/library/sections/"+w.section.Key+"/collections", url.Values{}, nil)
+	if w.collPager == nil {
+		w.collPager = w.app.pager("/library/sections/"+w.section.Key+"/collections", url.Values{}, nil)
+	}
+	return w.collPager
 }
 
 // tabCount is how many view tabs show: the collection's one, or the
@@ -441,8 +456,10 @@ func (w *Wall) drawPage(c *gfx.Canvas, now time.Time) (*gfx.Canvas, bool) {
 	if w.blob != nil {
 		img = &gfx.Image{W: w.blob.W, H: w.blob.H, Pix: w.blob.Pix}
 	}
-	w.retryCollections(now)
 	tabs := w.tabCount()
+	if tabs < len(wallViews) {
+		w.retryCollections(now)
+	}
 	key := itoa(w.view) + "/" + itoa(tabs)
 	if w.blob != nil {
 		key += "|" + itoa(int(w.blobFor[0])) + "." + itoa(int(w.blobFor[2]))

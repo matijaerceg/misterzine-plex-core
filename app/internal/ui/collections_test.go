@@ -43,7 +43,7 @@ func newCollectionServer(t *testing.T) *collectionServer {
 			<-s.hold
 			io.WriteString(w, `<MediaContainer size="2" totalSize="2">`+
 				`<Directory ratingKey="901" key="/library/collections/901/children" type="collection" subtype="movie" title="First Set" thumb="/c/901" childCount="2"/>`+
-				`<Directory ratingKey="902" key="/library/collections/902/children" type="collection" subtype="movie" title="Second Set" thumb="/c/902" art="/a/902" childCount="3"/>`+
+				`<Directory ratingKey="902" key="/library/collections/9020/children" type="collection" subtype="movie" title="Second Set" thumb="/c/902" art="/a/902" childCount="3"/>`+
 				`</MediaContainer>`)
 		case "/library/sections/2/collections":
 			io.WriteString(w, `<MediaContainer size="0" totalSize="0"></MediaContainer>`)
@@ -52,8 +52,9 @@ func newCollectionServer(t *testing.T) *collectionServer {
 				`<Video ratingKey="11" key="/library/metadata/11" type="movie" title="Alpha"/>`+
 				`<Video ratingKey="12" key="/library/metadata/12" type="movie" title="Beta"/>`+
 				`</MediaContainer>`)
-		case "/library/collections/902/children":
-			// the collection's own order; one wide film for the 4:3 filter to hide
+		case "/library/collections/9020/children", "/library/collections/902/children":
+			// the collection's own order; one wide film for the 4:3 filter to hide.
+			// The server's key for it is not the usual path, to tell them apart.
 			io.WriteString(w, `<MediaContainer size="3">`+
 				`<Video ratingKey="23" key="/library/metadata/23" type="movie" title="Later Square"><Media aspectRatio="1.33"/></Video>`+
 				`<Video ratingKey="21" key="/library/metadata/21" type="movie" title="Wide One"><Media aspectRatio="1.78"/></Video>`+
@@ -271,8 +272,8 @@ func TestWallOpensCollection(t *testing.T) {
 	if first, second := coll.pager.Get(0), coll.pager.Get(1); first.RatingKey != "23" || second.RatingKey != "22" {
 		t.Fatalf("items %s, %s: not the collection's order less the wide film", first.RatingKey, second.RatingKey)
 	}
-	if s.asked("/library/collections/902/children") == 0 {
-		t.Fatal("the collection's items were not asked for")
+	if s.asked("/library/collections/9020/children") == 0 || s.asked("/library/collections/902/children") != 0 {
+		t.Fatal("the collection's items were not asked for at the path the server gave")
 	}
 	if coll.tabCount() != 1 || coll.az() {
 		t.Fatal("a collection has its title as its only tab, with no letters")
@@ -299,5 +300,32 @@ func TestWallOpensCollection(t *testing.T) {
 	}
 	if library.view != len(wallViews)-1 || library.cur != 1 || library.tabs {
 		t.Fatalf("returned to view %d, item %d, tabs %v", library.view, library.cur, library.tabs)
+	}
+
+	// a collection without a usable key of its own: the usual path
+	odd := NewCollectionWall(a, filmsLibrary, &plex.Item{RatingKey: "902", Key: "/elsewhere/children", Type: "collection", Title: "Second Set"})
+	waitUntil(t, "the usual path", func() bool { return odd.pager.Done() && odd.total() == 2 })
+	if s.asked("/library/collections/902/children") == 0 || s.asked("/elsewhere/children") != 0 {
+		t.Fatal("a collection without a library key was not opened at the usual path")
+	}
+}
+
+// Drawing asks on every frame whether the Collections tab shows; once the
+// listing is in, that costs no allocations.
+func TestWallTabCheckDoesNotAllocate(t *testing.T) {
+	s := newCollectionServer(t)
+	close(s.hold)
+	a := collectionTestApp(t, s, false)
+	now := time.Now()
+	for _, lib := range []plex.Section{filmsLibrary, showsLibrary} {
+		w := NewWall(a, lib)
+		waitUntil(t, "the collections", func() bool { return w.collections().Total() >= 0 })
+		if n := testing.AllocsPerRun(100, func() {
+			if w.tabCount() < len(wallViews) {
+				w.retryCollections(now)
+			}
+		}); n != 0 {
+			t.Fatalf("%s: %v allocations per frame", lib.Title, n)
+		}
 	}
 }
