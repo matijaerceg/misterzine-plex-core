@@ -122,11 +122,12 @@ func TestOptionsCursorSkipsHeaders(t *testing.T) {
 	if got := onOption(items, len(items)+2); got != len(items)-1 {
 		t.Fatalf("a cursor past the end landed on %d, want the last row", got)
 	}
-	extras := slices.IndexFunc(items, func(it option) bool { return it.label == "Extras" })
-	o.cur = extras
-	o.Key(input.Event{Key: input.Enter}, now) // OK acts on the row below: Show beta features
-	if o.cur != extras+1 || !a.Cfg.ShowBeta {
-		t.Fatalf("OK with the cursor on a header: cursor %d, beta %v; want %d toggled on", o.cur, a.Cfg.ShowBeta, extras+1)
+	// (Sound, not Extras: the official build has the extras' rows there)
+	sound := slices.IndexFunc(items, func(it option) bool { return it.label == "Sound" })
+	o.cur = sound
+	o.Key(input.Event{Key: input.Enter}, now) // OK acts on the row below: Theme music
+	if o.cur != sound+1 || a.Cfg.NoTheme {
+		t.Fatalf("OK with the cursor on a header: cursor %d, theme music %v; want %d toggled on", o.cur, !a.Cfg.NoTheme, sound+1)
 	}
 }
 
