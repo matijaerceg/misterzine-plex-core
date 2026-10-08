@@ -15,10 +15,12 @@ import (
 // the row below shows under a band carrying the focused item's title and
 // facts. Tabs above switch the view; L/R jump a letter in A to Z, a
 // screen otherwise; a scrollbar down the right edge carries the letter.
+// A collection opens as a wall of its own.
 type Wall struct {
 	app     *App
 	section plex.Section
 	view    int
+	coll    *plex.Item // the collection whose items this wall shows; nil for the library's views
 	pager   *Pager
 	letters []plex.Letter
 	cur     int
@@ -79,17 +81,21 @@ const (
 const WallPrefetchRows = 3 // in both directions once the focused row rests
 
 type wallView struct {
-	name  string
-	path  string // with %s for the section key
-	query url.Values
-	az    bool
+	name        string
+	path        string // with %s for the section key
+	query       url.Values
+	az          bool
+	collections bool // the library's collections: a tab only once it has one
 }
 
+// The labels are short enough for all five tabs to fit across the frame.
 var wallViews = []wallView{
-	{"A to Z", "/library/sections/%s/all", url.Values{"sort": {"titleSort"}}, true},
-	{"Recently Added", "/library/sections/%s/all", url.Values{"sort": {"addedAt:desc"}}, false},
-	{"Recently Released", "/library/sections/%s/all", url.Values{"sort": {"originallyAvailableAt:desc"}}, false},
-	{"Continue Watching", "/hubs/sections/%s/continueWatching/items", nil, false},
+	{"A to Z", "/library/sections/%s/all", url.Values{"sort": {"titleSort"}}, true, false},
+	{"Added", "/library/sections/%s/all", url.Values{"sort": {"addedAt:desc"}}, false, false},
+	{"Released", "/library/sections/%s/all", url.Values{"sort": {"originallyAvailableAt:desc"}}, false, false},
+	{"Continue Watching", "/hubs/sections/%s/continueWatching/items", nil, false, false},
+	// last, so a library without collections shows the views before it
+	{"Collections", "/library/sections/%s/collections", nil, false, true},
 }
 
 // NewWall opens a section in its A to Z view.
@@ -103,15 +109,30 @@ func NewWallView(app *App, s plex.Section, view int) *Wall {
 	return w
 }
 
+// NewCollectionWall opens a collection's items, in the collection's own
+// order, under the library's title with the collection's as the only tab.
+// Back leaves it for the Collections tab where it was.
+func NewCollectionWall(app *App, s plex.Section, coll *plex.Item) *Wall {
+	w := &Wall{app: app, section: s, coll: coll}
+	w.band = gfx.NewCanvas(WallBandW, WallBandH)
+	w.load()
+	return w
+}
+
 func (w *Wall) load() {
 	v := wallViews[w.view]
+	if w.coll != nil {
+		v = wallView{name: w.coll.Title, path: "/library/collections/" + w.coll.RatingKey + "/children"}
+	}
 	q := url.Values{}
 	for k, vals := range v.query {
 		q[k] = vals
 	}
 	var filter func(*plex.Item) bool
-	if w.app.Cfg != nil && w.app.Cfg.FourThree {
-		filter = w.app.Keep // every view: the listing is walked and packed
+	// every view: the listing is walked and packed. Collections have no
+	// picture of their own to judge; the filter applies to their items.
+	if w.app.Cfg != nil && w.app.Cfg.FourThree && !v.collections {
+		filter = w.app.Keep
 	}
 	path := strings.Replace(v.path, "%s", w.section.Key, 1)
 	w.pager = w.app.pager(path, q, filter)
@@ -137,6 +158,33 @@ func (w *Wall) total() int {
 	return t
 }
 
+// az reports whether the view is the library's A to Z, with its letters.
+func (w *Wall) az() bool { return w.coll == nil && wallViews[w.view].az }
+
+// collections is the library's collections listing, kept for the session
+// like the views'; asking for it starts the fetch that decides the tab.
+func (w *Wall) collections() *Pager {
+	return w.app.pager("/library/sections/"+w.section.Key+"/collections", url.Values{}, nil)
+}
+
+// tabCount is how many view tabs show: the collection's one, or the
+// library's views with Collections last, once the library is known to
+// have a collection (or while it is the view). Until its first page has
+// landed there is no tab, rather than one that opens on nothing.
+func (w *Wall) tabCount() int {
+	if w.coll != nil {
+		return 1
+	}
+	n := len(wallViews)
+	if w.view == n-1 {
+		return n
+	}
+	if (w.section.Type != "movie" && w.section.Type != "show") || w.collections().Total() <= 0 {
+		n--
+	}
+	return n
+}
+
 // Key handles one input event.
 func (w *Wall) Key(ev input.Event, now time.Time) {
 	n := w.total()
@@ -154,7 +202,7 @@ func (w *Wall) Key(ev input.Event, now time.Time) {
 				w.load()
 			}
 		case input.Right:
-			if w.view < len(wallViews)-1 {
+			if w.view < w.tabCount()-1 {
 				w.view++
 				w.load()
 			}
@@ -174,8 +222,8 @@ func (w *Wall) Key(ev input.Event, now time.Time) {
 		}
 	case input.Up:
 		if w.cur < WallCols {
-			// above the first row: the view tabs
-			w.tabs = true
+			// above the first row: the view tabs (a collection has none)
+			w.tabs = w.coll == nil
 			return
 		}
 		w.cur -= WallCols
@@ -190,7 +238,9 @@ func (w *Wall) Key(ev input.Event, now time.Time) {
 	case input.JumpFwd:
 		w.jump(1)
 	case input.Enter:
-		if it := w.pager.Get(w.cur); it != nil {
+		if it := w.pager.Get(w.cur); it != nil && it.Type == "collection" {
+			w.app.Push(NewCollectionWall(w.app, w.section, it))
+		} else if it != nil {
 			w.app.Open(it, false)
 		}
 	}
@@ -203,9 +253,10 @@ func (w *Wall) Key(ev input.Event, now time.Time) {
 }
 
 // Back moves the cursor up to the view tabs from anywhere in the grid;
-// a second Back leaves the wall.
+// a second Back leaves the wall. A collection has no tabs to go to: Back
+// returns to the library's Collections tab at once.
 func (w *Wall) Back() bool {
-	if w.tabs {
+	if w.tabs || w.coll != nil {
 		return false
 	}
 	w.tabs = true
@@ -218,7 +269,7 @@ func (w *Wall) letterIndex() []plex.Letter {
 	if len(w.letters) > 0 {
 		return w.letters
 	}
-	if wallViews[w.view].az && w.pager.Filtered() && w.pager.Done() {
+	if w.az() && w.pager.Filtered() && w.pager.Done() {
 		w.letters = w.pager.Letters()
 	}
 	return w.letters
@@ -364,7 +415,8 @@ func (w *Wall) drawPage(c *gfx.Canvas, now time.Time) (*gfx.Canvas, bool) {
 	if w.blob != nil {
 		img = &gfx.Image{W: w.blob.W, H: w.blob.H, Pix: w.blob.Pix}
 	}
-	key := itoa(w.view)
+	tabs := w.tabCount()
+	key := itoa(w.view) + "/" + itoa(tabs)
 	if w.blob != nil {
 		key += "|" + itoa(int(w.blobFor[0])) + "." + itoa(int(w.blobFor[2]))
 	}
@@ -379,7 +431,7 @@ func (w *Wall) drawPage(c *gfx.Canvas, now time.Time) (*gfx.Canvas, bool) {
 		if w.page == nil {
 			w.page = gfx.NewCanvas(c.W, c.H)
 		}
-		w.compose(w.page, img, total)
+		w.compose(w.page, img, total, tabs)
 		bg := ""
 		if w.blob != nil {
 			bg = itoa(int(w.blobFor[0])) + "." + itoa(int(w.blobFor[2]))
@@ -397,7 +449,7 @@ func (w *Wall) drawPage(c *gfx.Canvas, now time.Time) (*gfx.Canvas, bool) {
 	return show, fading
 }
 
-func (w *Wall) compose(c *gfx.Canvas, img *gfx.Image, total int) {
+func (w *Wall) compose(c *gfx.Canvas, img *gfx.Image, total, tabs int) {
 	if img != nil {
 		c.Blit(0, 0, img)
 	} else {
@@ -414,7 +466,11 @@ func (w *Wall) compose(c *gfx.Canvas, img *gfx.Image, total int) {
 	// when navigation is on the tabs, without surrounding the label in a box.
 	x := SafeX
 	ty := WallTabsY
-	for i, v := range wallViews {
+	for i := 0; i < tabs; i++ {
+		name := wallViews[i].name
+		if w.coll != nil {
+			name = f.SmallBold.Fit(w.coll.Title, WallBandW)
+		}
 		col := gfx.GreyLo
 		if i == w.view {
 			col = gfx.GreyHi
@@ -422,8 +478,8 @@ func (w *Wall) compose(c *gfx.Canvas, img *gfx.Image, total int) {
 				col = gfx.White
 			}
 		}
-		tw := f.SmallBold.Width(v.name)
-		c.Text(x, ty, f.SmallBold, col, v.name)
+		tw := f.SmallBold.Width(name)
+		c.Text(x, ty, f.SmallBold, col, name)
 		if i == w.view {
 			lineColor, lineH := gfx.GreyLo, 2
 			if w.tabs {
@@ -441,7 +497,7 @@ func (w *Wall) marker(n int) string {
 	if n == 0 {
 		return ""
 	}
-	if wallViews[w.view].az {
+	if w.az() {
 		if it := w.pager.Get(w.cur); it != nil && it.SortLabel() != "" {
 			return strings.ToUpper(it.SortLabel()[:1])
 		}

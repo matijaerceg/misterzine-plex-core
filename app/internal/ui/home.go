@@ -763,6 +763,14 @@ func heroFacts(it *plex.Item) []string {
 		if it.Leaves > 0 {
 			t = append(t, plural(it.Leaves, "episode"))
 		}
+	case "collection":
+		word := "item"
+		if it.Subtype == "movie" || it.Subtype == "show" {
+			word = it.Subtype
+		}
+		if it.Children > 0 {
+			t = append(t, plural(it.Children, word))
+		}
 	default:
 		if it.Year > 0 {
 			t = append(t, itoa(it.Year))

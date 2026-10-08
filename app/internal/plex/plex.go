@@ -85,7 +85,8 @@ func (c *Client) fetch(cl *http.Client, path string, q url.Values) ([]byte, erro
 type Item struct {
 	RatingKey  string
 	Key        string // children path for directories
-	Type       string // movie, show, season, episode
+	Type       string // movie, show, season, episode, collection
+	Subtype    string // what a collection holds: movie or show
 	Title      string
 	SortTitle  string
 	Year       int
@@ -230,6 +231,7 @@ type xmlItem struct {
 	RatingKey        string `xml:"ratingKey,attr"`
 	Key              string `xml:"key,attr"`
 	Type             string `xml:"type,attr"`
+	Subtype          string `xml:"subtype,attr"`
 	Title            string `xml:"title,attr"`
 	SortTitle        string `xml:"titleSort,attr"`
 	Year             int    `xml:"year,attr"`
@@ -288,7 +290,7 @@ type xmlItem struct {
 }
 
 func (x *xmlItem) item() *Item {
-	it := &Item{RatingKey: x.RatingKey, Key: x.Key, Type: x.Type, Title: Fold(x.Title), SortTitle: Fold(x.SortTitle), Year: x.Year,
+	it := &Item{RatingKey: x.RatingKey, Key: x.Key, Type: x.Type, Subtype: x.Subtype, Title: Fold(x.Title), SortTitle: Fold(x.SortTitle), Year: x.Year,
 		Duration: int(x.Duration / 1000), ViewOffset: int(x.ViewOffset / 1000), ViewCount: x.ViewCount,
 		Summary: Fold(x.Summary), Thumb: x.Thumb, Art: x.Art, Theme: x.Theme, GrandTitle: Fold(x.GrandparentTitle),
 		Index: x.Index, Parent: x.ParentIndex, Rating: x.Rating, Tagline: Fold(x.Tagline), GrandKey: x.GrandparentKey,

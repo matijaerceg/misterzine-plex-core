@@ -10,7 +10,10 @@ Detailed behavior and display settings. For everyday help, see the
 
 - D-pad moves the selection; OK opens it; Back goes back or opens the drawer.
 - In the library wall, L/R jumps by sort letter or page. Back selects the view
-  tabs, then returns to the previous screen.
+  tabs, then returns to the previous screen. A library with collections has a
+  **Collections** tab, the last one; it appears once the server has listed at
+  least one. OK on a collection shows its items, in the collection's order and
+  through the 4:3 filter like any view, and Back returns to the collection.
 - During playback, OK opens the controls. Left/right selects an action; OK
   activates it. Up opens the scrubber. Back or Down closes the controls; Back
   with the controls hidden stops playback. Audio/subtitle menus use the same
