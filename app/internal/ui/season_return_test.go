@@ -1,14 +1,17 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"testing"
 	"time"
 
+	"plexcrt/internal/beta"
 	"plexcrt/internal/gfx"
 	"plexcrt/internal/plex"
 )
@@ -170,5 +173,48 @@ func TestSeasonReturnSurvivesTheWatchRefresh(t *testing.T) {
 	}
 	if s.cur != 2 || s.focused().RatingKey != "e2" {
 		t.Fatalf("the refresh moved the selection to %d", s.cur)
+	}
+}
+
+func TestPlaybackHeldForTheBetaCodeStillUpdatesTheSeason(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch key := path.Base(r.URL.Path); {
+		case key == "season":
+			fmt.Fprint(w, `<MediaContainer><Directory ratingKey="season" key="/children" type="season" title="Season 1"/></MediaContainer>`)
+		case path.Dir(r.URL.Path) == "/library/metadata":
+			fmt.Fprintf(w, `<MediaContainer><Video ratingKey="%s" type="episode" viewCount="1"/></MediaContainer>`, key)
+		default:
+			fmt.Fprint(w, `<MediaContainer/>`)
+		}
+	}))
+	defer server.Close()
+	a := betaTestApp(t)
+	a.Plex = plex.New(server.URL, "", t.TempDir(), "test")
+	a.later = make(chan func(), 32)
+	plays := 0
+	a.Player = &Player{Access: func() error {
+		if err := beta.Check(a.betaDir()); err != nil {
+			return err
+		}
+		plays++ // past the gate: nothing to launch here, so it fails as a lost server would
+		return errors.New("cannot reach the server")
+	}}
+	s := returnSeason(a, 4, 1)
+	s.do("Play")
+	b, ok := a.top().(*BetaAccess)
+	if !ok {
+		t.Fatal("a locked beta did not ask for the code")
+	}
+	if plays != 0 || s.eps[1].ViewCount != 0 {
+		t.Fatal("the page moved on before the playback ran")
+	}
+	now := time.Now()
+	enterFixture(a, now)
+	b.pollRefresh(now.Add(unlockAnimation + time.Second))
+	if plays != 1 {
+		t.Fatalf("the playback ran %d times after the code, want once", plays)
+	}
+	if s.eps[1].ViewCount != 1 || s.cur != 1 {
+		t.Fatalf("the page was not brought up to date after the held playback: watched %d, cur %d", s.eps[1].ViewCount, s.cur)
 	}
 }

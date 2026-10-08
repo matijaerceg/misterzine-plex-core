@@ -169,7 +169,7 @@ const (
 	OsdFlash  = 2 * time.Second         // how long a closed-overlay seek shows the bar
 	OsdLinger = 3500 * time.Millisecond // how long the start strip stays over the picture
 	OsdBtnGap = 30
-	SkipHold  = 20 * time.Second // the skip button stays this long after the marker starts
+	SkipHold  = 20 * time.Second // the skip button stays this long once playback is in the marker
 )
 
 var osdButtons = []string{"-10", "Pause", "+10", "Prev", "Next", "Audio", "Subs", "More"}
@@ -288,7 +288,9 @@ func (p *Playing) marker() *plex.Marker {
 }
 
 // skipShown reports whether the skip button is up: over a marker for
-// SkipHold from its start, until OK or Back, with nothing else on screen.
+// SkipHold from when the playback got into it (its start, or wherever a
+// resume or a seek landed in it), until OK or Back, with nothing else on
+// screen.
 // OK and Back act on it only then. Options can turn it off; the markers
 // still show on the timeline.
 func (p *Playing) skipShown(now time.Time) bool {

@@ -401,9 +401,9 @@ func (s *Season) do(a string) {
 		s.view.periodic.reset()
 	}
 	s.app.seasonData = nil // playback or marking can change watched state
-	// where a playback left the season, and whether that episode finished
-	var last *plex.Item
-	finished := false
+	// a playback brings the page up to date when it is over, which may be
+	// after the beta code entry
+	played := func(last *plex.Item, finished bool) { s.refreshAfter(it, last, finished) }
 	switch {
 	case strings.HasPrefix(a, "Audio"):
 		s.app.chooseStream(it, "Audio", s.rebuild)
@@ -412,14 +412,33 @@ func (s *Season) do(a string) {
 		s.app.chooseStream(it, "Subtitles", s.rebuild)
 		return
 	case strings.HasPrefix(a, "Resume"):
-		last, finished = s.app.PlayQueue(it, it.ViewOffset, s.eps, s.cur)
+		s.app.PlayQueue(it, it.ViewOffset, s.eps, s.cur, played)
+		return
 	case a == "Play" || a == "From start":
-		last, finished = s.app.PlayQueue(it, 0, s.eps, s.cur)
+		s.app.PlayQueue(it, 0, s.eps, s.cur, played)
+		return
 	case a == "Mark watched":
 		s.app.Plex.Scrobble(it.RatingKey, true)
 	case a == "Mark unwatched":
 		s.app.Plex.Scrobble(it.RatingKey, false)
 	}
+	s.refreshAfter(it, nil, false)
+	if strings.HasPrefix(a, "Mark") {
+		// stay on the mark, now its counterpart
+		for i, b := range s.actions {
+			if strings.HasPrefix(b, "Mark") {
+				s.act = i
+			}
+		}
+		s.keepActVisible(time.Now())
+	}
+}
+
+// refreshAfter brings the page up to date after a playback or a mark of
+// episode it: the episode and the season from the server, the highlight
+// moved on after a playback that left the queue at last (returned), the
+// actions, and Continue Watching.
+func (s *Season) refreshAfter(it, last *plex.Item, finished bool) {
 	if fresh, err := s.app.Plex.Item(it.RatingKey); err == nil {
 		*it = *fresh
 	}
@@ -432,15 +451,6 @@ func (s *Season) do(a string) {
 	}
 	s.rebuild()
 	s.cw.refetch(s.app) // a play or a mark can move episodes in or out
-	if strings.HasPrefix(a, "Mark") {
-		// stay on the mark, now its counterpart
-		for i, b := range s.actions {
-			if strings.HasPrefix(b, "Mark") {
-				s.act = i
-			}
-		}
-		s.keepActVisible(time.Now())
-	}
 }
 
 // afterPlay is the episode to highlight once a playback returns: the one

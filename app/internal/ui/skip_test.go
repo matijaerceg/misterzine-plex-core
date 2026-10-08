@@ -11,7 +11,9 @@ import (
 )
 
 // skipPlaying is a playback at 600 s inside an intro marker from 590 s to
-// 700 s, the picture up, with what it sends to the launcher recorded.
+// 700 s, the picture up, with what it sends to the launcher recorded. The
+// button's hold runs from the first field that finds the playback in the
+// marker, as after a resume or a seek into it.
 func skipPlaying(t *testing.T) (*Playing, *coreOSD, *[]string, time.Time) {
 	t.Helper()
 	p := waitPlaying(t)

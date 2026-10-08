@@ -278,25 +278,36 @@ func (a *App) pager(path string, q url.Values, filter func(*plex.Item) bool) *Pa
 
 // PlayAt plays an item from an offset in seconds (its resume point when
 // offset equals the item's, the start when 0) and refreshes it afterwards.
-func (a *App) PlayAt(it *plex.Item, offset int) { a.PlayQueue(it, offset, nil, 0) }
+func (a *App) PlayAt(it *plex.Item, offset int) { a.PlayQueue(it, offset, nil, 0, nil) }
 
 // PlayQueue is PlayAt with the items around it (a season's episodes), so
 // the overlay's Prev and Next can move along them. The screen cuts to
 // black at once, with the title, the bar and the times on the overlay
 // and the wait dot running in the middle while the stream comes up;
 // when the presenter publishes its first frame the dot goes and the UI
-// drives the overlay until playback ends. It returns the item the queue
-// stopped on (it, when nothing played) and whether that one finished
-// (Playing.finished), so a season page can move on to the episode after it.
-func (a *App) PlayQueue(it *plex.Item, offset int, queue []*plex.Item, idx int) (last *plex.Item, finished bool) {
-	last = it
+// drives the overlay until playback ends. Then after, if given, learns
+// the item the queue stopped on (it, when nothing played) and whether
+// that one finished (Playing.finished), so a season page can move on to
+// the episode after it. A playback held for the beta code calls after
+// once the code is in and it has run; never, if the code entry is left.
+func (a *App) PlayQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, after func(last *plex.Item, finished bool)) {
+	last, finished, held := it, false, false
+	if after != nil {
+		// deferred first, so it runs last: after the theme and Home
+		defer func() {
+			if !held {
+				after(last, finished)
+			}
+		}()
+	}
 	if a.Player == nil {
 		return
 	}
 	if a.Player.Access != nil {
 		if err := a.Player.Access(); err != nil {
 			if err == beta.ErrLocked {
-				a.Push(NewBetaAccess(a, func() { a.PlayQueue(it, offset, queue, idx) }))
+				held = true // the code entry plays it, then calls after
+				a.Push(NewBetaAccess(a, func() { a.PlayQueue(it, offset, queue, idx, after) }))
 			} else {
 				a.Notice, a.NoticeAt = err.Error(), time.Now()
 				a.dirty = true
@@ -378,7 +389,6 @@ func (a *App) PlayQueue(it *plex.Item, offset int, queue []*plex.Item, idx int) 
 	}
 	a.Starting = time.Time{}
 	a.dirty = true
-	return last, finished
 }
 
 // blank presents a black frame: the menu is gone the moment Play is pressed.
