@@ -213,7 +213,8 @@ func (w *Wall) holdsCollections() bool {
 
 // retryCollections asks again for a collections listing that failed (a
 // timeout, a server restarting): with its tab hidden nothing else would.
-// Once on each opening of the library, then every CollectionsRetry.
+// Once on each opening of the library, then every CollectionsRetry; the
+// run loop redraws at least once a second, so an idle wall retries too.
 func (w *Wall) retryCollections(now time.Time) {
 	if w.coll != nil || w.view == len(wallViews)-1 || !w.holdsCollections() {
 		return
