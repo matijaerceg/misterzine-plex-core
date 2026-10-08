@@ -20,6 +20,7 @@ type Config struct {
 	Progressive        bool     `json:"progressive"`           // confirmed HDMI 480p preference
 	FourThree          bool     `json:"only_4x3"`              // hide media wider than 4:3
 	NoAutoplay         bool     `json:"no_autoplay"`           // do not run on to the next episode
+	NoSkipButtons      bool     `json:"no_skip_buttons"`       // no Skip intro / Skip credits button over the markers
 	Bitrate            int      `json:"bitrate"`               // transcode cap in kbit/s; 0 is the default
 	AudioBoost         int      `json:"audio_boost,omitempty"` // gain when the server folds surround to stereo; 0 is the default
 	Geometry           Geometry `json:"geometry"`              // where video goes on the raster (menus ignore it)

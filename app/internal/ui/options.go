@@ -40,6 +40,7 @@ func (o *Options) items() []option {
 	items := []option{
 		{label: "Only show 4:3 media", get: func() bool { return cfg.FourThree }, set: func(v bool) { cfg.FourThree = v }, after: o.app.Reconfigured, busy: o.app.homeUpdating},
 		{label: "Autoplay next episode", get: func() bool { return !cfg.NoAutoplay }, set: func(v bool) { cfg.NoAutoplay = !v }},
+		{label: "Skip intro and credits buttons", get: func() bool { return !cfg.NoSkipButtons }, set: func(v bool) { cfg.NoSkipButtons = !v }},
 		{label: "Video bitrate", val: func() string {
 			return Bitrates[cfg.bitrateIndex()].Label
 		}, step: func(d int) {

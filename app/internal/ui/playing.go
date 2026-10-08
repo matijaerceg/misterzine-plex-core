@@ -169,7 +169,7 @@ const (
 	OsdFlash  = 2 * time.Second         // how long a closed-overlay seek shows the bar
 	OsdLinger = 3500 * time.Millisecond // how long the start strip stays over the picture
 	OsdBtnGap = 30
-	SkipHold  = 8 * time.Second // the skip button stays this long after the marker starts
+	SkipHold  = 20 * time.Second // the skip button stays this long after the marker starts
 )
 
 var osdButtons = []string{"-10", "Pause", "+10", "Prev", "Next", "Audio", "Subs", "More"}
@@ -285,6 +285,22 @@ func (p *Playing) marker() *plex.Marker {
 		}
 	}
 	return nil
+}
+
+// skipShown reports whether the skip button is up: over a marker for
+// SkipHold from its start, until OK or Back, with nothing else on screen.
+// OK and Back act on it only then. Options can turn it off; the markers
+// still show on the timeline.
+func (p *Playing) skipShown(now time.Time) bool {
+	return p.skip != nil && !p.skipOff && now.Sub(p.skipAt) < SkipHold && !p.visible && !p.peeking(now) &&
+		!p.app.Cfg.NoSkipButtons
+}
+
+// finished reports whether the playback got into its last 30 seconds
+// without Prev or Next: it ran to its end, or was stopped in the closing
+// credits. Autoplay needs it to have run to the end as well.
+func (p *Playing) finished() bool {
+	return p.Next == 0 && p.dur > 0 && p.pos >= p.dur-30
 }
 
 func (p *Playing) openList(kind string) {
@@ -493,8 +509,8 @@ func (p *Playing) Key(ev input.Event, now time.Time) bool {
 		if ev.Repeat {
 			return false
 		}
-		if m := p.marker(); m != nil && !p.skipOff && !p.visible {
-			p.seekTo_(m.End) // the skip button
+		if p.skipShown(now) {
+			p.seekTo_(p.skip.End) // the skip button
 			p.skipOff = true
 			return false
 		}
@@ -573,7 +589,7 @@ func (p *Playing) Key(ev input.Event, now time.Time) bool {
 			p.dirty = true
 			return false
 		}
-		if m := p.marker(); m != nil && !p.skipOff && !p.visible {
+		if p.skipShown(now) {
 			p.skipOff = true // dismiss the skip button
 			p.dirty = true
 			return false
@@ -656,7 +672,7 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 		p.dirty = true
 	}
 	peek := p.peeking(now)
-	skipBtn := p.skip != nil && !p.skipOff && now.Sub(p.skipAt) < SkipHold && !p.visible && !peek
+	skipBtn := p.skipShown(now)
 	if !p.visible && !skipBtn && !peek {
 		if p.dirty {
 			if p.last != "" {

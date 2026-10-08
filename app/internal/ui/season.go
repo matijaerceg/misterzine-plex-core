@@ -401,6 +401,9 @@ func (s *Season) do(a string) {
 		s.view.periodic.reset()
 	}
 	s.app.seasonData = nil // playback or marking can change watched state
+	// where a playback left the season, and whether that episode finished
+	var last *plex.Item
+	finished := false
 	switch {
 	case strings.HasPrefix(a, "Audio"):
 		s.app.chooseStream(it, "Audio", s.rebuild)
@@ -409,9 +412,9 @@ func (s *Season) do(a string) {
 		s.app.chooseStream(it, "Subtitles", s.rebuild)
 		return
 	case strings.HasPrefix(a, "Resume"):
-		s.app.PlayQueue(it, it.ViewOffset, s.eps, s.cur)
+		last, finished = s.app.PlayQueue(it, it.ViewOffset, s.eps, s.cur)
 	case a == "Play" || a == "From start":
-		s.app.PlayQueue(it, 0, s.eps, s.cur)
+		last, finished = s.app.PlayQueue(it, 0, s.eps, s.cur)
 	case a == "Mark watched":
 		s.app.Plex.Scrobble(it.RatingKey, true)
 	case a == "Mark unwatched":
@@ -424,6 +427,9 @@ func (s *Season) do(a string) {
 		*s.season() = *fresh
 		s.pageKey = "" // the facts changed
 	}
+	if last != nil {
+		s.returned(last.RatingKey, finished)
+	}
 	s.rebuild()
 	s.cw.refetch(s.app) // a play or a mark can move episodes in or out
 	if strings.HasPrefix(a, "Mark") {
@@ -435,6 +441,38 @@ func (s *Season) do(a string) {
 		}
 		s.keepActVisible(time.Now())
 	}
+}
+
+// afterPlay is the episode to highlight once a playback returns: the one
+// after the last episode played when that one finished (Playing.finished),
+// or that episode itself when it was stopped early or ends the season.
+// Episodes are matched by rating key, so a reloaded list works the same;
+// -1 when the episode is not in the list.
+func afterPlay(eps []*plex.Item, key string, finished bool) int {
+	for i, e := range eps {
+		if e.RatingKey != key {
+			continue
+		}
+		if finished && i+1 < len(eps) {
+			return i + 1
+		}
+		return i
+	}
+	return -1
+}
+
+// returned moves the highlight after a playback (see afterPlay) and
+// scrolls the filmstrip so it is in view. Nothing plays; a new episode
+// starts on its first action.
+func (s *Season) returned(key string, finished bool) {
+	i := afterPlay(s.eps, key, finished)
+	if i < 0 || i == s.cur {
+		return
+	}
+	s.cur = i
+	s.act = 0
+	s.actX.Set(0)
+	s.colX.Set(float64(s.scrollTarget()))
 }
 
 // Draw paints the page.

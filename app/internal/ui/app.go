@@ -285,8 +285,11 @@ func (a *App) PlayAt(it *plex.Item, offset int) { a.PlayQueue(it, offset, nil, 0
 // black at once, with the title, the bar and the times on the overlay
 // and the wait dot running in the middle while the stream comes up;
 // when the presenter publishes its first frame the dot goes and the UI
-// drives the overlay until playback ends.
-func (a *App) PlayQueue(it *plex.Item, offset int, queue []*plex.Item, idx int) {
+// drives the overlay until playback ends. It returns the item the queue
+// stopped on (it, when nothing played) and whether that one finished
+// (Playing.finished), so a season page can move on to the episode after it.
+func (a *App) PlayQueue(it *plex.Item, offset int, queue []*plex.Item, idx int) (last *plex.Item, finished bool) {
+	last = it
 	if a.Player == nil {
 		return
 	}
@@ -334,6 +337,7 @@ func (a *App) PlayQueue(it *plex.Item, offset int, queue []*plex.Item, idx int) 
 	// menu holds through the queue (autoplay, Prev, Next) and ends with it
 	a.crop = a.Cfg.Crop.valid()
 	for {
+		last, finished = it, false
 		a.Log.Printf("play %s (%s) at %d", it.Title, it.RatingKey, offset)
 		a.Starting = time.Now()
 		a.blank()
@@ -350,6 +354,7 @@ func (a *App) PlayQueue(it *plex.Item, offset int, queue []*plex.Item, idx int) 
 		}
 		ctl.starting, ctl.waitSpec = a.osd != nil, os.Getenv("PLEXCRT_WAIT_DOT")
 		next, ended := a.playLoop(sess, ctl)
+		finished = ctl.finished()
 		if msg, err := os.ReadFile("/tmp/plexplay.stat.err"); err == nil && len(msg) > 0 {
 			a.Notice = plex.Fold(strings.TrimSpace(string(msg)))
 			a.NoticeAt = time.Now()
@@ -373,6 +378,7 @@ func (a *App) PlayQueue(it *plex.Item, offset int, queue []*plex.Item, idx int) 
 	}
 	a.Starting = time.Time{}
 	a.dirty = true
+	return last, finished
 }
 
 // blank presents a black frame: the menu is gone the moment Play is pressed.
@@ -429,7 +435,7 @@ func (a *App) playLoop(sess *Session, ctl *Playing) (int, bool) {
 				a.osd.Dot(0, 0, 0, false)
 				a.osd.Bar(0, 0, 0, 0, 0, false)
 			}
-			ended := !stopped && ctl.Next == 0 && ctl.dur > 0 && ctl.pos >= ctl.dur-30
+			ended := !stopped && ctl.finished()
 			return ctl.Next, ended
 		case ev, ok := <-a.events:
 			if !ok {

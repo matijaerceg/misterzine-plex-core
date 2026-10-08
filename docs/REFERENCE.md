@@ -23,6 +23,14 @@ Detailed behavior and display settings. For everyday help, see the
   up into one seek. The last frame stays on screen until the new position
   starts playing. **More** holds the crop for the playback under way (see
   Display setup); it is dimmed when no crop would change the picture.
+- Over an intro or credits the server has found, **Skip intro** or **Skip
+  credits** shows for 20 seconds from their start (and goes two seconds before
+  their end). OK skips them; Back dismisses the button. Options can turn the
+  buttons off.
+- Back on a season page after playback, the episode after the last one
+  finished (played to the end or stopped in its last 30 seconds) is selected;
+  the season's last stays selected. An episode stopped earlier stays selected.
+  Nothing starts playing.
 - A movie or episode in Continue Watching has **Remove from Continue Watching**
   as the last action on its page. Plex keeps the resume point, and playing it
   again puts it back in the row. Servers without a Continue Watching list
@@ -35,8 +43,9 @@ Detailed behavior and display settings. For everyday help, see the
   MisterZine app shows: it is fetched from `misterzine.fyi` with each release
   check and kept in the cache folder for when the MiSTer is offline.
 - Options contains video mode, video geometry and crop, theme music, navigation
-  taps, autoplay, bitrate, downmix boost, the 4:3 filter, server selection and
-  sign-out. A scrollbar on the right shows where the list is. The 4:3 filter
+  taps, autoplay, the skip buttons, bitrate, downmix boost, the 4:3 filter,
+  server selection and sign-out. A scrollbar on the right shows where the list
+  is. The 4:3 filter
   applies to the
   home rows, search and every library view. Movies and episodes are judged by
   their own picture; a show by its first episode. Each TV library is read once
