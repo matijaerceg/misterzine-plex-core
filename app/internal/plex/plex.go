@@ -425,6 +425,41 @@ func (c *Client) ShowAspect(ratingKey string) (float64, error) {
 	return items[0].Aspect, nil
 }
 
+// ShowEpisodes lists every episode of a show, all its seasons and specials
+// in the server's order, a page at a time. Tags such as cast and crew are
+// left out: a long show's listing is large enough without them.
+func (c *Client) ShowEpisodes(ratingKey string) ([]*Item, error) {
+	const page, pages = 500, 100 // a server that never ends its listing is refused
+	path := "/library/metadata/" + ratingKey + "/allLeaves"
+	q := url.Values{}
+	q.Set("excludeElements", "Genre,Director,Writer,Role,Country,Producer,Guid,Collection,Label,Field")
+	q.Set("X-Plex-Container-Size", strconv.Itoa(page))
+	var out []*Item
+	for range pages {
+		q.Set("X-Plex-Container-Start", strconv.Itoa(len(out)))
+		data, err := c.Get(path, q)
+		if err != nil {
+			return nil, err
+		}
+		var mc xmlContainer
+		if err := xml.Unmarshal(data, &mc); err != nil {
+			return nil, err
+		}
+		n := 0
+		for i := range mc.Items {
+			if x := &mc.Items[i]; x.XMLName.Local == "Video" {
+				out = append(out, x.item())
+				n++
+			}
+		}
+		// a short page is the last; so is the one that reaches the total
+		if n < page || mc.Total > 0 && len(out) >= mc.Total {
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("%s: more than %d episodes", path, page*pages)
+}
+
 // FirstEpisodeAspects is the picture aspect of every show in a TV library
 // that has a first episode of some season, keyed by the show's rating key
 // and taken from its lowest season: one request for the whole library.

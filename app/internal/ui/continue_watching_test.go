@@ -279,14 +279,14 @@ func TestSeasonShorterRowIsNotOverScrolled(t *testing.T) {
 	now := time.Now()
 	s.act = len(s.actions) - 1
 	s.keepActVisible(now)
-	s.act-- // Subtitles
+	s.act-- // Shuffle show
 	s.keepActVisible(now)
 	before := round(s.actX.Target())
 
 	s.cw.pending = make(chan map[string]bool, 1)
 	s.cw.pending <- map[string]bool{} // the list no longer holds it
 	s.pollRefresh(now)
-	if slices.Contains(s.actions, RemoveContinue) || !strings.HasPrefix(s.actions[s.act], "Subtitles") {
+	if slices.Contains(s.actions, RemoveContinue) || s.actions[s.act] != ShuffleShow {
 		t.Fatalf("after the list changed: %q, cursor %d", s.actions, s.act)
 	}
 	off, limit := round(s.actX.Target()), max(0, s.actRowW()-SafeW)
@@ -338,7 +338,7 @@ func TestSeasonStreamsKeepRemoveSelected(t *testing.T) {
 	s.streamsArrived(ep, &plex.Item{PartID: "p",
 		Audio: []plex.Stream{{ID: "1", Title: "English", Selected: true}, {ID: "2", Title: "French"}},
 		Subs:  []plex.Stream{{ID: "3", Title: "English (SRT)"}}})
-	if len(s.actions) != 6 || s.actions[s.act] != RemoveContinue {
+	if len(s.actions) != 7 || s.actions[s.act] != RemoveContinue {
 		t.Fatalf("after the tracks landed: %q, cursor on %q", s.actions, s.actions[s.act])
 	}
 }

@@ -25,6 +25,12 @@ func (r *viewRefresh) reset() {
 	r.next = time.Now().Add(viewRefreshInterval)
 }
 
+// soon has the next poll fetch at once.
+func (r *viewRefresh) soon() {
+	r.pending = nil
+	r.next = time.Now()
+}
+
 func (r *viewRefresh) poll(a *App, now time.Time, fetch func() ([]*plex.Item, error), apply func([]*plex.Item)) {
 	if r.pending != nil {
 		select {
@@ -84,7 +90,7 @@ func actionKind(actions []string, at int) string {
 		return ""
 	}
 	a := actions[at]
-	for _, kind := range []string{"Resume", "Mark", "Audio", "Subtitles", "Remove"} {
+	for _, kind := range []string{"Resume", "Mark", "Audio", "Subtitles", "Remove", GoToShow, ShuffleShow} {
 		if strings.HasPrefix(a, kind) {
 			return kind
 		}

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"time"
 
 	"plexcrt/internal/gfx"
@@ -15,6 +16,7 @@ type Show struct {
 	periodic    viewRefresh
 	app         *App
 	item        *plex.Item
+	seasons     []*plex.Item // the picker's row without its Shuffle tile
 	picker      *Home
 	season      *Season
 	episodes    bool
@@ -28,10 +30,19 @@ type Show struct {
 	trace       *transitionTrace
 }
 
+// ShuffleTile is the type of the tile that ends the season picker's row:
+// OK on it plays every episode of the show in a random order.
+const ShuffleTile = "shuffle"
+
 func NewShow(app *App, show *plex.Item, seasons []*plex.Item) *Show {
-	v := &Show{app: app, item: show}
+	v := &Show{app: app, item: show, seasons: seasons}
 	v.picker = &Home{app: app, fixed: show, view: v}
-	v.picker.setHubs([]*plex.Hub{{Title: "Seasons", Items: seasons}})
+	row := seasons
+	if len(seasons) > 0 {
+		// a row of its own: the seasons' slice never holds the tile
+		row = append(slices.Clip(seasons), &plex.Item{Type: ShuffleTile, Title: "Shuffle"})
+	}
+	v.picker.setHubs([]*plex.Hub{{Title: "Seasons", Items: row}})
 	v.picker.focusSeason(0)
 	return v
 }
@@ -42,6 +53,7 @@ func NewShowInSeason(app *App, show *plex.Item, seasons []*plex.Item, si int, at
 	v.season = NewSeason(app, show, seasons, si, at)
 	v.season.view = v
 	v.episodes, v.direct = true, true
+	v.season.rebuild() // the episode's actions gain Go to show
 	return v
 }
 
@@ -138,7 +150,7 @@ func (v *Show) takeTransition() *Handoff {
 
 func (v *Show) ensureSeason(si int, at string) {
 	if v.season == nil {
-		v.season = NewSeason(v.app, v.item, v.picker.hubs[0].Items, si, at)
+		v.season = NewSeason(v.app, v.item, v.seasons, si, at)
 		v.season.view = v
 	} else if v.season.si != si || at != "" {
 		v.season.si = si
@@ -175,6 +187,25 @@ func (v *Show) overview(now time.Time) {
 	if v.picker.col[0] != v.season.si {
 		v.picker.focusSeason(v.season.si)
 	}
+	direct := v.direct
 	v.episodes, v.direct = false, false
+	if direct {
+		v.season.rebuild() // Back returns here now: Go to show goes
+	}
 	v.app.dirty = true
+}
+
+// shuffle plays the whole show in a random order, then then (when not nil).
+// Watched marks may have changed in any season, so the picker and the
+// episode page fetch theirs again at once, not at the next periodic refresh.
+func (v *Show) shuffle(then func()) {
+	v.app.Shuffle(v.item, func() {
+		v.periodic.soon()
+		if v.season != nil {
+			v.season.periodic.soon()
+		}
+		if then != nil {
+			then()
+		}
+	})
 }

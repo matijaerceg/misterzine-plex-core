@@ -63,6 +63,13 @@ const (
 	ActY         = SafeBottom - 34
 )
 
+// The show's actions in an episode's row, before Remove from Continue
+// Watching.
+const (
+	GoToShow    = "Go to show"
+	ShuffleShow = "Shuffle show"
+)
+
 // NewSeason opens a season of a show at one of its episodes (by rating
 // key; "" for the first unwatched or the first).
 func NewSeason(app *App, show *plex.Item, seasons []*plex.Item, si int, at string) *Season {
@@ -208,6 +215,12 @@ func (s *Season) rebuild() {
 	if len(it.Subs) > 0 {
 		s.actions = append(s.actions, streamLabel("Subtitles", it.Subs))
 	}
+	if s.view != nil && s.view.direct {
+		// opened without the season picker (one season, Continue Watching,
+		// search): Back leaves the show, so the picker gets an action
+		s.actions = append(s.actions, GoToShow)
+	}
+	s.actions = append(s.actions, ShuffleShow)
 	if s.cw.has(it.RatingKey) {
 		s.actions = append(s.actions, RemoveContinue)
 	}
@@ -396,6 +409,14 @@ func (s *Season) do(a string) {
 		}
 		return
 	}
+	if a == GoToShow {
+		// the same as Up to the picker; coming back, the cursor is on the
+		// episode, not on an action that has gone
+		s.acts, s.act = false, 0
+		s.actX.Set(0)
+		s.toShow()
+		return
+	}
 	s.periodic.reset()
 	if s.view != nil {
 		s.view.periodic.reset()
@@ -416,6 +437,16 @@ func (s *Season) do(a string) {
 		return
 	case a == "Play" || a == "From start":
 		s.app.PlayQueue(it, 0, s.eps, s.cur, played)
+		return
+	case a == ShuffleShow:
+		// it plays once the episodes are listed; the highlight stays where
+		// the shuffle was started, wherever it ended
+		done := func() { s.refreshAfter(it, nil, false) }
+		if s.view != nil {
+			s.view.shuffle(done)
+		} else {
+			s.app.Shuffle(s.show, done)
+		}
 		return
 	case a == "Mark watched":
 		s.app.Plex.Scrobble(it.RatingKey, true)

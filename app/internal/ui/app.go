@@ -4,6 +4,7 @@ package ui
 
 import (
 	"log"
+	"math/rand/v2"
 	"net/url"
 	"os"
 	"runtime"
@@ -76,7 +77,8 @@ type App struct {
 	Wake chan struct{}
 	// Starting is set while a play request is being brought up (screens
 	// show it as a spinner); zero otherwise.
-	Starting time.Time
+	Starting  time.Time
+	shuffling *shuffleWait // a shuffle's episodes are being listed
 	// Mark is the app's wordmark, rendered once.
 	Mark  *Wordmark
 	marks map[string]*gfx.Image // the BETA and UPDATE marks, by text
@@ -291,6 +293,70 @@ func (a *App) PlayAt(it *plex.Item, offset int) { a.PlayQueue(it, offset, nil, 0
 // the episode after it. A playback held for the beta code calls after
 // once the code is in and it has run; never, if the code entry is left.
 func (a *App) PlayQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, after func(last *plex.Item, finished bool)) {
+	a.playQueue(it, offset, queue, idx, after, false)
+}
+
+// Shuffle plays every episode of a show, watched or not, in a random order:
+// each from its start, and on into the next whatever Options say about
+// autoplay (without it a shuffle would be one random episode). The episodes
+// are listed in the background with the start indicator running; as while
+// a playback comes up, Back gives up and nothing else acts (see key). then,
+// if given, runs once the shuffle has played (see PlayQueue's after).
+func (a *App) Shuffle(show *plex.Item, then func()) {
+	w := &shuffleWait{show: show}
+	a.shuffling, a.Starting = w, time.Now()
+	a.dirty = true
+	client, key := a.Plex, show.RatingKey
+	go func() {
+		queue, err := shuffleQueue(client, key)
+		// waits for room rather than being dropped as Later's work may be:
+		// the start bar and the held keys end only with this answer
+		a.later <- func() {
+			if a.shuffling != w {
+				return // given up
+			}
+			a.shuffling, a.Starting = nil, time.Time{}
+			if err != nil || len(queue) == 0 {
+				a.Log.Printf("shuffle %s: %d episodes, %v", show.Title, len(queue), err)
+				a.Notice, a.NoticeAt = "Could not list the show's episodes.", time.Now()
+				return
+			}
+			a.Log.Printf("shuffle %s: %d episodes", show.Title, len(queue))
+			var after func(*plex.Item, bool)
+			if then != nil {
+				after = func(*plex.Item, bool) { then() }
+			}
+			a.playQueue(queue[0], 0, queue, 0, after, true)
+		}
+		a.WakeUp()
+	}()
+}
+
+// shuffleWait is a show whose episodes are being listed for a shuffle.
+type shuffleWait struct{ show *plex.Item }
+
+// shuffleQueue is every episode of a show, all seasons and specials, in a
+// random order.
+func shuffleQueue(client *plex.Client, show string) ([]*plex.Item, error) {
+	eps, err := client.ShowEpisodes(show)
+	rand.Shuffle(len(eps), func(i, j int) { eps[i], eps[j] = eps[j], eps[i] })
+	return eps, err
+}
+
+// runsOn says whether a queue counts down into its next item when one plays
+// to its end: as Options say, but a shuffle always does.
+func (a *App) runsOn(shuffled bool) bool { return shuffled || !a.Cfg.NoAutoplay }
+
+// startOf is where an item reached along a queue (Prev, Next, the countdown)
+// starts: its resume point, or in a shuffle its start.
+func startOf(it *plex.Item, shuffled bool) int {
+	if shuffled {
+		return 0
+	}
+	return it.ViewOffset
+}
+
+func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, after func(last *plex.Item, finished bool), shuffled bool) {
 	last, finished, held := it, false, false
 	if after != nil {
 		// deferred first, so it runs last: after the theme and Home
@@ -307,7 +373,7 @@ func (a *App) PlayQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 		if err := a.Player.Access(); err != nil {
 			if err == beta.ErrLocked {
 				held = true // the code entry plays it, then calls after
-				a.Push(NewBetaAccess(a, func() { a.PlayQueue(it, offset, queue, idx, after) }))
+				a.Push(NewBetaAccess(a, func() { a.playQueue(it, offset, queue, idx, after, shuffled) }))
 			} else {
 				a.Notice, a.NoticeAt = err.Error(), time.Now()
 				a.dirty = true
@@ -374,7 +440,7 @@ func (a *App) PlayQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 		if fresh, err := a.Plex.Item(it.RatingKey); err == nil {
 			*it = *fresh
 		}
-		if next == 0 && ended && queue != nil && idx+1 < len(queue) && !a.Cfg.NoAutoplay {
+		if next == 0 && ended && queue != nil && idx+1 < len(queue) && a.runsOn(shuffled) {
 			// ran to the end: count down to the next episode
 			if a.countdown(queue[idx+1]) {
 				next = 1
@@ -385,7 +451,7 @@ func (a *App) PlayQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 		}
 		idx += next
 		it = queue[idx]
-		offset = it.ViewOffset
+		offset = startOf(it, shuffled)
 	}
 	a.Starting = time.Time{}
 	a.dirty = true
@@ -1033,6 +1099,14 @@ func (a *App) pacedTransition() bool {
 
 func (a *App) key(ev input.Event, now time.Time) {
 	if a.wake(ev, now) {
+		return
+	}
+	if a.shuffling != nil {
+		// a shuffle is listing its episodes: Back gives up, nothing else acts
+		if ev.Key == input.Back && !ev.Repeat && !ev.Release {
+			a.shuffling, a.Starting = nil, time.Time{}
+			a.dirty = true
+		}
 		return
 	}
 	// Text screens get keyboard editing before legacy aliases (Backspace=Back,

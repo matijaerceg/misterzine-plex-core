@@ -433,7 +433,7 @@ func (h *Home) Key(ev input.Event, now time.Time) {
 			h.rowAt = now
 		}
 	case input.Down:
-		if h.view != nil && h.Focused() != nil {
+		if it := h.Focused(); h.view != nil && it != nil && it.Type != ShuffleTile {
 			h.view.enterSeason(h.col[0], "", now)
 			return
 		}
@@ -445,6 +445,10 @@ func (h *Home) Key(ev input.Event, now time.Time) {
 		if it := h.Focused(); it != nil {
 			if h.view != nil && it.Type == "season" {
 				h.view.enterSeason(h.col[0], "", now)
+				return
+			}
+			if h.view != nil && it.Type == ShuffleTile {
+				h.view.shuffle(nil)
 				return
 			}
 			h.app.Open(it, false)
@@ -625,6 +629,9 @@ func (h *Home) drawPage(c *gfx.Canvas, now time.Time) bool {
 		// Each season keeps its name above its own poster as the row scrolls.
 		ox := round(h.colX[h.row].At(now))
 		for j, it := range h.hubs[h.row].Items {
+			if it.Type == ShuffleTile {
+				continue // it says what it is on the tile, as See all does
+			}
 			x := SafeX + j*PosterPitch - ox
 			f := h.app.F.Body
 			h.app.textOver(c, show, x, StripY, f, gfx.White, f.Fit(it.Title, PosterW))
@@ -929,6 +936,25 @@ func (h *Home) drawTile(c *gfx.Canvas, it *plex.Item, x, y int, focus bool, rowT
 			c.Frame(x-FocusPad, y-FocusPad, w+2*FocusPad, ht+2*FocusPad, FocusT, gfx.GreyHi)
 		}
 		return false
+	}
+	if it.Type == ShuffleTile {
+		// the end of a show's seasons: a plain tile that plays them all
+		c.Fill(x, y, w, ht, gfx.Bar)
+		starting := focus && !h.app.Starting.IsZero() // the episodes are being listed
+		if whole {
+			f, g := h.app.F.Body, h.app.F.SmallBold
+			ty := y + ht/2 - f.Height() - 2
+			h.app.textCenterOn(c, x+w/2, ty, f, gfx.GreyHi, gfx.Bar, it.Title)
+			if starting {
+				tw := f.Width(it.Title)
+				sweep(c, x+(w-tw)/2, ty+f.Height()+4, tw, BarW, time.Since(h.app.Starting))
+			}
+			h.app.textCenterOn(c, x+w/2, ty+f.Height()+12, g, gfx.GreyLo, gfx.Bar, "all episodes")
+		}
+		if focus {
+			c.Frame(x-FocusPad, y-FocusPad, w+2*FocusPad, ht+2*FocusPad, FocusT, gfx.GreyHi)
+		}
+		return starting
 	}
 	img, age := h.app.Art.GetAge(it.Thumb, w, ht)
 	fading := false

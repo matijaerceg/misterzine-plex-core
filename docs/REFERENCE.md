@@ -39,6 +39,16 @@ Detailed behavior and display settings. For everyday help, see the
   as the last action on its page. Plex keeps the resume point, and playing it
   again puts it back in the row. Servers without a Continue Watching list
   don't show the action.
+- A show's row of seasons ends with a **Shuffle** tile, and every episode's
+  actions hold **Shuffle show**. Both play every episode of the show, watched
+  or not and specials included, in a random order and each from its start.
+  While the episodes are listed the start bar runs under the action, and
+  Back gives up. A shuffle runs on into the next episode even with autoplay
+  off; Prev and Next move along the shuffled order. Afterwards the season
+  page keeps the episode it had selected.
+- An episode's page opened without the show's row of seasons (a show with one
+  season, Continue Watching, search, Home) has **Go to show** in its actions,
+  which shows that row. On a page opened from the row, Back does the same.
 - The menu lists Home, Search, the movie and TV libraries, Options, Exit to
   MiSTer menu and Patreon. A long list of libraries scrolls, and the menu opens
   on the library visited last. Patreon says what membership gets you and holds
