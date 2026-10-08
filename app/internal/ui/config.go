@@ -38,6 +38,7 @@ type Config struct {
 	ServerURL   string            `json:"server_url"`   // the chosen server
 	ServerToken string            `json:"server_token"` // the token for that server
 	ServerName  string            `json:"server_name"`
+	ServerID    string            `json:"server_id,omitempty"` // the chosen server's clientIdentifier
 	LoadWarning string            `json:"-"`
 	LoadError   error             `json:"-"`
 	path        string
@@ -149,7 +150,7 @@ func (c *Config) SignOut() error {
 	next.RecentSearches = nil
 	next.HiddenLibraries = nil // the keys belong to the server forgotten here
 	next.AccountName = ""
-	next.Token, next.ServerURL, next.ServerToken, next.ServerName = "", "", "", ""
+	next.Token, next.ServerURL, next.ServerToken, next.ServerName, next.ServerID = "", "", "", "", ""
 	data, _ := json.MarshalIndent(&next, "", "  ")
 	// Clear recovery credentials first so a later corrupt primary cannot undo sign-out.
 	if err := atomicConfig(c.path+".bak", data); err != nil {

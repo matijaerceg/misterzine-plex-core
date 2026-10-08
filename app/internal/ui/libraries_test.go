@@ -57,25 +57,35 @@ func TestHiddenLibrariesBelongToTheServer(t *testing.T) {
 	c.Token, c.AccountName, c.ServerName, c.HiddenLibraries = "test-account", "Tester", "Den", []string{"2"}
 	a := &App{Cfg: c, Connected: make(chan struct{}, 1), Log: log.New(io.Discard, "", 0)}
 	l := &Login{app: a, gen: 1, tok: "test-account"}
-	connect := func(name string) {
-		l.finishConnect(1, plex.Server{Name: name, AccessToken: "test-server"}, "http://test")
+	connect := func(name, id string) {
+		l.finishConnect(1, plex.Server{Name: name, ID: id, AccessToken: "test-server"}, "http://test")
 		select {
 		case <-a.Connected:
 		default:
 			t.Fatalf("did not connect to %s: %s", name, l.err)
 		}
 	}
-	connect("Den")
-	if !c.LibraryHidden("2") {
-		t.Fatal("choosing the same server again showed its hidden libraries")
+	// settings from before the identifier was kept go by the name
+	connect("Den", "den-id")
+	if !c.LibraryHidden("2") || c.ServerID != "den-id" {
+		t.Fatalf("choosing the same server again: hidden %q, identifier %q", c.HiddenLibraries, c.ServerID)
 	}
-	connect("Attic")
+	connect("Den", "another-den-id") // two servers can share a name
+	if c.HiddenLibraries != nil {
+		t.Fatalf("another server of the same name took the hidden keys %q", c.HiddenLibraries)
+	}
+	c.HiddenLibraries = []string{"2"}
+	connect("Den, renamed", "another-den-id")
+	if !c.LibraryHidden("2") {
+		t.Fatal("renaming the server showed its hidden libraries")
+	}
+	connect("Attic", "attic-id")
 	if c.HiddenLibraries != nil {
 		t.Fatalf("another server took the hidden keys %q", c.HiddenLibraries)
 	}
 	c.HiddenLibraries = []string{"2"}
-	if err := c.SignOut(); err != nil || c.HiddenLibraries != nil {
-		t.Fatalf("signed out, still hidden: %q (%v)", c.HiddenLibraries, err)
+	if err := c.SignOut(); err != nil || c.HiddenLibraries != nil || c.ServerID != "" {
+		t.Fatalf("signed out: hidden %q, server %q (%v)", c.HiddenLibraries, c.ServerID, err)
 	}
 }
 

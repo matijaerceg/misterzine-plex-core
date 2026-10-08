@@ -27,6 +27,7 @@ type Pin struct {
 // Server is one of the account's media servers with its connections.
 type Server struct {
 	Name        string
+	ID          string // its clientIdentifier: unique, where names need not be
 	AccessToken string // the token to use with this server (differs from the account's for shared servers)
 	Owned       bool
 	Connections []Connection
@@ -159,6 +160,7 @@ func Servers(clientID, token string) ([]Server, error) {
 	}
 	var rs []struct {
 		Name        string `json:"name"`
+		ID          string `json:"clientIdentifier"`
 		Provides    string `json:"provides"`
 		AccessToken string `json:"accessToken"`
 		Owned       bool   `json:"owned"`
@@ -176,7 +178,7 @@ func Servers(clientID, token string) ([]Server, error) {
 		if !strings.Contains(r.Provides, "server") {
 			continue
 		}
-		s := Server{Name: Fold(r.Name), AccessToken: r.AccessToken, Owned: r.Owned}
+		s := Server{Name: Fold(r.Name), ID: r.ID, AccessToken: r.AccessToken, Owned: r.Owned}
 		if s.AccessToken == "" {
 			s.AccessToken = token
 		}

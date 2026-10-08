@@ -187,11 +187,17 @@ func (l *Login) finishConnect(gen int, s plex.Server, uri string) {
 	if next.Token != l.tok {
 		next.AccountName = ""
 	}
-	if next.ServerName != s.Name {
-		// library keys are the server's own: another server's "1" is another library
+	// library keys are the server's own: another server's "1" is another
+	// library. Names need not be unique, so the identifier decides (by the
+	// name for settings saved before it was kept).
+	same := next.ServerName == s.Name
+	if next.ServerID != "" && s.ID != "" {
+		same = next.ServerID == s.ID
+	}
+	if !same {
 		next.HiddenLibraries = nil
 	}
-	next.Token, next.ServerURL, next.ServerToken, next.ServerName = l.tok, uri, s.AccessToken, s.Name
+	next.Token, next.ServerURL, next.ServerToken, next.ServerName, next.ServerID = l.tok, uri, s.AccessToken, s.Name, s.ID
 	if err := next.Save(); err != nil {
 		l.app.Log.Printf("config: %v", err)
 		l.err = "Could not save sign-in. Check free space and retry."
