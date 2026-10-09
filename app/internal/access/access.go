@@ -26,6 +26,16 @@ func (m Month) String() string {
 	return fmt.Sprintf("%s %d", time.Month(m%100), m/100)
 }
 
+// Covering says what a card's codes cover, for a row's value: the features
+// of the latest code's month and before ("Through Sep 2026"), or what no
+// code means.
+func (m Month) Covering() string {
+	if !m.Valid() {
+		return m.Short()
+	}
+	return "Through " + m.Short()
+}
+
 // Short is the month on an Options row: "Sep 2026", or what no code means.
 func (m Month) Short() string {
 	if !m.Valid() {

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -166,13 +167,22 @@ func TestCodeEntrySaysUnlockForever(t *testing.T) {
 	if !centred(128, b.titleFont, gfx.Purple, "UNLOCK FOREVER") {
 		t.Fatal("the code entry's title is not UNLOCK FOREVER")
 	}
-	for i, s := range []string{"Enter the MisterZine code from patreon.com/MisterZine.", "One code keeps its features for good on this card."} {
+	// the paragraph, whole, in at most three lines that fit the panel and
+	// end above the digits
+	lines := wrap(a.F.Body, codeEntryText, 536-16, 3)
+	if strings.Join(lines, " ") != codeEntryText || len(lines) > 3 {
+		t.Fatalf("the paragraph wraps to %q", lines)
+	}
+	for i, s := range lines {
 		if w := a.F.Body.Width(s); w > 536-16 {
 			t.Errorf("%q is %d wide, more than the panel holds", s, w)
 		}
-		if !centred(203+i*25, a.F.Body, gfx.GreyHi, s) {
+		if !centred(196+i*codeEntryLineH, a.F.Body, gfx.GreyHi, s) {
 			t.Errorf("line %d under the title is not %q", i+1, s)
 		}
+	}
+	if 196+len(lines)*codeEntryLineH > 268 {
+		t.Fatalf("%d lines reach the digits", len(lines))
 	}
 	for _, ch := range "864209" {
 		a.key(input.Event{Keyboard: true, Text: ch, Key: input.None}, time.Now())

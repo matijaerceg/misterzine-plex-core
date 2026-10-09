@@ -32,7 +32,7 @@ func (a *App) patreonPitch() (headline, para string) {
 	if a.supporter() || a.Access().Valid() {
 		return "Thank you for your support", "Your membership gets you each new version first and pays for the work on the next one."
 	}
-	return unlockForever, "A MisterZine code from Patreon unlocks the supporter extras for good. Features added later come with a new code."
+	return unlockForever, "A MisterZine code unlocks today's supporter features for good on this card. Features added later come with a new code. You never need to stay subscribed to keep what you have."
 }
 
 // earlyAccess is the early-access version on offer, from the last catalogue
@@ -66,7 +66,7 @@ func (p *Patreon) rows() []option {
 		// a public build installs early access, code and all, from Updates
 		rows = append(rows, option{label: "See early access in Updates", do: func() { a.Push(NewUpdates(a)) }})
 	}
-	rows = append(rows, option{label: "MisterZine code", val: func() string { return a.Access().Short() }, do: func() { a.Push(NewCodeEntry(a, nil)) }})
+	rows = append(rows, option{label: "MisterZine code", val: func() string { return a.Access().Covering() }, do: func() { a.Push(NewCodeEntry(a, nil)) }})
 	if s := a.supporters.list; len(s.Current)+len(s.Past) > 0 {
 		label := "Supporters"
 		if n := len(s.Current); n > 0 {

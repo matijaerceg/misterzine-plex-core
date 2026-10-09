@@ -154,3 +154,14 @@ func TestRegisterRefusesBadGrants(t *testing.T) {
 		register(t, 202609, "222222", "")
 	}()
 }
+
+// Covering is what the codes held cover, for the Patreon page and the
+// code entry: the latest month and before, or what no code means.
+func TestMonthCovering(t *testing.T) {
+	if got := Month(202609).Covering(); got != "Through Sep 2026" {
+		t.Fatalf("Sep 2026 covers %q", got)
+	}
+	if got := Month(0).Covering(); got != Month(0).Short() || got != "No code entered" {
+		t.Fatalf("no code covers %q", got)
+	}
+}

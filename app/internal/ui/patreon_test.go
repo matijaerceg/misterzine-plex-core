@@ -74,7 +74,7 @@ func TestPatreonHeadline(t *testing.T) {
 		return false
 	}
 	const thanks = "Thank you for your support"
-	if h, para := a.patreonPitch(); h != "Unlock forever" || para != "A MisterZine code from Patreon unlocks the supporter extras for good. Features added later come with a new code." {
+	if h, para := a.patreonPitch(); h != "Unlock forever" || para != "A MisterZine code unlocks today's supporter features for good on this card. Features added later come with a new code. You never need to stay subscribed to keep what you have." {
 		t.Fatalf("without a code: %q, %q", h, para)
 	}
 	if !shows("Unlock forever") {
