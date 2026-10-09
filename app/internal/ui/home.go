@@ -296,12 +296,13 @@ func (h *Home) pollHome(now time.Time) {
 }
 
 func (h *Home) applyHome(hubs []*plex.Hub) {
-	// the user's filters (Options) apply to the rows
+	// the user's filters (Options) apply to the rows: the 4:3 filter, and
+	// hidden libraries' items leave Continue Watching too
 	kept := hubs[:0]
 	for _, hub := range hubs {
 		items := hub.Items[:0]
 		for _, it := range hub.Items {
-			if h.app.Keep(it) {
+			if h.app.Keep(it) && h.app.libraryShown(it) {
 				items = append(items, it)
 			}
 		}

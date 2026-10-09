@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -42,6 +43,14 @@ type Config struct {
 	LoadWarning string            `json:"-"`
 	LoadError   error             `json:"-"`
 	path        string
+}
+
+// snapshot is a copy to put back when a save fails. The extras' settings
+// map is copied too, so a failed save leaves them as they were as well.
+func (c *Config) snapshot() Config {
+	s := *c
+	s.Premium = maps.Clone(c.Premium)
+	return s
 }
 
 // LoadConfig reads the config file; a missing file gives the defaults. A

@@ -231,7 +231,7 @@ func (o *Options) Key(ev input.Event, now time.Time) {
 	case input.Down:
 		o.cur = nextOption(items, o.cur, 1)
 	case input.Enter, input.Left, input.Right:
-		before := *o.app.Cfg
+		before := o.app.Cfg.snapshot()
 		it := items[o.cur]
 		switch {
 		case it.get != nil:
