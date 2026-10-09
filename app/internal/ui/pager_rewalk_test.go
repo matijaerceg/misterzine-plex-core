@@ -130,7 +130,7 @@ func TestPagerRewalkSurvivesAFailedPage(t *testing.T) {
 		t.Fatalf("after the failure: error %v, %d shown, done %v", p.Err(), shown, done)
 	}
 	for range 50 {
-		p.Want(0) // frames at the top, within the pause
+		p.Get(0) // frames drawing the top, within the pause
 		if p.Err() != nil {
 			t.Fatal("the walk again's failure brought an error back")
 		}
@@ -141,7 +141,7 @@ func TestPagerRewalkSurvivesAFailedPage(t *testing.T) {
 	}
 	p.mu.Unlock()
 	waitUntil(t, "the walk again to finish", func() bool {
-		p.Want(0)
+		p.Get(0) // a frame drawing the top; no button is pressed
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		return p.done && !p.restage

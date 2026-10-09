@@ -481,7 +481,7 @@ func TestFilteredRewalkRetriesAfterAFailure(t *testing.T) {
 		base.failed[pg] = at.Add(-PageRetry)
 	}
 	base.mu.Unlock()
-	waitUntil(t, "the walk again", func() bool { base.Want(0); return base.Done() })
+	waitUntil(t, "the walk again", func() bool { base.Get(0); return base.Done() }) // frames only, no button
 	mu.Lock()
 	defer mu.Unlock()
 	if first != 3 || base.Err() != nil || base.Total() != size+1 || base.Get(0).RatingKey != "990" {

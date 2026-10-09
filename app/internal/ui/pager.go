@@ -332,19 +332,25 @@ func (p *Pager) Get(i int) *plex.Item {
 	return p.get(i, true)
 }
 
-// get is Get; ahead also queues the page after i's.
+// get is Get; ahead also queues the page after i's. While a filtered walk
+// again is under way the walk before is shown whole, so a found item asks
+// too: the wall draws its items every frame and at the idle tick, which
+// keeps a walk again that a failed page stopped going after PageRetry
+// without a button press.
 func (p *Pager) get(i int, ahead bool) *plex.Item {
 	p.mu.Lock()
 	var it *plex.Item
+	restaging := false
 	if p.filter != nil {
 		if i >= 0 && i < len(p.list) {
 			it = p.list[i]
 		}
+		restaging = p.restage && !p.done
 	} else {
 		it = p.items[i]
 	}
 	p.mu.Unlock()
-	if it == nil {
+	if it == nil || restaging {
 		p.want(i, ahead)
 	}
 	return it
