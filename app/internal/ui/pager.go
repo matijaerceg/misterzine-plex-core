@@ -371,9 +371,16 @@ func (p *Pager) want(i int, ahead bool) {
 		return
 	}
 	if p.filter != nil {
-		// keep a page of kept items ahead of the cursor, one fetch at a time
+		// keep a page of kept items ahead of the cursor, one fetch at a time;
+		// a walk again goes on to the end whatever the cursor, and a page of
+		// it that failed waits out PageRetry without bringing an error back
 		p.mu.Lock()
-		fetch := !p.done && len(p.inFlt) == 0 && i+pageSize/2 >= len(p.list) && !p.waiting(p.next)
+		fetch := !p.done && len(p.inFlt) == 0
+		if fetch && p.restage {
+			fetch = !p.paused(p.next)
+		} else if fetch {
+			fetch = i+pageSize/2 >= len(p.list) && !p.waiting(p.next)
+		}
 		if fetch {
 			p.inFlt[p.next] = true
 		}
@@ -427,8 +434,10 @@ func (p *Pager) fetch(n int) {
 		p.failed, p.seen = map[int]time.Time{}, map[int]int{}
 	}
 	if err != nil && p.restage {
-		// the walk before stands, as it would have without the walk again
-		p.restage, p.stage, p.done = false, nil, true
+		// a page of the walk again failed: the walk before keeps showing,
+		// with no error since it is whole, and the walk again picks up at
+		// this page after PageRetry (want), wherever the cursor is
+		p.failed[n] = time.Now()
 	} else if err != nil {
 		p.err, p.failErr = err, err
 		p.failed[n] = time.Now()

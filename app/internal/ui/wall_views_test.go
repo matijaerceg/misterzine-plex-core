@@ -441,10 +441,11 @@ func TestFilteredRewalkKeepsTheListShown(t *testing.T) {
 	}
 }
 
-// A filtered walk again that fails is given up, with nothing asking: the
-// walk before stands, done and without an error, as it did before walks
-// again.
-func TestFilteredRewalkGivenUpAfterAFailure(t *testing.T) {
+// A filtered walk again that fails on a page keeps the walk before
+// showing, without an error and not yet done; once PageRetry has passed
+// and the wall asks again, it picks up at that page and ends on the
+// listing as it is now.
+func TestFilteredRewalkRetriesAfterAFailure(t *testing.T) {
 	const size = 3 * pageSize
 	s := newPagedServer(t, size)
 	var mu sync.Mutex
@@ -465,10 +466,25 @@ func TestFilteredRewalkGivenUpAfterAFailure(t *testing.T) {
 	}
 	a := pagedTestApp(t, s)
 	base := a.pager("/library/sections/1/all", url.Values{"sort": {"titleSort"}}, func(*plex.Item) bool { return true })
-	waitUntil(t, "the walk", func() bool { return base.Done() })
+	waitUntil(t, "the walk again's failure", func() bool {
+		base.mu.Lock()
+		defer base.mu.Unlock()
+		_, failed := base.failed[0]
+		return base.restage && failed && len(base.inFlt) == 0
+	})
+	if base.Done() || base.Err() != nil || base.Total() != size+1 || base.Get(0).RatingKey != "1000" {
+		t.Fatalf("after the failure: done %v, error %v, the walk before shows %d films from %s",
+			base.Done(), base.Err(), base.Total(), base.Get(0).RatingKey)
+	}
+	base.mu.Lock()
+	for pg, at := range base.failed {
+		base.failed[pg] = at.Add(-PageRetry)
+	}
+	base.mu.Unlock()
+	waitUntil(t, "the walk again", func() bool { base.Want(0); return base.Done() })
 	mu.Lock()
 	defer mu.Unlock()
-	if first != 2 || base.Err() != nil || base.Total() != size+1 || base.Get(0).RatingKey != "1000" {
+	if first != 3 || base.Err() != nil || base.Total() != size+1 || base.Get(0).RatingKey != "990" {
 		t.Fatalf("%d first pages; the walk shows %d films from %s, error %v", first, base.Total(), base.Get(0).RatingKey, base.Err())
 	}
 }
