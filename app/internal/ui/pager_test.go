@@ -76,3 +76,62 @@ func TestPagerWaitsAfterAFailedPage(t *testing.T) {
 		}
 	}
 }
+
+// Pages load side by side: one that failed keeps its error showing while
+// it is asked for during the pause, even when the page beside it lands
+// after the failure, and the error goes once the page is in.
+func TestPagerFailureOutlastsANeighbourLanding(t *testing.T) {
+	s := newPagedServer(t, 3*pageSize)
+	var mu sync.Mutex
+	failing := true
+	var p *Pager
+	pager := func() *Pager {
+		mu.Lock()
+		defer mu.Unlock()
+		return p
+	}
+	s.fails = func(start int) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return start == 0 && failing
+	}
+	s.onPage = func(start int) {
+		if start != pageSize {
+			return
+		}
+		// the page beside the failed one lands after the failure
+		for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(time.Millisecond) {
+			if q := pager(); q != nil && q.Err() != nil {
+				return
+			}
+		}
+	}
+	a := pagedTestApp(t, s)
+	q := a.pager("/library/sections/1/all", url.Values{"sort": {"titleSort"}}, nil) // asks for pages 0 and 1
+	mu.Lock()
+	p = q
+	mu.Unlock()
+	waitUntil(t, "the page beside", func() bool {
+		q.mu.Lock()
+		defer q.mu.Unlock()
+		return q.items[pageSize] != nil && len(q.inFlt) == 0
+	})
+	for end := time.Now().Add(100 * time.Millisecond); time.Now().Before(end); time.Sleep(time.Millisecond) {
+		q.Want(0) // a frame
+		if q.Get(0) != nil || q.Err() == nil {
+			t.Fatal("the failed page's error went with the page beside it in")
+		}
+	}
+	mu.Lock()
+	failing = false
+	mu.Unlock()
+	q.mu.Lock()
+	for pg, at := range q.failed {
+		q.failed[pg] = at.Add(-PageRetry)
+	}
+	q.mu.Unlock()
+	waitUntil(t, "the page after the pause", func() bool { return q.Get(0) != nil })
+	if err := q.Err(); err != nil {
+		t.Fatalf("the error stayed once the page was in: %v", err)
+	}
+}

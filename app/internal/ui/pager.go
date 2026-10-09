@@ -20,8 +20,11 @@ type Pager struct {
 	items  map[int]*plex.Item
 	total  int
 	loaded bool
-	err    error
-	inFlt  map[int]bool // page index being fetched
+	err    error // what Err reports
+	// failErr is the last failed fetch's error, which err takes again
+	// while a page that is asked for waits out PageRetry
+	failErr error
+	inFlt   map[int]bool // page index being fetched
 	// when each page whose last fetch failed failed (it is asked for again
 	// only after PageRetry); for a walk to the end (whole): the listing's
 	// size each page was fetched with, how many pages (filtered, walks)
@@ -150,7 +153,7 @@ func (p *Pager) whole() []*plex.Item {
 		}
 		// the walk goes on by itself; this restarts one a failure stopped
 		n := p.next
-		walk := !p.done && len(p.inFlt) == 0 && !p.paused(n)
+		walk := !p.done && len(p.inFlt) == 0 && !p.waiting(n)
 		if walk {
 			p.inFlt[n] = true
 		}
@@ -163,7 +166,7 @@ func (p *Pager) whole() []*plex.Item {
 	total := p.total
 	complete := total >= 0
 	var fetch []int
-	if total < 0 && len(p.inFlt) == 0 && !p.paused(0) {
+	if total < 0 && len(p.inFlt) == 0 && !p.waiting(0) {
 		p.inFlt[0] = true
 		fetch = append(fetch, 0)
 	}
@@ -177,7 +180,7 @@ func (p *Pager) whole() []*plex.Item {
 		if len(p.inFlt) >= OrderedInFlight {
 			break
 		}
-		if !p.inFlt[pg] && !p.paused(pg) {
+		if !p.inFlt[pg] && !p.waiting(pg) {
 			if ok {
 				p.rewalks++
 			}
@@ -206,6 +209,18 @@ func (p *Pager) whole() []*plex.Item {
 func (p *Pager) paused(n int) bool {
 	at, ok := p.failed[n]
 	return ok && time.Since(at) < PageRetry
+}
+
+// waiting is paused for a page that is asked for: while it waits, its
+// failure is the pager's error again, even when another page has landed
+// since (pages load side by side), so the error shows for as long as a
+// page that is needed is missing. The caller holds mu.
+func (p *Pager) waiting(n int) bool {
+	if !p.paused(n) {
+		return false
+	}
+	p.err = p.failErr
+	return true
 }
 
 // distinctIndices reports whether at holds indices below n, each once.
@@ -282,7 +297,8 @@ func (p *Pager) Total() int {
 	return p.total
 }
 
-// Err is the last fetch error.
+// Err is the last fetch error, gone once a page lands. A page that failed
+// brings it back whenever it is asked for while it waits out PageRetry.
 func (p *Pager) Err() error {
 	if p.base != nil {
 		return p.base.Err()
@@ -357,7 +373,7 @@ func (p *Pager) want(i int, ahead bool) {
 	if p.filter != nil {
 		// keep a page of kept items ahead of the cursor, one fetch at a time
 		p.mu.Lock()
-		fetch := !p.done && len(p.inFlt) == 0 && i+pageSize/2 >= len(p.list) && !p.paused(p.next)
+		fetch := !p.done && len(p.inFlt) == 0 && i+pageSize/2 >= len(p.list) && !p.waiting(p.next)
 		if fetch {
 			p.inFlt[p.next] = true
 		}
@@ -379,7 +395,7 @@ func (p *Pager) want(i int, ahead bool) {
 			p.mu.Unlock()
 			continue
 		}
-		if p.inFlt[n] || p.items[n*pageSize] != nil || p.paused(n) || (!ahead && len(p.inFlt) >= OrderedInFlight) {
+		if p.inFlt[n] || p.items[n*pageSize] != nil || p.waiting(n) || (!ahead && len(p.inFlt) >= OrderedInFlight) {
 			p.mu.Unlock()
 			continue
 		}
@@ -414,7 +430,7 @@ func (p *Pager) fetch(n int) {
 		// the walk before stands, as it would have without the walk again
 		p.restage, p.stage, p.done = false, nil, true
 	} else if err != nil {
-		p.err = err
+		p.err, p.failErr = err, err
 		p.failed[n] = time.Now()
 	} else {
 		delete(p.failed, n)
