@@ -18,11 +18,18 @@ type Options struct {
 
 type option struct {
 	label string
-	get   func() bool // a toggle; nil otherwise
+	get   func() bool // a toggle, flipped by OK, left and right; nil otherwise
 	set   func(bool)
-	val   func() string // a stepped value; nil otherwise
-	step  func(d int)   // d is -1 or +1
-	do    func()        // an action
+	val   func() string // the value shown on the right; nil for none
+	// step makes val a stepped value: left steps it by -1, right by +1, and
+	// OK leaves it as it is
+	step func(d int)
+	// at is a stepped value's place among its choices: the index of the one
+	// it has and how many there are. The selected row's arrows grey at the
+	// end it is at; a row that steps sets it, and without it both arrows
+	// show as live.
+	at func() (i, n int)
+	do func() // an action: OK runs it, on a stepped row too
 	// after runs once a change is saved: Home refetched, the theme player
 	// told, or nothing. Bitrate and the sound toggles change nothing on
 	// screen, so stepping them must not refetch Home.
@@ -37,6 +44,10 @@ type option struct {
 	// in the list but never the cursor.
 	header bool
 }
+
+// extraOptions adds the extras' Options rows (premium.go); the tests put
+// their own in its place.
+var extraOptions = (*App).premiumOptions
 
 // optionGap is the gap that starts a group of Options rows after the first.
 func optionGap() option { return option{header: true} }
@@ -55,23 +66,18 @@ func (o *Options) items() []option {
 		}, step: func(d int) {
 			i := max(0, min(len(Bitrates)-1, cfg.bitrateIndex()+d))
 			cfg.Bitrate = Bitrates[i].Kbps
-		}},
+		}, at: func() (int, int) { return cfg.bitrateIndex(), len(Bitrates) }},
 		{label: "Surround downmix boost", val: func() string {
-			for _, b := range AudioBoosts {
-				if b.Value == cfg.AudioBoostValue() {
-					return b.Label
-				}
+			if i := cfg.audioBoostIndex(); i >= 0 {
+				return AudioBoosts[i].Label
 			}
 			return itoa(cfg.AudioBoostValue()) + "%"
 		}, step: func(d int) {
-			i := 0
-			for j, b := range AudioBoosts {
-				if b.Value == cfg.AudioBoostValue() {
-					i = j
-				}
-			}
-			i = max(0, min(len(AudioBoosts)-1, i+d))
+			i := max(0, min(len(AudioBoosts)-1, max(0, cfg.audioBoostIndex())+d))
 			cfg.AudioBoost = AudioBoosts[i].Value
+		}, at: func() (int, int) {
+			// a gain set by hand is none of the choices: both ways step
+			return cfg.audioBoostIndex(), len(AudioBoosts)
 		}},
 	}
 	items = o.app.libraryOptions(items)
@@ -89,7 +95,7 @@ func (o *Options) items() []option {
 		{label: "Video geometry", do: func() { o.app.Push(NewCalibrate(o.app)) }},
 		{label: "Video crop", val: func() string { return cfg.Crop.Label() }, step: func(d int) {
 			cfg.Crop = Crops[max(0, min(len(Crops)-1, cfg.Crop.index()+d))].Mode
-		}},
+		}, at: func() (int, int) { return cfg.Crop.index(), len(Crops) }},
 	}...)
 	for _, w := range o.app.Display.Warnings() {
 		items = append(items, option{label: w.label, val: func() string { return w.value }, do: func() { o.app.Push(NewDisplayNote(o.app, w)) }})
@@ -100,7 +106,7 @@ func (o *Options) items() []option {
 		{label: "Navigation sounds", get: func() bool { return !cfg.NoTaps }, set: func(v bool) { cfg.NoTaps = !v }},
 		optionGap(),
 	}...)
-	items = o.app.premiumOptions(items)
+	items = extraOptions(o.app, items)
 	items = append(items, option{label: "Show beta features", get: func() bool { return cfg.ShowBeta }, set: func(v bool) { cfg.ShowBeta = v }, after: o.app.accessChanged})
 	items = append(items, optionGap())
 	if cfg.Token != "" {
@@ -201,7 +207,8 @@ func onOption(items []option, cur int) int {
 	return nextOption(items, cur, -1)
 }
 
-// Key handles one input event: up/down choose, OK/left/right toggle.
+// Key handles one input event: up/down choose; OK, left and right flip a
+// toggle; left and right step a stepped value; OK runs a row's action.
 func (o *Options) Key(ev input.Event, now time.Time) {
 	if ev.Release {
 		return
@@ -230,22 +237,27 @@ func (o *Options) Key(ev input.Event, now time.Time) {
 	case input.Down:
 		o.cur = nextOption(items, o.cur, 1)
 	case input.Enter, input.Left, input.Right:
-		before := o.app.Cfg.snapshot()
 		it := items[o.cur]
-		switch {
-		case it.get != nil:
-			it.set(!it.get())
-		case it.step != nil:
-			if ev.Key == input.Left {
-				it.step(-1)
-			} else {
-				it.step(1)
-			}
-		default:
-			if ev.Key == input.Enter {
+		toggle := it.get != nil && !it.locked
+		step := it.step != nil && !it.locked && ev.Key != input.Enter
+		if !toggle && !step {
+			// OK runs the row's action: a button's, a locked extra's code
+			// entry, a stepped row's own when it has one (and nothing when
+			// it has none). Left and right change only toggles and
+			// stepped values.
+			if ev.Key == input.Enter && it.do != nil {
 				it.do()
 			}
 			return
+		}
+		before := o.app.Cfg.snapshot()
+		switch {
+		case toggle:
+			it.set(!it.get())
+		case ev.Key == input.Left:
+			it.step(-1)
+		default:
+			it.step(1)
 		}
 		if err := o.app.Cfg.Save(); err != nil {
 			o.app.Log.Printf("config: %v", err)
@@ -320,6 +332,29 @@ func optionWindow(items []option, cur int) (first, end, top, total int) {
 	return first, end, top, total
 }
 
+// stepArrowW is the room each arrow beside a stepped value takes: the
+// arrow (the chevrons are 6 wide) and the space between it and the value.
+const stepArrowW = 6 + 8
+
+// stepArrows draws the arrows either side of the selected stepped value,
+// whose text runs from x0 to x1, with their tops at y: amber, or greyed at
+// the end of the choices the value is at.
+func stepArrows(c *gfx.Canvas, it option, x0, x1, y int) {
+	lc, rc := gfx.Amber, gfx.Amber
+	if it.at != nil {
+		i, n := it.at()
+		if i == 0 {
+			lc = gfx.GreyLo
+		}
+		if i == n-1 {
+			rc = gfx.GreyLo
+		}
+	}
+	// a chevron reaches 3 left of its centre and 2 right of it
+	chevronLeft(c, x0-stepArrowW+3, y, lc)
+	chevronRight(c, x1+stepArrowW-3, y, rc)
+}
+
 // Draw paints the list of options with their values on the right.
 func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 	c.Fill(0, 0, c.W, c.H, gfx.Bg)
@@ -343,11 +378,17 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 			col = gfx.White
 			menuFocusBar(c, MenuX, y+9, f.Body.Height())
 		}
+		stepped := it.step != nil && it.val != nil && !it.locked
 		labelW := MenuWidth
 		if it.get != nil {
 			labelW -= f.Body.Width("Off") + 24
 		} else if it.val != nil {
 			labelW -= f.Body.Width(it.val()) + 24
+		}
+		if stepped {
+			// room for the arrows whether or not they show, so the label
+			// does not change as the cursor comes and goes
+			labelW -= 2 * stepArrowW
 		}
 		o.app.text(c, MenuX, y+9, f.Body, col, f.Body.Fit(it.label, labelW))
 		if it.get != nil {
@@ -367,7 +408,15 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 			if it.locked {
 				vc = gfx.GreyLo
 			}
-			o.app.textRight(c, MenuRight, y+9, f.Body, vc, it.val())
+			v := it.val()
+			if stepped && i == cur {
+				// left and right step it: an arrow either side says so
+				right := MenuRight - stepArrowW
+				o.app.textRight(c, right, y+9, f.Body, vc, v)
+				stepArrows(c, it, right-f.Body.Width(v), right, y+9+f.Body.Height()/2-6)
+			} else {
+				o.app.textRight(c, MenuRight, y+9, f.Body, vc, v)
+			}
 		}
 		y += MenuRowH
 	}

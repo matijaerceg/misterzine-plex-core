@@ -150,6 +150,17 @@ func (c *Config) AudioBoostValue() int {
 	return c.AudioBoost
 }
 
+// audioBoostIndex is the place in AudioBoosts of the gain in force, -1 for
+// a gain they do not offer (set by hand).
+func (c *Config) audioBoostIndex() int {
+	for i, b := range AudioBoosts {
+		if b.Value == c.AudioBoostValue() {
+			return i
+		}
+	}
+	return -1
+}
+
 // SignedIn reports whether a server is on record.
 func (c *Config) SignedIn() bool { return c.ServerURL != "" && c.ServerToken != "" }
 

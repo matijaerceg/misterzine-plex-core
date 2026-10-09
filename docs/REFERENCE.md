@@ -69,7 +69,9 @@ Detailed behavior and display settings. For everyday help, see the
 - Options contains video mode, video geometry and crop, theme music, navigation
   taps, autoplay, the skip buttons, bitrate, downmix boost, the 4:3 filter,
   server selection and sign-out. A scrollbar on the right shows where the list
-  is. The 4:3 filter
+  is. OK, left or right turns a setting on or off; a setting with more choices
+  (bitrate, downmix boost, crop) changes with left and right only, shown by the
+  arrows either side of its value when it is selected. The 4:3 filter
   applies to the
   home rows, search and every library view. Movies and episodes are judged by
   their own picture; a show by its first episode. Each TV library is read once

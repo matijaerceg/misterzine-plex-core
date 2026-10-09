@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -310,5 +311,194 @@ func TestOptionsWindowKeepsTheCursorCentred(t *testing.T) {
 	o.Draw(c, time.Now())
 	if got := focusY(c); got != below {
 		t.Fatalf("cursor on the first gap drawn %d down the window, want %d (the row below)", got, below)
+	}
+}
+
+// withExtraOptions puts rows in the extras' place for one test.
+func withExtraOptions(t *testing.T, rows func(a *App) []option) {
+	old := extraOptions
+	extraOptions = func(a *App, items []option) []option { return append(items, rows(a)...) }
+	t.Cleanup(func() { extraOptions = old })
+}
+
+// pressOption gives Options one press of key on the row labelled label.
+func pressOption(t *testing.T, o *Options, label string, key input.Key) {
+	t.Helper()
+	row := optionRow(o, label)
+	if row < 0 {
+		t.Fatalf("no %q row", label)
+	}
+	o.cur = row
+	o.Key(input.Event{Key: key}, time.Now())
+}
+
+// OK leaves a stepped value as it is and saves nothing; left and right
+// step it and save. Toggles still flip on all three.
+func TestOptionsStepOnlyWithLeftAndRight(t *testing.T) {
+	a := betaTestApp(t)
+	o := NewOptions(a)
+	a.Push(o)
+	saved := func() bool { _, err := os.Stat(a.Cfg.path); return err == nil }
+	value := func(label string) string { return o.items()[optionRow(o, label)].val() }
+	for _, label := range []string{"Video bitrate", "Surround downmix boost", "Video crop"} {
+		was := value(label)
+		os.Remove(a.Cfg.path)
+		pressOption(t, o, label, input.Enter)
+		if got := value(label); got != was || saved() {
+			t.Fatalf("OK on %s: %q became %q, saved %v", label, was, got, saved())
+		}
+		if a.top() != Screen(o) || o.cur != optionRow(o, label) {
+			t.Fatalf("OK on %s opened %T or moved the cursor", label, a.top())
+		}
+		// away from the end the value is at, then back
+		away, back := input.Left, input.Right
+		if i, _ := o.items()[optionRow(o, label)].at(); i == 0 {
+			away, back = back, away
+		}
+		pressOption(t, o, label, away)
+		if got := value(label); got == was || !saved() {
+			t.Fatalf("%v on %s: %q became %q, saved %v", away, label, was, got, saved())
+		}
+		os.Remove(a.Cfg.path)
+		pressOption(t, o, label, back)
+		if got := value(label); got != was || !saved() {
+			t.Fatalf("%v on %s: back to %q, not %q; saved %v", back, label, got, was, saved())
+		}
+	}
+	for _, key := range []input.Key{input.Enter, input.Left, input.Right} {
+		was := a.Cfg.NoTheme
+		pressOption(t, o, "Theme music", key)
+		if a.Cfg.NoTheme == was {
+			t.Fatalf("%v did not flip Theme music", key)
+		}
+	}
+}
+
+// Each stepped row says where its value is among its choices: 0 at the
+// first, n-1 at the last.
+func TestOptionsSteppedRowsSayWhereTheyAre(t *testing.T) {
+	a := betaTestApp(t)
+	o := NewOptions(a)
+	for _, tc := range []struct {
+		label string
+		n     int
+	}{{"Video bitrate", len(Bitrates)}, {"Surround downmix boost", len(AudioBoosts)}, {"Video crop", len(Crops)}} {
+		it := o.items()[optionRow(o, tc.label)]
+		if it.at == nil {
+			t.Fatalf("%s steps but does not say where it is", tc.label)
+		}
+		for range tc.n {
+			it.step(-1)
+		}
+		seen := map[string]bool{}
+		for want := range tc.n {
+			if i, n := it.at(); i != want || n != tc.n {
+				t.Fatalf("%s at %q: %d of %d, want %d of %d", tc.label, it.val(), i, n, want, tc.n)
+			}
+			seen[it.val()] = true
+			it.step(1)
+		}
+		if i, n := it.at(); i != n-1 || len(seen) != tc.n {
+			t.Fatalf("%s: past the last choice at %d of %d; %d values seen", tc.label, i, n, len(seen))
+		}
+	}
+	a.Cfg.AudioBoost = 200 // set by hand: none of the choices, so at neither end
+	if i, _ := o.items()[optionRow(o, "Surround downmix boost")].at(); i != -1 {
+		t.Fatalf("a gain set by hand is at %d", i)
+	}
+}
+
+// OK on a stepped row runs its action when it has one, and on a locked row
+// opens what the row asks for, left and right doing nothing there.
+func TestOptionsOKRunsASteppedRowsAction(t *testing.T) {
+	a := betaTestApp(t)
+	value, ran, opened, lockedSteps := 1, 0, 0, 0
+	withExtraOptions(t, func(a *App) []option {
+		return []option{
+			{label: "Stepper", val: func() string { return itoa(value) }, step: func(d int) { value += d },
+				at: func() (int, int) { return value, 3 }, do: func() { ran++ }},
+			{label: "Locked stepper", locked: true, val: func() string { return "Needs a code" },
+				step: func(int) { lockedSteps++ }, do: func() { opened++ }},
+		}
+	})
+	o := NewOptions(a)
+	a.Push(o)
+	saved := func() bool { _, err := os.Stat(a.Cfg.path); return err == nil }
+	pressOption(t, o, "Stepper", input.Enter)
+	if ran != 1 || value != 1 || saved() {
+		t.Fatalf("OK on a stepped row with an action: ran %d, value %d, saved %v", ran, value, saved())
+	}
+	pressOption(t, o, "Stepper", input.Right)
+	if ran != 1 || value != 2 || !saved() {
+		t.Fatalf("Right on a stepped row with an action: ran %d, value %d, saved %v", ran, value, saved())
+	}
+	os.Remove(a.Cfg.path)
+	for _, key := range []input.Key{input.Left, input.Right} {
+		pressOption(t, o, "Locked stepper", key)
+	}
+	if lockedSteps != 0 || opened != 0 || saved() {
+		t.Fatalf("left and right on a locked row: stepped %d, opened %d, saved %v", lockedSteps, opened, saved())
+	}
+	pressOption(t, o, "Locked stepper", input.Enter)
+	if opened != 1 || lockedSteps != 0 {
+		t.Fatalf("OK on a locked row: opened %d, stepped %d", opened, lockedSteps)
+	}
+}
+
+// optionPixel is the colour of the canvas at x, y.
+func optionPixel(c *gfx.Canvas, x, y int) gfx.Color {
+	o := (y*c.W + x) * 4
+	return gfx.Color(uint32(c.Pix[o+2])<<16 | uint32(c.Pix[o+1])<<8 | uint32(c.Pix[o]))
+}
+
+// stepArrowColours is the colours where the arrows either side of the
+// value val go on the row drawn y down the window, read down each arrow's
+// tallest column: gfx.Bg where there is none.
+func stepArrowColours(a *App, c *gfx.Canvas, y int, val string) (left, right gfx.Color) {
+	mid := ListY0 + y + 9 + a.F.Body.Height()/2
+	x1 := MenuRight - stepArrowW // the value's right edge
+	x0 := x1 - a.F.Body.Width(val)
+	return optionPixel(c, x0-stepArrowW+5, mid), optionPixel(c, x1+stepArrowW-6, mid)
+}
+
+// The selected stepped row has an arrow either side of its value, greyed
+// at the end of the choices the value is at; a row that does not say where
+// it is has both live. Rows not selected, and locked rows, have none.
+func TestOptionsStepArrows(t *testing.T) {
+	a := betaTestApp(t)
+	withExtraOptions(t, func(a *App) []option {
+		return []option{
+			{label: "Stepper", val: func() string { return "Some" }, step: func(int) {}},
+			{label: "Locked stepper", locked: true, val: func() string { return "Needs a code" }, step: func(int) {}},
+		}
+	})
+	o := NewOptions(a)
+	c := gfx.NewCanvas(720, 480)
+	arrows := func(label string) (gfx.Color, gfx.Color) {
+		o.cur = optionRow(o, label)
+		o.Draw(c, time.Now())
+		return stepArrowColours(a, c, focusY(c), o.items()[o.cur].val())
+	}
+	for _, tc := range []struct {
+		kbps        int
+		left, right gfx.Color
+	}{{Bitrates[0].Kbps, gfx.GreyLo, gfx.Amber}, {Bitrates[1].Kbps, gfx.Amber, gfx.Amber}, {0, gfx.Amber, gfx.GreyLo}} {
+		a.Cfg.Bitrate = tc.kbps
+		if l, r := arrows("Video bitrate"); l != tc.left || r != tc.right {
+			t.Fatalf("bitrate %d: arrows %06x and %06x, want %06x and %06x", tc.kbps, l, r, tc.left, tc.right)
+		}
+		// the row below, not selected, has none (the left arrow's place
+		// only, as its value is not moved over)
+		below := o.items()[o.cur+1]
+		if l, _ := stepArrowColours(a, c, focusY(c)+MenuRowH, below.val()); below.step == nil || l != gfx.Bg {
+			t.Fatalf("%s, not selected, has an arrow (%06x)", below.label, l)
+		}
+	}
+	if l, r := arrows("Stepper"); l != gfx.Amber || r != gfx.Amber {
+		t.Fatalf("a row that does not say where it is: arrows %06x and %06x", l, r)
+	}
+	// (the left arrow's place only: the value, not moved over, may reach the right one's)
+	if l, _ := arrows("Locked stepper"); l != gfx.Bg {
+		t.Fatalf("a locked row has an arrow (%06x)", l)
 	}
 }
