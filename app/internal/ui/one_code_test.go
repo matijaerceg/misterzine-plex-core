@@ -32,11 +32,11 @@ func TestOneCodeServesBothEntries(t *testing.T) {
 		t.Fatalf("playback still locked after the supporter entry: %v", err)
 	}
 	// and a code that is not this beta's still unlocks the extras
-	registerTestGrant(t, 999906, "975310", "")
+	registerTestGrant(t, 999907, "445566", "")
 	a = betaTestApp(t)
 	beta.CodeSHA256 = hex.EncodeToString(sum[:])
-	enter("975310")
-	if a.Access() != 999906 || beta.Current().Check(a.betaDir()) == nil {
+	enter("445566")
+	if a.Access() != 999907 || beta.Current().Check(a.betaDir()) == nil {
 		t.Fatalf("a later code: access %v, playback %v", a.Access(), beta.Current().Check(a.betaDir()))
 	}
 }
