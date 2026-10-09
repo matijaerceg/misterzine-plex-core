@@ -16,6 +16,9 @@ import (
 // code covering it has been entered (a code is entered once and keeps its
 // month's features for good on the card), and beta ones only with "Show
 // beta features" on. A purple star after the label marks it either way.
+// A row whose choices are partly everyone's and partly a code's marks the
+// value instead (option.starred): a star after a gated choice, greyed while
+// the card has no code for it.
 //
 // An extra's library view (premiumWallViews) is a wallView: it can show
 // the listing in an order of its own (NewOrderedPager), keep its place

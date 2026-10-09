@@ -43,6 +43,13 @@ type option struct {
 	// supporter marks a supporter extra's row (gated), locked or not: a
 	// star after its label.
 	supporter bool
+	// starred marks the value shown rather than the row, for a row whose
+	// choices are partly everyone's and partly a code's: star puts the
+	// supporter star after the value, and dim greys the value (the choice
+	// shown needs a code the card does not have). Unlike locked it leaves
+	// the row live: left and right still step, so a gated choice can be
+	// stepped off again, and OK runs do as on any stepped row.
+	starred func() (star, dim bool)
 	// header is the gap between two groups of rows: half a row of nothing,
 	// in the list but never the cursor.
 	header bool
@@ -340,8 +347,9 @@ func optionWindow(items []option, cur int) (first, end, top, total int) {
 const stepArrowW = 6 + 8
 
 // stepArrows draws the arrows either side of the selected stepped value,
-// whose text runs from x0 to x1, with their tops at y: amber, or greyed at
-// the end of the choices the value is at.
+// whose text (its star included, when starred) runs from x0 to x1, with
+// their tops at y: amber, or greyed at the end of the choices the value is
+// at.
 func stepArrows(c *gfx.Canvas, it option, x0, x1, y int) {
 	lc, rc := gfx.Amber, gfx.Amber
 	if it.at != nil {
@@ -356,6 +364,14 @@ func stepArrows(c *gfx.Canvas, it option, x0, x1, y int) {
 	// a chevron reaches 3 left of its centre and 2 right of it
 	chevronLeft(c, x0-stepArrowW+3, y, lc)
 	chevronRight(c, x1+stepArrowW-3, y, rc)
+}
+
+// star draws the supporter star from x on a row whose text starts at y:
+// on the middle of the capitals.
+func (o *Options) star(c *gfx.Canvas, x, y int) {
+	_, top, _, h := o.app.F.Body.InkBounds("H")
+	star := supporterStar()
+	c.Blit(x, y+top+h/2-star.H/2, star)
 }
 
 // Draw paints the list of options with their values on the right.
@@ -396,13 +412,15 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 		if it.supporter {
 			labelW -= supporterStarGap + supporterStar().W
 		}
+		if it.starred != nil {
+			// room for the value's star whether or not it shows, so the
+			// label does not change as the value steps
+			labelW -= supporterStarGap + supporterStar().W
+		}
 		label := f.Body.Fit(it.label, labelW)
 		o.app.text(c, MenuX, y+9, f.Body, col, label)
 		if it.supporter {
-			// the star on the middle of the capitals
-			_, top, _, h := f.Body.InkBounds("H")
-			star := supporterStar()
-			c.Blit(MenuX+f.Body.Width(label)+supporterStarGap, y+9+top+h/2-star.H/2, star)
+			o.star(c, MenuX+f.Body.Width(label)+supporterStarGap, y+9)
 		}
 		if it.get != nil {
 			v := "Off"
@@ -421,14 +439,29 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 			if it.locked {
 				vc = gfx.GreyLo
 			}
+			star := false
+			if it.starred != nil {
+				var dim bool
+				if star, dim = it.starred(); dim {
+					vc = gfx.GreyLo
+				}
+			}
 			v := it.val()
+			// right is where the value ends, its star included: the arrows
+			// keep their places and a star moves the value over
+			right := MenuRight
+			if stepped && i == cur {
+				right -= stepArrowW
+			}
+			vr := right
+			if star {
+				vr -= supporterStarGap + supporterStar().W
+				o.star(c, vr+supporterStarGap, y+9)
+			}
+			o.app.textRight(c, vr, y+9, f.Body, vc, v)
 			if stepped && i == cur {
 				// left and right step it: an arrow either side says so
-				right := MenuRight - stepArrowW
-				o.app.textRight(c, right, y+9, f.Body, vc, v)
-				stepArrows(c, it, right-f.Body.Width(v), right, y+9+f.Body.Height()/2-6)
-			} else {
-				o.app.textRight(c, MenuRight, y+9, f.Body, vc, v)
+				stepArrows(c, it, vr-f.Body.Width(v), right, y+9+f.Body.Height()/2-6)
 			}
 		}
 		y += MenuRowH
