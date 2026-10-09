@@ -405,7 +405,7 @@ func (w *Wall) retryCollections(now time.Time) {
 		return
 	}
 	w.collAsked = now
-	p.Want(0)
+	p.Retry(0) // spaced out here, so PageRetry does not hold it back
 }
 
 // Key handles one input event.

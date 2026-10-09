@@ -22,10 +22,11 @@ type Pager struct {
 	loaded bool
 	err    error
 	inFlt  map[int]bool // page index being fetched
-	// for a walk to the end (whole): when each page whose last fetch failed
-	// failed, the listing's size each page was fetched with, how many pages
-	// (filtered, walks) were fetched again after it changed, and a count of
-	// the changes to the items shown
+	// when each page whose last fetch failed failed (it is asked for again
+	// only after PageRetry); for a walk to the end (whole): the listing's
+	// size each page was fetched with, how many pages (filtered, walks)
+	// were fetched again after it changed, and a count of the changes to
+	// the items shown
 	failed  map[int]time.Time
 	seen    map[int]int
 	rewalks int
@@ -64,9 +65,12 @@ const pageSize = 60
 // an ordered pager walks it; the wall asks for the rest as pages land.
 const OrderedInFlight = 4
 
-// OrderedRetry is how long an ordered pager's walk waits after a failed
-// page before asking for it again.
-const OrderedRetry = 5 * time.Second
+// PageRetry is how long a page whose fetch failed waits before it is asked
+// for again, however the listing is walked: the wall asks for the pages
+// around the cursor on every frame (and an ordered pager's walk for the
+// rest), which would otherwise send the request again on every frame the
+// error shows.
+const PageRetry = 5 * time.Second
 
 // OrderedRewalks is how many times over a listing that changed size while
 // it was walked is walked again; after that its pages are taken as they
@@ -134,7 +138,7 @@ func (p *Pager) arrange() int {
 // and pages fetched before the listing changed size (their items may have
 // moved), are asked for a few at a time and in order, up to OrderedRewalks
 // times for a listing that keeps changing; a failed page is asked for
-// again after OrderedRetry. A filtered listing is walked from the start
+// again after PageRetry. A filtered listing is walked from the start
 // again instead (by fetch), at the end of a walk during which it changed
 // size.
 func (p *Pager) whole() []*plex.Item {
@@ -197,11 +201,11 @@ func (p *Pager) whole() []*plex.Item {
 	return out
 }
 
-// paused reports whether page n failed less than OrderedRetry ago. The
+// paused reports whether page n failed less than PageRetry ago. The
 // caller holds mu.
 func (p *Pager) paused(n int) bool {
 	at, ok := p.failed[n]
-	return ok && time.Since(at) < OrderedRetry
+	return ok && time.Since(at) < PageRetry
 }
 
 // distinctIndices reports whether at holds indices below n, each once.
@@ -329,8 +333,23 @@ func (p *Pager) Want(i int) {
 	p.want(i, true)
 }
 
+// Retry is Want without waiting out PageRetry for the page holding i (for
+// a filtered walk, the page it stopped at): for a caller that spaces its
+// own retries.
+func (p *Pager) Retry(i int) {
+	p.mu.Lock()
+	n := i / pageSize
+	if p.filter != nil {
+		n = p.next
+	}
+	delete(p.failed, n)
+	p.mu.Unlock()
+	p.Want(i)
+}
+
 // want is Want; without ahead only i's page is asked for, and only while
-// fewer than OrderedInFlight pages are loading.
+// fewer than OrderedInFlight pages are loading. A page that failed is
+// asked for again only after PageRetry, its error showing meanwhile.
 func (p *Pager) want(i int, ahead bool) {
 	if i < 0 {
 		return
@@ -338,7 +357,7 @@ func (p *Pager) want(i int, ahead bool) {
 	if p.filter != nil {
 		// keep a page of kept items ahead of the cursor, one fetch at a time
 		p.mu.Lock()
-		fetch := !p.done && len(p.inFlt) == 0 && i+pageSize/2 >= len(p.list)
+		fetch := !p.done && len(p.inFlt) == 0 && i+pageSize/2 >= len(p.list) && !p.paused(p.next)
 		if fetch {
 			p.inFlt[p.next] = true
 		}
@@ -360,7 +379,7 @@ func (p *Pager) want(i int, ahead bool) {
 			p.mu.Unlock()
 			continue
 		}
-		if p.inFlt[n] || p.items[n*pageSize] != nil || (!ahead && len(p.inFlt) >= OrderedInFlight) {
+		if p.inFlt[n] || p.items[n*pageSize] != nil || p.paused(n) || (!ahead && len(p.inFlt) >= OrderedInFlight) {
 			p.mu.Unlock()
 			continue
 		}

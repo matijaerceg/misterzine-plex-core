@@ -278,14 +278,14 @@ func TestOrderedPagerWaitsAfterAFailedPage(t *testing.T) {
 		s.mu.Unlock()
 		base.mu.Lock()
 		for pg, at := range base.failed {
-			base.failed[pg] = at.Add(-OrderedRetry)
+			base.failed[pg] = at.Add(-PageRetry)
 		}
 		base.mu.Unlock()
 		waitUntil(t, "the listing after the pause", func() bool { return p.Total() == 3*pageSize })
 	}
 }
 
-// A page that keeps failing waits OrderedRetry between requests while the
+// A page that keeps failing waits PageRetry between requests while the
 // pages round it load, and the listing shows once it is in.
 func TestOrderedPagerPausesOnlyTheFailedPage(t *testing.T) {
 	const size = 5 * pageSize
@@ -325,7 +325,7 @@ func TestOrderedPagerPausesOnlyTheFailedPage(t *testing.T) {
 	}
 	base.mu.Lock()
 	for pg, at := range base.failed {
-		base.failed[pg] = at.Add(-OrderedRetry)
+		base.failed[pg] = at.Add(-PageRetry)
 	}
 	base.mu.Unlock()
 	waitUntil(t, "the listing after the pause", func() bool { return p.Total() == size })
