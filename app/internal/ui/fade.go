@@ -38,15 +38,20 @@ var (
 
 const (
 	fadeStepEvery = 32 * time.Millisecond // a new step every two fields
-	fadeMaxSteps  = 10
 	fadeMinSteps  = 4
+	// fadeSlots is how many step canvases the pool holds: enough for a
+	// layout transition's steps. A longer fade has more steps than that
+	// and takes the canvases in turn, a ring: the worker is paced to the
+	// steps' times, so the canvas it blends into held a step shown
+	// fadeSlots steps ago, long since copied out.
+	fadeSlots = transitionSteps - 1
 )
 
 // warmFades allocates the step buffers up front, so the first fade does
 // not pay for them mid-frame.
 func warmFades(w, h int) {
 	fadePoolMu.Lock()
-	for len(fadePool) < max(fadeMaxSteps, transitionSteps)-1 {
+	for len(fadePool) < fadeSlots {
 		fadePool = append(fadePool, gfx.NewCanvas(w, h))
 	}
 	for _, c := range fadePool {
@@ -79,15 +84,18 @@ func (f *Fade) startFade(from, to *gfx.Canvas, now time.Time, dur time.Duration,
 		fadeOwner.cancel() // another screen's fade is still using the pool
 	}
 	fadeOwner = f
-	n := int(dur / fadeStepEvery)
-	n = max(fadeMinSteps, min(fadeMaxSteps, n))
+	// a step every two fields however long the fade: a long one (the
+	// wall's new palette, a screensaver's slideshow) used to be held to
+	// ten steps and changed only every few fields
+	n := max(fadeMinSteps, int(dur/fadeStepEvery))
 	if layout {
 		n = transitionSteps
 	}
-	for len(fadePool) < n-1 {
+	slots := min(n-1, fadeSlots)
+	for len(fadePool) < slots {
 		fadePool = append(fadePool, gfx.NewCanvas(to.W, to.H))
 	}
-	f.steps = fadePool[:n-1]
+	f.steps = fadePool[:slots]
 	fadePoolMu.Unlock()
 	f.n = n
 	f.dur = dur
@@ -152,7 +160,7 @@ func (f *Fade) startFade(from, to *gfx.Canvas, now time.Time, dur time.Duration,
 					trace.BackgroundReady[i] = trace.point()
 				}
 			} else {
-				f.steps[i-1].Blend(0, 0, a, b, i*256/n)
+				f.step(i).Blend(0, 0, a, b, i*256/n)
 			}
 			f.ready.Store(int32(i))
 			select {
@@ -218,8 +226,12 @@ func (f *Fade) Frame(now time.Time) (*gfx.Canvas, bool) {
 	if k == 0 {
 		return f.from, true
 	}
-	return f.steps[k-1], true
+	return f.step(k), true
 }
+
+// step is the canvas that holds step i (1 to n-1), the steps taking the
+// canvases in turn when there are more of them than canvases.
+func (f *Fade) step(i int) *gfx.Canvas { return f.steps[(i-1)%len(f.steps)] }
 
 // waitReady spends only a small part of the next field waiting for a nearly
 // complete background, rather than committing immediately to a repeated frame.
