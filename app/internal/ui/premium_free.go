@@ -16,7 +16,7 @@ import (
 func (a *App) premiumStart() {}
 
 // premiumOptions is the Options rows with the extras' own rows added. Its
-// rows are appended under the Extras header, before Show beta features.
+// rows are appended to the extras' group, before Show beta features.
 func (a *App) premiumOptions(items []option) []option { return items }
 
 // premiumIdle is given each idle tick before the screen dims: waiting is

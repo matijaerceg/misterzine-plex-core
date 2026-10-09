@@ -68,15 +68,15 @@ func (a *App) allLibrariesHidden() bool {
 	return len(a.secs) > 0 && len(a.libraries()) == 0
 }
 
-// libraryOptions adds Options' Libraries section: a toggle per library the
+// libraryOptions adds Options' group of libraries: a toggle per library the
 // app has loaded. With none loaded (signed out, the server not reached
-// yet) there is no section.
+// yet) there is no group.
 func (a *App) libraryOptions(items []option) []option {
 	if a.Plex == nil || len(a.secs) == 0 {
 		return items
 	}
 	cfg := a.Cfg
-	items = append(items, optionSection("Libraries"))
+	items = append(items, optionGap())
 	for _, s := range a.secs {
 		key := s.Key
 		items = append(items, option{label: "Show " + a.libraryLabel(s),

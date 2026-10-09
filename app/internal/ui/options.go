@@ -33,21 +33,20 @@ type option struct {
 	// locked greys the row: a supporter extra the card has no code for.
 	// Its value says what it needs and OK opens the code entry.
 	locked bool
-	// header is a section's name over its rows: it takes a row in the
-	// list but is never the cursor.
+	// header is the gap between two groups of rows: half a row of nothing,
+	// in the list but never the cursor.
 	header bool
 }
 
-// optionSection is the header row that starts a section of Options.
-func optionSection(name string) option { return option{label: name, header: true} }
+// optionGap is the gap that starts a group of Options rows after the first.
+func optionGap() option { return option{header: true} }
 
-// items is the list as shown, section headers included: Playback,
-// Libraries (once the libraries are loaded), Picture, Sound, Extras,
-// Account, App. Version stays the last row.
+// items is the list as shown, the gaps between its groups included:
+// playback, the libraries (once they are loaded), picture, sound, the
+// extras, the account and the app. Version stays the last row.
 func (o *Options) items() []option {
 	cfg := o.app.Cfg
 	items := []option{
-		optionSection("Playback"),
 		{label: "Only show 4:3 media", get: func() bool { return cfg.FourThree }, set: func(v bool) { cfg.FourThree = v }, after: o.app.Reconfigured, busy: o.app.homeUpdating},
 		{label: "Autoplay next episode", get: func() bool { return !cfg.NoAutoplay }, set: func(v bool) { cfg.NoAutoplay = !v }},
 		{label: "Skip intro and credits buttons", get: func() bool { return !cfg.NoSkipButtons }, set: func(v bool) { cfg.NoSkipButtons = !v }},
@@ -77,7 +76,7 @@ func (o *Options) items() []option {
 	}
 	items = o.app.libraryOptions(items)
 	items = append(items, []option{
-		optionSection("Picture"),
+		optionGap(),
 		{label: "Video output", val: func() string {
 			if o.app.videoLocked() {
 				return "480i (CRT profile)"
@@ -96,14 +95,14 @@ func (o *Options) items() []option {
 		items = append(items, option{label: w.label, val: func() string { return w.value }, do: func() { o.app.Push(NewDisplayNote(o.app, w)) }})
 	}
 	items = append(items, []option{
-		optionSection("Sound"),
+		optionGap(),
 		{label: "Theme music", get: func() bool { return !cfg.NoTheme }, set: func(v bool) { cfg.NoTheme = !v }, after: o.app.syncTheme},
 		{label: "Navigation sounds", get: func() bool { return !cfg.NoTaps }, set: func(v bool) { cfg.NoTaps = !v }},
-		optionSection("Extras"),
+		optionGap(),
 	}...)
 	items = o.app.premiumOptions(items)
 	items = append(items, option{label: "Show beta features", get: func() bool { return cfg.ShowBeta }, set: func(v bool) { cfg.ShowBeta = v }, after: o.app.accessChanged})
-	items = append(items, optionSection("Account"))
+	items = append(items, optionGap())
 	if cfg.Token != "" {
 		items = append(items, option{label: "Choose server again", do: func() { o.app.Push(NewServerPicker(o.app)) }})
 	}
@@ -111,7 +110,7 @@ func (o *Options) items() []option {
 	if cfg.Token != "" && cfg.AccountName != "" && !o.app.Showcase {
 		label = "Sign out (" + cfg.AccountName + ")"
 	}
-	items = append(items, option{label: label, do: o.app.SignOut}, optionSection("App"))
+	items = append(items, option{label: label, do: o.app.SignOut}, optionGap())
 	updateLabel := "Updates"
 	switch s := o.app.updates.status; {
 	case s.Busy():
@@ -178,7 +177,7 @@ func (a *App) loadAccountName() {
 }
 
 // nextOption is the first row past i in direction d (+1 or -1) that is
-// not a header, or i when there is none.
+// not a gap, or i when there is none.
 func nextOption(items []option, i, d int) int {
 	for j := i + d; j >= 0 && j < len(items); j += d {
 		if !items[j].header {
@@ -189,7 +188,7 @@ func nextOption(items []option, i, d int) int {
 }
 
 // onOption is cur moved onto a row that can be chosen: the list changes
-// under the cursor (a sign-out, beta rows, warnings) and a header is
+// under the cursor (a sign-out, beta rows, warnings) and a gap is
 // never the cursor. The next row down is preferred, then the one above.
 func onOption(items []option, cur int) int {
 	cur = max(0, min(len(items)-1, cur))
@@ -279,6 +278,48 @@ func labelledOption(items []option, label string, cur int) int {
 	return cur
 }
 
+// optionRows is how many rows high the Options window is, a gap counting
+// as half a row.
+const optionRows = 9
+
+// halfRows is a row's height in half rows: a gap is one, a row two.
+func halfRows(it option) int {
+	if it.header {
+		return 1
+	}
+	return 2
+}
+
+// optionWindow is the part of items in view with row cur selected: the
+// rows from first up to end. top is first's place down the list and total
+// the list's height, both in half rows. As centredFirst has it, the
+// selection holds the middle of the window and walks towards the top or
+// bottom only at the list's start and end, measured in half rows. The
+// window opens on the row the centred window would, or on the next one
+// when that would cut a row in half or open on a gap (a blank half row
+// above the first row): the selection then sits up to a row above the
+// middle.
+func optionWindow(items []option, cur int) (first, end, top, total int) {
+	at := 0 // cur's place down the list
+	for i, it := range items {
+		if i == cur {
+			at = total
+		}
+		total += halfRows(it)
+	}
+	// the selection's middle on the window's
+	want := centredFirst(at+1, 2*optionRows, total)
+	for first < len(items) && (top < want || items[first].header) {
+		top += halfRows(items[first])
+		first++
+	}
+	h := 0
+	for end = first; end < len(items) && h+halfRows(items[end]) <= 2*optionRows; end++ {
+		h += halfRows(items[end])
+	}
+	return first, end, top, total
+}
+
 // Draw paints the list of options with their values on the right.
 func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 	c.Fill(0, 0, c.W, c.H, gfx.Bg)
@@ -287,13 +328,11 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 	y := ListY0
 	items := o.items()
 	cur := onOption(items, o.cur)
-	const visibleRows = 9
-	first := centredFirst(cur, visibleRows, len(items))
-	for i := first; i < min(len(items), first+visibleRows); i++ {
+	first, end, top, total := optionWindow(items, cur)
+	for i := first; i < end; i++ {
 		it := items[i]
 		if it.header {
-			o.app.text(c, MenuX, y+13, f.SmallBold, gfx.GreyLo, it.label)
-			y += MenuRowH
+			y += MenuRowH / 2 // the gap between two groups: nothing drawn
 			continue
 		}
 		col := gfx.GreyHi
@@ -333,8 +372,8 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 		y += MenuRowH
 	}
 	// more rows than the window: a scrollbar from the first row's text to
-	// the last's, headers counted as rows
-	menuScrollbar(c, ListY0+9, visibleRows*MenuRowH-MenuRowH+f.Body.Height(), first, visibleRows, len(items))
+	// the last's, the list measured in half rows (a gap's height)
+	menuScrollbar(c, ListY0+9, optionRows*MenuRowH-MenuRowH+f.Body.Height(), min(top, total-2*optionRows), 2*optionRows, total)
 	if o.app.Build != "" {
 		o.app.text(c, MenuX, SafeBottom-48, f.Small, gfx.GreyLo, f.Small.Fit("Build: "+o.app.Build, MenuWidth))
 	}

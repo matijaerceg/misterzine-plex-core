@@ -10,36 +10,56 @@ import (
 	"plexcrt/internal/plex"
 )
 
-// optionSections lists the headers of Options in order and the header each
-// row sits under.
-func optionSections(items []option) (headers []string, under map[string]string) {
-	under = map[string]string{}
-	section := ""
+// optionGroups splits Options at its gaps: the labels of each group of
+// rows, in order.
+func optionGroups(items []option) [][]string {
+	groups := [][]string{nil}
 	for _, it := range items {
 		if it.header {
-			headers = append(headers, it.label)
-			section = it.label
+			groups = append(groups, nil)
 			continue
 		}
-		under[it.label] = section
+		groups[len(groups)-1] = append(groups[len(groups)-1], it.label)
 	}
-	return headers, under
+	return groups
 }
 
-func TestOptionsSections(t *testing.T) {
+// groupNames gives each row of Options the name of its group, the groups
+// named in order. It fails unless the gaps make exactly that many groups,
+// none of them empty: no gap opens or ends the list, none follows another,
+// and a gap has no text.
+func groupNames(t *testing.T, items []option, names ...string) map[string]string {
+	t.Helper()
+	for i, it := range items {
+		if it.header && it.label != "" {
+			t.Fatalf("the gap at %d says %q", i, it.label)
+		}
+	}
+	groups := optionGroups(items)
+	if len(groups) != len(names) {
+		t.Fatalf("%d groups %q, want %d (%q)", len(groups), groups, len(names), names)
+	}
+	under := map[string]string{}
+	for i, g := range groups {
+		if len(g) == 0 {
+			t.Fatalf("the %s group is empty: a gap opens or ends the list, or follows another", names[i])
+		}
+		for _, label := range g {
+			under[label] = names[i]
+		}
+	}
+	return under
+}
+
+func TestOptionsGroups(t *testing.T) {
 	a := betaTestApp(t)
 	a.Plex = &plex.Client{}
 	a.Cfg.Token = "account-token"
 	a.Display = DisplayCheck{INI: "MiSTer.ini", VRR: "forced", VRRMode: 2}
 	o := &Options{app: a}
 	items := o.items()
-	headers, under := optionSections(items)
-	if want := []string{"Playback", "Picture", "Sound", "Extras", "Account", "App"}; !slices.Equal(headers, want) {
-		t.Fatalf("sections %q, want %q", headers, want)
-	}
-	if !items[0].header {
-		t.Fatalf("the list starts with %q, not a section", items[0].label)
-	}
+	groups := []string{"Playback", "Picture", "Sound", "Extras", "Account", "App"}
+	under := groupNames(t, items, groups...)
 	for label, want := range map[string]string{
 		"Only show 4:3 media": "Playback", "Autoplay next episode": "Playback", "Skip intro and credits buttons": "Playback",
 		"Video bitrate": "Playback", "Surround downmix boost": "Playback",
@@ -58,7 +78,7 @@ func TestOptionsSections(t *testing.T) {
 	}
 	a.Plex = nil // signed out: Exit and Patreon join the App rows, Version still last
 	items = o.items()
-	_, under = optionSections(items)
+	under = groupNames(t, items, groups...)
 	for _, label := range []string{"Exit to MiSTer menu", "Patreon"} {
 		if under[label] != "App" {
 			t.Errorf("%q under %q while signed out, want App", label, under[label])
@@ -69,10 +89,10 @@ func TestOptionsSections(t *testing.T) {
 	}
 }
 
-func TestOptionsCursorSkipsHeaders(t *testing.T) {
+func TestOptionsCursorSkipsGaps(t *testing.T) {
 	a := betaTestApp(t)
 	a.Plex = &plex.Client{}
-	a.secs = []plex.Section{{Key: "1", Title: "Films", Type: "movie"}} // the Libraries section too
+	a.secs = []plex.Section{{Key: "1", Title: "Films", Type: "movie"}} // the libraries' group too
 	o := NewOptions(a)
 	a.Push(o)
 	items := o.items()
@@ -92,7 +112,7 @@ func TestOptionsCursorSkipsHeaders(t *testing.T) {
 		for range items { // more presses than rows: the cursor stops at the end
 			o.Key(input.Event{Key: key}, now)
 			if items[o.cur].header {
-				t.Fatalf("the cursor is on the %q header", items[o.cur].label)
+				t.Fatalf("the cursor is on the gap at %d", o.cur)
 			}
 			if o.cur != seen[len(seen)-1] {
 				seen = append(seen, o.cur)
@@ -112,30 +132,33 @@ func TestOptionsCursorSkipsHeaders(t *testing.T) {
 		t.Fatalf("Up visited %v (reversed), want every row %v", up, rows)
 	}
 
-	// the list can change under the cursor: a header is never the cursor
-	picture := slices.IndexFunc(items, func(it option) bool { return it.label == "Picture" })
-	if got := onOption(items, picture); got != picture+1 {
-		t.Fatalf("cursor on the Picture header moved to %d, want the row below %d", got, picture+1)
+	// the list can change under the cursor: a gap is never the cursor
+	picture := slices.IndexFunc(items, func(it option) bool { return it.label == "Video output" }) - 1
+	if !items[picture].header {
+		t.Fatalf("no gap before the picture rows: %q", items[picture].label)
 	}
-	if got := onOption([]option{{label: "row"}, optionSection("last")}, 1); got != 0 {
-		t.Fatalf("a header with nothing below moved the cursor to %d, want the row above", got)
+	if got := onOption(items, picture); got != picture+1 {
+		t.Fatalf("cursor on the gap before Video output moved to %d, want the row below %d", got, picture+1)
+	}
+	if got := onOption([]option{{label: "row"}, optionGap()}, 1); got != 0 {
+		t.Fatalf("a gap with nothing below moved the cursor to %d, want the row above", got)
 	}
 	if got := onOption(items, len(items)+2); got != len(items)-1 {
 		t.Fatalf("a cursor past the end landed on %d, want the last row", got)
 	}
-	// (Sound, not Extras: the official build has the extras' rows there)
-	sound := slices.IndexFunc(items, func(it option) bool { return it.label == "Sound" })
+	// (the sound rows, not the extras: the official build has the extras' rows there)
+	sound := slices.IndexFunc(items, func(it option) bool { return it.label == "Theme music" }) - 1
 	o.cur = sound
 	o.Key(input.Event{Key: input.Enter}, now) // OK acts on the row below: Theme music
-	if o.cur != sound+1 || a.Cfg.NoTheme {
-		t.Fatalf("OK with the cursor on a header: cursor %d, theme music %v; want %d toggled on", o.cur, !a.Cfg.NoTheme, sound+1)
+	if !items[sound].header || o.cur != sound+1 || a.Cfg.NoTheme {
+		t.Fatalf("OK with the cursor on a gap: cursor %d, theme music %v; want %d toggled on", o.cur, !a.Cfg.NoTheme, sound+1)
 	}
 }
 
 func TestOptionsCursorStaysOnTheChangedRow(t *testing.T) {
 	// Show beta features brings beta extras in above itself and takes them away
-	without := []option{optionSection("Extras"), {label: "Show beta features"}, optionSection("Account"), {label: "Sign out"}}
-	with := []option{optionSection("Extras"), {label: "A beta extra"}, {label: "Another"}, {label: "Show beta features"}, optionSection("Account"), {label: "Sign out"}}
+	without := []option{optionGap(), {label: "Show beta features"}, optionGap(), {label: "Sign out"}}
+	with := []option{optionGap(), {label: "A beta extra"}, {label: "Another"}, {label: "Show beta features"}, optionGap(), {label: "Sign out"}}
 	if got := labelledOption(with, "Show beta features", 1); got != 3 {
 		t.Fatalf("rows added above: cursor on %d, want the toggle at 3", got)
 	}
@@ -171,22 +194,94 @@ func TestCentredFirst(t *testing.T) {
 	}
 }
 
-// focusRow is the window row (0-8) the Options focus bar is drawn on, -1 for none.
-func focusRow(c *gfx.Canvas) int {
+// focusY is how far down the Options window the focus bar is drawn, in
+// pixels from the first row's place; -1 for none.
+func focusY(c *gfx.Canvas) int {
 	x := MenuX - MenuBarGap - BarW
 	for y := 0; y < c.H; y++ {
 		o := (y*c.W + x) * 4
 		if gfx.Color(uint32(c.Pix[o+2])<<16|uint32(c.Pix[o+1])<<8|uint32(c.Pix[o])) == gfx.GreyHi {
-			return (y - ListY0 - 9 - 2) / MenuRowH
+			return y - ListY0 - 9 - 2
 		}
 	}
 	return -1
 }
 
+// gappedRows is a list of rows in groups of the sizes given, with a gap
+// between each two groups.
+func gappedRows(sizes ...int) []option {
+	var items []option
+	for g, n := range sizes {
+		if g > 0 {
+			items = append(items, optionGap())
+		}
+		for i := range n {
+			items = append(items, option{label: "row " + itoa(g) + "." + itoa(i)})
+		}
+	}
+	return items
+}
+
+// halfRowsBefore is how far down items row i starts, in half rows.
+func halfRowsBefore(items []option, i int) int {
+	at := 0
+	for _, it := range items[:i] {
+		at += halfRows(it)
+	}
+	return at
+}
+
+// The window holds the selection in its middle, measured in half rows (a
+// gap's height), and walks towards the top or bottom only at the list's
+// start and end. It never opens on a gap or part of a row, so the
+// selection can sit up to a row above the middle, and it holds as many
+// rows as fit.
+func TestOptionWindow(t *testing.T) {
+	const window = 2 * optionRows // in half rows
+	for _, sizes := range [][]int{{3, 5, 3, 2, 1, 2, 4}, {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, {20}, {4, 4}, {2, 1, 2}, {9}, {8, 1}, {1, 9, 1}} {
+		items := gappedRows(sizes...)
+		lastFirst := 0
+		for cur, it := range items {
+			if it.header {
+				continue
+			}
+			first, end, top, total := optionWindow(items, cur)
+			at := halfRowsBefore(items, cur)
+			h := halfRowsBefore(items, end) - top
+			if top != halfRowsBefore(items, first) || total != halfRowsBefore(items, len(items)) {
+				t.Fatalf("%v, cursor %d: top %d, total %d", sizes, cur, top, total)
+			}
+			if items[first].header {
+				t.Fatalf("%v, cursor %d: the window opens on a gap", sizes, cur)
+			}
+			if cur < first || cur >= end {
+				t.Fatalf("%v: cursor %d outside the window %d to %d", sizes, cur, first, end)
+			}
+			if h > window || (end < len(items) && h+halfRows(items[end]) <= window) {
+				t.Fatalf("%v, cursor %d: the window holds %d half rows to %d", sizes, cur, h, end)
+			}
+			if first < lastFirst {
+				t.Fatalf("%v: the window went back up to %d with the cursor going down to %d", sizes, first, cur)
+			}
+			lastFirst = first
+			switch want := at + 1 - optionRows; {
+			case total <= window && (first != 0 || end != len(items)):
+				t.Fatalf("%v, cursor %d: a list that fits scrolled", sizes, cur)
+			case want <= 0 && top != 0:
+				t.Fatalf("%v, cursor %d: the start of the list scrolled away", sizes, cur)
+			case want >= total-window && end != len(items):
+				t.Fatalf("%v, cursor %d: the end of the list is out of view", sizes, cur)
+			case want > 0 && want < total-window && (at-top < optionRows-3 || at-top > optionRows-1):
+				t.Fatalf("%v, cursor %d: %d half rows down the window, not the middle", sizes, cur, at-top)
+			}
+		}
+	}
+}
+
 func TestOptionsWindowKeepsTheCursorCentred(t *testing.T) {
 	a := betaTestApp(t)
 	a.Plex = &plex.Client{}
-	a.secs = []plex.Section{{Key: "1", Title: "Films", Type: "movie"}} // the Libraries section too
+	a.secs = []plex.Section{{Key: "1", Title: "Films", Type: "movie"}} // the libraries' group too
 	o := &Options{app: a}
 	items := o.items()
 	n := len(items)
@@ -200,18 +295,20 @@ func TestOptionsWindowKeepsTheCursorCentred(t *testing.T) {
 		}
 		o.cur = i
 		o.Draw(c, time.Now())
-		want := min(i, 4) // the start: from the top down to the middle
-		if i > n-1-4 {
-			want = 9 - (n - i) // the end: on from the middle to the bottom
-		}
-		if got := focusRow(c); got != want {
-			t.Fatalf("row %d of %d (%q) drawn on window row %d, want %d", i, n, it.label, got, want)
+		_, _, top, _ := optionWindow(items, i)
+		want := (halfRowsBefore(items, i) - top) * MenuRowH / 2 // a gap is half a row high
+		if got := focusY(c); got != want {
+			t.Fatalf("row %d of %d (%q) drawn %d down the window, want %d", i, n, it.label, got, want)
 		}
 	}
-	// a cursor left on a header is drawn on the row below it
-	o.cur = 0
+	// a cursor left on a gap is drawn on the row below it
+	gap := slices.IndexFunc(items, func(it option) bool { return it.header })
+	o.cur = gap + 1
 	o.Draw(c, time.Now())
-	if got := focusRow(c); got != 1 {
-		t.Fatalf("cursor on the first header drawn on window row %d, want 1", got)
+	below := focusY(c)
+	o.cur = gap
+	o.Draw(c, time.Now())
+	if got := focusY(c); got != below {
+		t.Fatalf("cursor on the first gap drawn %d down the window, want %d (the row below)", got, below)
 	}
 }

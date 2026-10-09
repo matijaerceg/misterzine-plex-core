@@ -15,8 +15,8 @@ Detailed behavior and display settings. For everyday help, see the
   least one. OK on a collection shows its items, in the collection's order and
   through the 4:3 filter like any view; one Back returns to it on the
   Collections tab.
-- With a MisterZine code that covers it, Options > Extras has **Random
-  library order**, on by default. Movie and TV libraries then have a
+- With a MisterZine code that covers it, Options has **Random library
+  order**, on by default. Movie and TV libraries then have a
   **Random** tab after Released: the whole library in a random order,
   shown once all of it has been listed. The order and the selected poster
   stay until the app restarts, after an item's page, another tab or leaving

@@ -244,16 +244,12 @@ func TestOptionsLibraryRows(t *testing.T) {
 	a := betaTestApp(t)
 	a.Plex = &plex.Client{}
 	o := &Options{app: a}
-	// nothing loaded yet: no Libraries section
-	if headers, _ := optionSections(o.items()); slices.Contains(headers, "Libraries") {
-		t.Fatalf("sections %q with no libraries loaded", headers)
-	}
+	without := []string{"Playback", "Picture", "Sound", "Extras", "Account", "App"}
+	// nothing loaded yet: no group of libraries
+	groupNames(t, o.items(), without...)
 	a.secs = testLibraries
 	items := o.items()
-	headers, under := optionSections(items)
-	if want := []string{"Playback", "Libraries", "Picture", "Sound", "Extras", "Account", "App"}; !slices.Equal(headers, want) {
-		t.Fatalf("sections %q, want %q", headers, want)
-	}
+	under := groupNames(t, items, "Playback", "Libraries", "Picture", "Sound", "Extras", "Account", "App")
 	for _, label := range []string{"Show Films", "Show Shows", "Show Cartoons"} {
 		row := optionRow(o, label)
 		if under[label] != "Libraries" || row < 0 || !items[row].get() {
@@ -268,10 +264,8 @@ func TestOptionsLibraryRows(t *testing.T) {
 		t.Fatal("showcase mode shows the library names in Options")
 	}
 	a.Showcase = false
-	a.Plex = nil // signed out: no Libraries section
-	if headers, _ := optionSections(o.items()); slices.Contains(headers, "Libraries") {
-		t.Fatalf("sections %q while signed out", headers)
-	}
+	a.Plex = nil // signed out: no group of libraries
+	groupNames(t, o.items(), without...)
 }
 
 // libraryScreens is Home with Continue Watching and a row per library,
