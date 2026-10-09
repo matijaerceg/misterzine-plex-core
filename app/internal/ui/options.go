@@ -43,6 +43,9 @@ type option struct {
 	// supporter marks a supporter extra's row (gated), locked or not: a
 	// star after its label.
 	supporter bool
+	// beta marks a beta feature's row (gated): the BETA mark after its
+	// label, after the star when it has one.
+	beta bool
 	// starred marks the value shown rather than the row, for a row whose
 	// choices are partly everyone's and partly a code's: star puts the
 	// supporter star after the value, and dim greys the value (the choice
@@ -368,10 +371,20 @@ func stepArrows(c *gfx.Canvas, it option, x0, x1, y int) {
 
 // star draws the supporter star from x on a row whose text starts at y:
 // on the middle of the capitals.
-func (o *Options) star(c *gfx.Canvas, x, y int) {
+func (o *Options) star(c *gfx.Canvas, x, y int) { o.onCapitals(c, x, y, supporterStar()) }
+
+// betaMark draws a beta feature's mark from x on a row whose text starts
+// at y: the BETA mark a beta build shows at the top of the page, on the
+// middle of the capitals.
+func (o *Options) betaMark(c *gfx.Canvas, x, y int) {
+	o.onCapitals(c, x, y, o.app.mark("BETA", gfx.Amber))
+}
+
+// onCapitals draws im from x, its middle on the middle of the capitals of
+// a Body line whose text starts at y.
+func (o *Options) onCapitals(c *gfx.Canvas, x, y int, im *gfx.Image) {
 	_, top, _, h := o.app.F.Body.InkBounds("H")
-	star := supporterStar()
-	c.Blit(x, y+top+h/2-star.H/2, star)
+	c.Blit(x, y+top+h/2-im.H/2, im)
 }
 
 // Draw paints the list of options with their values on the right.
@@ -412,6 +425,9 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 		if it.supporter {
 			labelW -= supporterStarGap + supporterStar().W
 		}
+		if it.beta {
+			labelW -= supporterStarGap + o.app.mark("BETA", gfx.Amber).W
+		}
 		if it.starred != nil {
 			// room for the value's star whether or not it shows, so the
 			// label does not change as the value steps
@@ -419,8 +435,14 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 		}
 		label := f.Body.Fit(it.label, labelW)
 		o.app.text(c, MenuX, y+9, f.Body, col, label)
+		// the marks after the label: the star, then BETA
+		mx := MenuX + f.Body.Width(label) + supporterStarGap
 		if it.supporter {
-			o.star(c, MenuX+f.Body.Width(label)+supporterStarGap, y+9)
+			o.star(c, mx, y+9)
+			mx += supporterStar().W + supporterStarGap
+		}
+		if it.beta {
+			o.betaMark(c, mx, y+9)
 		}
 		if it.get != nil {
 			v := "Off"

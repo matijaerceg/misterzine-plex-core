@@ -15,7 +15,8 @@ import (
 // its Options row shows to everyone, greyed with "Unlock forever" until a
 // code covering it has been entered (a code is entered once and keeps its
 // month's features for good on the card), and beta ones only with "Show
-// beta features" on. A purple star after the label marks it either way.
+// beta features" on. A purple star after the label marks it either way,
+// and a beta one has the BETA mark after the star.
 // A row whose choices are partly everyone's and partly a code's marks the
 // value instead (option.starred): a star after a gated choice, greyed while
 // the card has no code for it.
@@ -59,10 +60,10 @@ func (a *App) gated(row option, f access.Feature) (_ option, ok bool) {
 		return row, false
 	}
 	if f.Covered(a.access) {
-		row.supporter = true
+		row.supporter, row.beta = true, f.Beta
 		return row, true
 	}
-	return option{label: row.label, locked: true, supporter: true, val: func() string { return unlockForever },
+	return option{label: row.label, locked: true, supporter: true, beta: f.Beta, val: func() string { return unlockForever },
 		do: func() { a.Push(NewCodeEntry(a, nil)) }}, true
 }
 

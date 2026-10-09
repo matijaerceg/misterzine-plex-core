@@ -54,7 +54,7 @@ func (f Feature) Allowed(month Month, showBeta bool) bool {
 // September 2026) covers the first supporter extras.
 var (
 	Screensaver = Feature{Premium: true, Since: 202609}
-	RandomSort  = Feature{Premium: true, Since: 202609}
+	RandomSort  = Feature{Premium: true, Beta: true, Since: 202609}
 	NoHomeLogo  = Feature{Premium: true, Since: 202609}
 )
 

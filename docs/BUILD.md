@@ -25,7 +25,8 @@ never shadowed by a private copy. Each extra is a `Feature` in
 `app/internal/access`: its Options row shows to everyone and is greyed with
 "Unlock forever" until a MisterZine code covering it has been entered (saved for
 good under `unlocks/` beside the settings; the beta's own receipt counts).
-Beta features show only with Options > Show beta features on. The public
+Beta features show only with Options > Show beta features on, their rows
+marked BETA after the star. The public
 build has no code registry, so no code unlocks anything in it.
 
 The hooks the extras plug into are in `app/internal/ui/premium.go`; the public

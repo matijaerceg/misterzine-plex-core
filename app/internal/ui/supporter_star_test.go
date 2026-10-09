@@ -228,3 +228,82 @@ func TestOptionsStarredValue(t *testing.T) {
 		t.Fatal("the label changed as the value's star went")
 	}
 }
+
+// A beta extra's row has the BETA mark after its label, after the star
+// when it has one; other rows have none. Random library order is a beta
+// extra: no row without Show beta features, the mark with it.
+func TestOptionsBetaMark(t *testing.T) {
+	a := betaTestApp(t)
+	a.Cfg.ShowBeta = true
+	a.access = 202609
+	withExtraOptions(t, func(a *App) []option {
+		on := func() bool { return true }
+		toggle := func(label string, f access.Feature) option {
+			row, ok := a.gated(option{label: label, get: on, set: func(bool) {}}, f)
+			if !ok {
+				t.Fatalf("%s hidden with Show beta features on", label)
+			}
+			return row
+		}
+		return []option{
+			toggle("Beta extra", access.Feature{Premium: true, Beta: true, Since: 202609}),
+			toggle("Locked beta extra", access.Feature{Premium: true, Beta: true, Since: 999912}),
+			toggle("Extra", access.Feature{Premium: true, Since: 202609}),
+			{label: "Beta, no star", get: on, set: func(bool) {}, beta: true},
+		}
+	})
+	o := NewOptions(a)
+	c := gfx.NewCanvas(720, 480)
+	star, mark := supporterStar(), a.mark("BETA", gfx.Amber)
+	_, capTop, _, capH := a.F.Body.InkBounds("H")
+	// count is how many pixels in col the row labelled label has in an
+	// image's place from x after its label (the gap included)
+	count := func(label string, x int, im *gfx.Image, col gfx.Color) int {
+		o.cur = optionRow(o, label)
+		o.Draw(c, time.Now())
+		x0 := MenuX + a.F.Body.Width(label) + supporterStarGap + x
+		y0 := ListY0 + focusY(c) + 9 + capTop + capH/2 - im.H/2
+		n := 0
+		for y := y0; y < y0+im.H; y++ {
+			for x := x0; x < x0+im.W; x++ {
+				if optionPixel(c, x, y) == col {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	afterStar := star.W + supporterStarGap
+	for _, label := range []string{"Beta extra", "Locked beta extra"} {
+		row := o.items()[optionRow(o, label)]
+		if !row.beta || !row.supporter {
+			t.Fatalf("%s: beta %v, supporter %v", label, row.beta, row.supporter)
+		}
+		if n := count(label, 0, star, gfx.Purple); n < star.W*star.H/5 {
+			t.Fatalf("%s's star has %d purple pixels", label, n)
+		}
+		if n := count(label, 0, star, gfx.Amber); n != 0 {
+			t.Fatalf("%s has %d amber pixels in the star's place", label, n)
+		}
+		if n := count(label, afterStar, mark, gfx.Amber); n < mark.W*mark.H/3 {
+			t.Fatalf("%s's BETA mark after the star has %d amber pixels", label, n)
+		}
+	}
+	if row := o.items()[optionRow(o, "Extra")]; row.beta {
+		t.Fatal("an extra that is not beta is marked beta")
+	}
+	if n := count("Extra", afterStar, mark, gfx.Amber); n != 0 {
+		t.Fatalf("an extra that is not beta has %d amber pixels after its star", n)
+	}
+	if n := count("Beta, no star", 0, mark, gfx.Amber); n < mark.W*mark.H/3 {
+		t.Fatalf("a beta row without a star has %d amber pixels after its label", n)
+	}
+	random := option{label: "Random library order"}
+	if row, ok := a.gated(random, access.RandomSort); !ok || !row.beta {
+		t.Fatalf("Random library order with Show beta features on: shown %v, beta %v", ok, row.beta)
+	}
+	a.Cfg.ShowBeta = false
+	if _, ok := a.gated(random, access.RandomSort); ok {
+		t.Fatal("Random library order shown with Show beta features off")
+	}
+}
