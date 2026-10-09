@@ -19,11 +19,12 @@ Detailed behavior and display settings. For everyday help, see the
   order**, on by default. Movie and TV libraries then have a
   **Random** tab after Released: the whole library in a random order,
   shown once all of it has been listed. The order and the selected poster
-  stay until the app restarts, after an item's page, another tab or leaving
-  the library; a title added on the server meanwhile slots in without
-  changing the order of the rest. A library left on Random opens on it
-  again. On the tabs, OK on Random shuffles again and starts at the first
-  poster; Down goes to the posters. With the setting off or without the
+  stay through an item's page and back and through the other tabs; a title
+  added on the server meanwhile slots in without changing the order of the
+  rest. Leaving the library (back to Home or the menu) shuffles it again and
+  forgets the place: a library left on Random opens on it again, in a new
+  order from the first poster. On the tabs, OK on Random shuffles again and
+  starts at the first poster; Down goes to the posters. With the setting off or without the
   code there is no Random tab, and the library opens on A to Z.
 - During playback, OK opens the controls. Left/right selects an action; OK
   activates it. Up opens the scrubber. Back or Down closes the controls; Back
