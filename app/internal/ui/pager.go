@@ -153,7 +153,7 @@ func (p *Pager) whole() []*plex.Item {
 		}
 		// the walk goes on by itself; this restarts one a failure stopped
 		n := p.next
-		walk := !p.done && len(p.inFlt) == 0 && !p.waiting(n)
+		walk := !p.done && len(p.inFlt) == 0 && !p.held(n)
 		if walk {
 			p.inFlt[n] = true
 		}
@@ -221,6 +221,16 @@ func (p *Pager) waiting(n int) bool {
 	}
 	p.err = p.failErr
 	return true
+}
+
+// held is waiting for a filtered walk's next page, but a page of a walk
+// again waits without bringing an error back, an earlier one included:
+// the walk before is whole and keeps showing. The caller holds mu.
+func (p *Pager) held(n int) bool {
+	if p.restage {
+		return p.paused(n)
+	}
+	return p.waiting(n)
 }
 
 // distinctIndices reports whether at holds indices below n, each once.
@@ -375,12 +385,7 @@ func (p *Pager) want(i int, ahead bool) {
 		// a walk again goes on to the end whatever the cursor, and a page of
 		// it that failed waits out PageRetry without bringing an error back
 		p.mu.Lock()
-		fetch := !p.done && len(p.inFlt) == 0
-		if fetch && p.restage {
-			fetch = !p.paused(p.next)
-		} else if fetch {
-			fetch = i+pageSize/2 >= len(p.list) && !p.waiting(p.next)
-		}
+		fetch := !p.done && len(p.inFlt) == 0 && (p.restage || i+pageSize/2 >= len(p.list)) && !p.held(p.next)
 		if fetch {
 			p.inFlt[p.next] = true
 		}
