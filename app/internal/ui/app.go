@@ -163,12 +163,20 @@ func (a *App) WakeUp() {
 
 func (a *App) Push(s Screen) { a.stack = append(a.stack, s); a.dirty = true; a.syncTheme() }
 
+// leaver is a screen that acts as it is popped off the stack, before the
+// screen under it shows (a library's wall tells its views it was left).
+type leaver interface{ left() }
+
 // Pop returns to the previous screen; false at the root.
 func (a *App) Pop() bool {
 	if len(a.stack) <= 1 {
 		return false
 	}
+	gone := a.stack[len(a.stack)-1]
 	a.stack = a.stack[:len(a.stack)-1]
+	if l, ok := gone.(leaver); ok {
+		l.left()
+	}
 	a.syncTheme()
 	a.dirty = true
 	return true

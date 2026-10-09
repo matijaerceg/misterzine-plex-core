@@ -716,6 +716,48 @@ func TestWallViewSyncDoesNotAllocate(t *testing.T) {
 	}
 }
 
+// A view that asks is told when its library is left: once, as the wall is
+// popped, whichever view it was on. A film's page or a collection's wall
+// opened over the wall and closed again does not leave the library.
+func TestWallViewHearsTheLibraryLeft(t *testing.T) {
+	s := newPagedServer(t, 10)
+	a := pagedTestApp(t, s)
+	var left []string
+	withExtraViews(t, func(plex.Section) []wallView {
+		return []wallView{
+			{name: "Hears", path: "/library/sections/%s/all", left: func(s plex.Section) { left = append(left, s.Key) }},
+			{name: "Quiet", path: "/library/sections/%s/all"},
+		}
+	})
+	now := time.Now()
+	press := func(k input.Key) { a.key(input.Event{Key: k}, now) }
+	w := NewWall(a, filmsLibrary)
+	a.Push(w)
+	waitUntil(t, "the listing", func() bool { return w.pager.Get(0) != nil })
+
+	press(input.Enter) // a film's page, and back
+	if _, ok := a.top().(*Preplay); !ok {
+		t.Fatalf("OK on a film opened %T", a.top())
+	}
+	press(input.Back)
+	coll := &plex.Item{RatingKey: "901", Key: "/library/collections/901/children", Type: "collection", Title: "First Set"}
+	a.Push(NewCollectionWall(a, filmsLibrary, coll)) // a collection's wall, and back
+	press(input.Back)
+	if a.top() != w || len(left) != 0 {
+		t.Fatalf("pages over the wall told the views %v, on top %T", left, a.top())
+	}
+
+	press(input.Back) // to the tabs
+	if a.top() != w || len(left) != 0 {
+		t.Fatalf("Back to the tabs told the views %v", left)
+	}
+	press(input.Right) // on another view than the one that hears
+	press(input.Back)
+	if a.top() == w || len(left) != 1 || left[0] != filmsLibrary.Key {
+		t.Fatalf("leaving the library told the views %v", left)
+	}
+}
+
 // tabsRightEdge is the rightmost pixel the first tabs of a wall's tabs
 // paint, the active one's underline included.
 func tabsRightEdge(w *Wall, tabs int) int {

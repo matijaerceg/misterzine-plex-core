@@ -16,8 +16,8 @@ import (
 //
 // An extra's library view (premiumWallViews) is a wallView: it can show
 // the listing in an order of its own (NewOrderedPager), keep its place
-// for the session (forgetWallView drops it) and start over on OK on its
-// tab.
+// for the session (forgetWallView drops it), start over on OK on its tab
+// and hear when the library is left.
 
 // accessDir is where receipts live: beside the settings file.
 func (a *App) accessDir() string {

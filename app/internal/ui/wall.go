@@ -114,6 +114,11 @@ type wallView struct {
 	// view starts over (a fresh order) with its place forgotten, and the
 	// cursor stays on the tab. Without it OK goes down to the grid.
 	renew func(s plex.Section)
+	// left runs when the library is left (its wall popped), before the
+	// page under it shows, whichever view the wall was on. A page opened
+	// over the wall and closed again, a collection's wall among them, does
+	// not leave it.
+	left func(s plex.Section)
 }
 
 // The labels are short enough for all five tabs to fit across the frame,
@@ -497,6 +502,20 @@ func (w *Wall) Back() bool {
 	}
 	w.tabs = true
 	return true
+}
+
+// left tells the views that ask (wallView.left) that the library has been
+// left: the app pops its wall. A collection's wall closing leaves the
+// library's open under it.
+func (w *Wall) left() {
+	if w.coll != nil {
+		return
+	}
+	for _, v := range w.views {
+		if v.left != nil {
+			v.left(w.section)
+		}
+	}
 }
 
 // letterIndex is the A-Z index: the server's, or one built from a
