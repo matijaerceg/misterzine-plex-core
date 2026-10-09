@@ -499,9 +499,6 @@ func (u *Updates) Draw(c *gfx.Canvas, now time.Time) bool {
 		y += 60
 	case viewWorking:
 		head(stageText(s.Stage), gfx.Grey)
-		if s.Stage != "activating" {
-			line(f.Body, gfx.GreyHi, "You can leave this screen, it keeps going.")
-		}
 		if s.Release != nil {
 			line(f.SmallBold, gfx.GreyLo, "Updating to "+release(s.Release))
 		}
