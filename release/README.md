@@ -55,6 +55,19 @@ hold OK for two seconds to keep the change, or let it revert.
 For HDMI, leave **Scale** on **Normal**. If the picture is cropped or too small,
 see [HDMI setup](https://github.com/matijaerceg/misterzine-plex-core/blob/main/docs/HDMI.md).
 
+### Some videos show blocks or patches of other frames
+
+Your Plex server converts every video before sending it to the MiSTer. If
+rectangular patches of earlier frames linger on screen, most often with older
+XviD or DivX `.avi` files, the server's conversion is damaging the picture.
+Other Plex apps can look fine because they often play such files without
+converting them.
+
+To check, play the same video in Plex Web at a lower quality, such as 2 Mbps,
+so the server has to convert it. If the same patches appear, turn off
+**Use hardware acceleration when available** under **Settings > Transcoder** on
+the Plex server and play it again. Re-encoding the file to H.264 also avoids it.
+
 ### How do I update or remove it?
 
 Use **Options > Updates** to install a release, then choose **Restart now** when
