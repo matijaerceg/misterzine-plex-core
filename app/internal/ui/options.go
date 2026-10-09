@@ -40,6 +40,9 @@ type option struct {
 	// locked greys the row: a supporter extra the card has no code for.
 	// Its value says what it needs and OK opens the code entry.
 	locked bool
+	// supporter marks a supporter extra's row (gated), locked or not: a
+	// star after its label.
+	supporter bool
 	// header is the gap between two groups of rows: half a row of nothing,
 	// in the list but never the cursor.
 	header bool
@@ -390,7 +393,17 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 			// does not change as the cursor comes and goes
 			labelW -= 2 * stepArrowW
 		}
-		o.app.text(c, MenuX, y+9, f.Body, col, f.Body.Fit(it.label, labelW))
+		if it.supporter {
+			labelW -= supporterStarGap + supporterStar().W
+		}
+		label := f.Body.Fit(it.label, labelW)
+		o.app.text(c, MenuX, y+9, f.Body, col, label)
+		if it.supporter {
+			// the star on the middle of the capitals
+			_, top, _, h := f.Body.InkBounds("H")
+			star := supporterStar()
+			c.Blit(MenuX+f.Body.Width(label)+supporterStarGap, y+9+top+h/2-star.H/2, star)
+		}
 		if it.get != nil {
 			v := "Off"
 			vc := gfx.GreyLo
