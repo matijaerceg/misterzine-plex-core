@@ -62,8 +62,9 @@ Detailed behavior and display settings. For everyday help, see the
   which shows that row. On a page opened from the row, Back does the same.
 - The menu lists Home, Search, the movie and TV libraries, Options, Exit to
   MiSTer menu and Patreon. A long list of libraries scrolls, and the menu opens
-  on the library visited last. Patreon says what membership gets you and holds
-  **Beta access**; on an unlocked beta it thanks you instead. Its supporters
+  on the library visited last. Patreon says what a MisterZine code unlocks for
+  good and holds **Beta access**; once a code has been entered, or on an
+  unlocked beta, it thanks you instead. Its supporters
   row lists the Patreon supporters, current then past. The list is the one the
   MisterZine app shows: it is fetched from `misterzine.fyi` with each release
   check and kept in the cache folder for when the MiSTer is offline.

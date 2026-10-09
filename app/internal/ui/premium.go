@@ -12,9 +12,10 @@ import (
 // repository with the premium build tag. They plug into the hooks that
 // premium_free.go stubs out for the public build, where every hook leaves
 // things exactly as they are. Each extra is a Feature in package access:
-// its Options row shows to everyone, greyed with "Needs a code" until a
-// code covering it has been entered, and beta ones only with "Show beta
-// features" on. A purple star after the label marks it either way.
+// its Options row shows to everyone, greyed with "Unlock forever" until a
+// code covering it has been entered (a code is entered once and keeps its
+// month's features for good on the card), and beta ones only with "Show
+// beta features" on. A purple star after the label marks it either way.
 //
 // An extra's library view (premiumWallViews) is a wallView: it can show
 // the listing in an order of its own (NewOrderedPager), keep its place
@@ -41,10 +42,15 @@ func (a *App) showBeta() bool { return a.Cfg != nil && a.Cfg.ShowBeta }
 // when it needs one.
 func (a *App) allowed(f access.Feature) bool { return f.Allowed(a.access, a.showBeta()) }
 
+// unlockForever is the call to action wherever something needs a code the
+// card does not have: a code is entered once and keeps what it covers for
+// good.
+const unlockForever = "Unlock forever"
+
 // gated is an Options row for a feature: dropped while hidden (a beta
 // feature with the toggle off), and when it needs a code the card does not
-// have, greyed with the need in place of its value and OK opening the code
-// entry. ok reports whether the row is to be shown at all.
+// have, greyed with unlockForever in place of its value and OK opening the
+// code entry. ok reports whether the row is to be shown at all.
 func (a *App) gated(row option, f access.Feature) (_ option, ok bool) {
 	if !f.Visible(a.showBeta()) {
 		return row, false
@@ -53,7 +59,7 @@ func (a *App) gated(row option, f access.Feature) (_ option, ok bool) {
 		row.supporter = true
 		return row, true
 	}
-	return option{label: row.label, locked: true, supporter: true, val: func() string { return "Needs a code" },
+	return option{label: row.label, locked: true, supporter: true, val: func() string { return unlockForever },
 		do: func() { a.Push(NewCodeEntry(a, nil)) }}, true
 }
 

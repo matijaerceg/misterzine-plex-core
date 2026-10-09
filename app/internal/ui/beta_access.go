@@ -61,6 +61,15 @@ func NewBetaAccess(a *App, then func()) *BetaAccess {
 	return b
 }
 
+// The supporter-code entry's title and the lines under it: one code,
+// entered once, keeps what it covers for good.
+const codeEntryTitle = "UNLOCK FOREVER"
+
+var codeEntryLines = []string{
+	"Enter the MisterZine code from " + patreonAddress + ".",
+	"One code keeps its features for good on this card.",
+}
+
 // NewCodeEntry is the supporter-code entry: a MisterZine code covering the
 // extras, saved for good. then runs once it is accepted.
 func NewCodeEntry(a *App, then func()) *BetaAccess {
@@ -243,10 +252,12 @@ func (b *BetaAccess) compose(c *gfx.Canvas, now time.Time) bool {
 		c.Text((c.W-font.Width(s))/2, yy, font, color, s)
 	}
 	if b.premium {
-		center(128, b.titleFont, gfx.Purple, "MISTERZINE CODE")
+		center(128, b.titleFont, gfx.Purple, codeEntryTitle)
 		center(158, b.versionFont, gfx.Amber, "Your access: "+b.app.Access().Short())
-		center(203, f.Body, gfx.White, "Supporter extras need a code from the")
-		center(228, f.Body, gfx.White, "Patreon posts. It unlocks them for good.")
+		for i, line := range codeEntryLines {
+			// fitted to the panel, which is narrower than the menus
+			center(203+i*25, f.Body, gfx.GreyHi, f.Body.Fit(line, w-16))
+		}
 		for i, line := range wrap(f.SmallBold, b.message, w-32, 2) {
 			center(321+i*19, f.SmallBold, gfx.Purple, line)
 		}

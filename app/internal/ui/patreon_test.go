@@ -56,6 +56,46 @@ func TestPatreonThanksOnlyAnUnlockedBeta(t *testing.T) {
 	}
 }
 
+// The Patreon page asks a card without a code to unlock forever, and
+// thanks one with a code: a MisterZine code or an unlocked beta's own.
+func TestPatreonHeadline(t *testing.T) {
+	a := betaTestApp(t)
+	p := NewPatreon(a)
+	c := gfx.NewCanvas(720, 480)
+	// the headline as drawn: text is cached off-thread, so draw until it is there
+	shows := func(s string) bool {
+		for range 100 {
+			p.Draw(c, time.Now())
+			if drawnText(c, MenuX, 88, a.F.Big, gfx.White, gfx.Bg, s) {
+				return true
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		return false
+	}
+	const thanks = "Thank you for your support"
+	if h, para := a.patreonPitch(); h != "Unlock forever" || para != "A MisterZine code from Patreon unlocks the supporter extras for good. Features added later come with a new code." {
+		t.Fatalf("without a code: %q, %q", h, para)
+	}
+	if !shows("Unlock forever") {
+		t.Fatal("the page does not show Unlock forever without a code")
+	}
+	a.access = 202609 // a MisterZine code
+	if h, para := a.patreonPitch(); h != thanks || para != "Your membership gets you each new version first and pays for the work on the next one." {
+		t.Fatalf("with a MisterZine code: %q, %q", h, para)
+	}
+	if !shows(thanks) {
+		t.Fatal("the page does not thank a card with a MisterZine code")
+	}
+	a.access = 0
+	if err := beta.Current().Unlock(a.betaDir(), "012345"); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := a.patreonPitch(); h != thanks {
+		t.Fatalf("an unlocked beta without a MisterZine code reads %q", h)
+	}
+}
+
 func TestPatreonOnAPublicBuildPointsAtUpdates(t *testing.T) {
 	a := betaTestApp(t)
 	beta.Channel = "public"

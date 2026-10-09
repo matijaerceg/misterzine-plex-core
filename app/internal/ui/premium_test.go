@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"plexcrt/internal/access"
+	"plexcrt/internal/gfx"
 	"plexcrt/internal/input"
 )
 
@@ -28,7 +29,7 @@ func TestGatedRowLockedUntilCovered(t *testing.T) {
 	a.loadAccess()
 	f := access.Feature{Premium: true, Since: 202609}
 	row, ok := a.gated(option{label: "Screensaver", val: func() string { return "DVD" }}, f)
-	if !ok || !row.locked || row.val() != "Needs a code" || row.label != "Screensaver" {
+	if !ok || !row.locked || row.val() != "Unlock forever" || row.label != "Screensaver" {
 		t.Fatalf("uncovered row: %+v %v", row, ok)
 	}
 	row.do()
@@ -128,5 +129,61 @@ func TestPremiumSettingsRoundTrip(t *testing.T) {
 	a.setPremiumSetting("screensaver", "")
 	if a.premiumSetting("screensaver") != "" || len(a.PremiumSettings()) != 0 {
 		t.Fatal("setting not removed")
+	}
+}
+
+// drawnText reports whether c shows s in font f and colour col over bg
+// with its glyph origin at x, y, as Text draws it: the rows of its ink,
+// across its width and a little either side.
+func drawnText(c *gfx.Canvas, x, y int, f *gfx.Font, col, bg gfx.Color, s string) bool {
+	ref := gfx.NewCanvas(f.Width(s)+4, f.Height())
+	ref.Fill(0, 0, ref.W, ref.H, bg)
+	ref.Text(2, 0, f, col, s)
+	_, top, _, h := f.InkBounds(s)
+	for yy := top; yy < top+h; yy++ {
+		for xx := 0; xx < ref.W; xx++ {
+			if optionPixel(ref, xx, yy) != optionPixel(c, x-2+xx, y+yy) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// The supporter-code entry asks to unlock forever and says how, in full
+// and inside its panel; a good code still says "Unlocked". The beta's own
+// entry keeps its title.
+func TestCodeEntrySaysUnlockForever(t *testing.T) {
+	registerTestGrant(t, 999904, "864209", "")
+	a := betaTestApp(t)
+	b := NewCodeEntry(a, nil)
+	a.Push(b)
+	c := gfx.NewCanvas(720, 480)
+	b.Draw(c, time.Now())
+	centred := func(y int, f *gfx.Font, col gfx.Color, s string) bool {
+		return drawnText(c, (c.W-f.Width(s))/2, y, f, col, accessSurface, s)
+	}
+	if !centred(128, b.titleFont, gfx.Purple, "UNLOCK FOREVER") {
+		t.Fatal("the code entry's title is not UNLOCK FOREVER")
+	}
+	for i, s := range []string{"Enter the MisterZine code from patreon.com/MisterZine.", "One code keeps its features for good on this card."} {
+		if w := a.F.Body.Width(s); w > 536-16 {
+			t.Errorf("%q is %d wide, more than the panel holds", s, w)
+		}
+		if !centred(203+i*25, a.F.Body, gfx.GreyHi, s) {
+			t.Errorf("line %d under the title is not %q", i+1, s)
+		}
+	}
+	for _, ch := range "864209" {
+		a.key(input.Event{Keyboard: true, Text: ch, Key: input.None}, time.Now())
+	}
+	a.key(input.Event{Key: input.Enter}, time.Now())
+	if b.message != "Unlocked" || a.Access() != 999904 {
+		t.Fatalf("after a good code: %q, access %v", b.message, a.Access())
+	}
+	e := NewBetaAccess(a, nil)
+	e.Draw(c, time.Now())
+	if centred(128, e.titleFont, gfx.Purple, "UNLOCK FOREVER") || !centred(128, e.titleFont, gfx.Purple, "EARLY ACCESS") {
+		t.Fatal("the beta's entry is not titled EARLY ACCESS")
 	}
 }

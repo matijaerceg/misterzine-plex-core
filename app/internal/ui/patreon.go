@@ -9,9 +9,10 @@ import (
 	"plexcrt/internal/updates"
 )
 
-// Patreon is the menu's last entry. It tells everyone else what supporting
-// gets them and where, and thanks a supporter: a beta build whose code has
-// been entered. Beta access and the list of supporters live here.
+// Patreon is the menu's last entry. It tells everyone else what a code
+// unlocks and where to get one, and thanks a supporter: a card with a
+// MisterZine code, or a beta build whose code has been entered. Beta access
+// and the list of supporters live here.
 type Patreon struct {
 	app *App
 	cur int
@@ -22,6 +23,16 @@ func NewPatreon(a *App) *Patreon { return &Patreon{app: a} }
 // supporter reports that this is a beta build its code has unlocked.
 func (a *App) supporter() bool {
 	return beta.IsBeta() && beta.Check(a.betaDir()) == nil
+}
+
+// patreonPitch is the Patreon page's headline and the paragraph under it:
+// thanks once the card holds a code (a MisterZine code, or this beta's
+// own), and until then what a code unlocks.
+func (a *App) patreonPitch() (headline, para string) {
+	if a.supporter() || a.Access().Valid() {
+		return "Thank you for your support", "Your membership gets you each new version first and pays for the work on the next one."
+	}
+	return unlockForever, "A MisterZine code from Patreon unlocks the supporter extras for good. Features added later come with a new code."
 }
 
 // earlyAccess is the early-access version on offer, from the last catalogue
@@ -88,13 +99,7 @@ func (p *Patreon) Draw(c *gfx.Canvas, now time.Time) bool {
 	a := p.app
 	f := a.F
 	a.text(c, MenuX, SafeY, f.Title, gfx.White, "Patreon")
-	headline := "Get new versions first"
-	para := "Patreon members get each new version of MisterZine Plex Core early, before its free public release. Membership pays for the work on the next one."
-	supporter := a.supporter()
-	if supporter {
-		headline = "Thank you for your support"
-		para = "Your membership gets you each new version first and pays for the work on the next one."
-	}
+	headline, para := a.patreonPitch()
 	y := 88
 	a.text(c, MenuX, y, f.Big, gfx.White, headline)
 	y += f.Big.Height() + 10
@@ -102,7 +107,7 @@ func (p *Patreon) Draw(c *gfx.Canvas, now time.Time) bool {
 		a.text(c, MenuX, y, f.Body, gfx.GreyHi, line)
 		y += 26
 	}
-	if v := a.earlyAccess(); v != "" && !supporter {
+	if v := a.earlyAccess(); v != "" && !a.supporter() {
 		y += 6
 		label := "In early access now: "
 		a.text(c, MenuX, y, f.SmallBold, gfx.GreyLo, label)

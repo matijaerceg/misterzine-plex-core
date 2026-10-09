@@ -23,7 +23,7 @@ only adds files; every Go file in it is limited to the `premium` build tag, so
 this repository builds the complete public app on its own and a public change is
 never shadowed by a private copy. Each extra is a `Feature` in
 `app/internal/access`: its Options row shows to everyone and is greyed with
-"Needs a code" until a MisterZine code covering it has been entered (saved for
+"Unlock forever" until a MisterZine code covering it has been entered (saved for
 good under `unlocks/` beside the settings; the beta's own receipt counts).
 Beta features show only with Options > Show beta features on. The public
 build has no code registry, so no code unlocks anything in it.

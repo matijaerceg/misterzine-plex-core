@@ -417,7 +417,7 @@ func TestOptionsOKRunsASteppedRowsAction(t *testing.T) {
 		return []option{
 			{label: "Stepper", val: func() string { return itoa(value) }, step: func(d int) { value += d },
 				at: func() (int, int) { return value, 3 }, do: func() { ran++ }},
-			{label: "Locked stepper", locked: true, val: func() string { return "Needs a code" },
+			{label: "Locked stepper", locked: true, val: func() string { return unlockForever },
 				step: func(int) { lockedSteps++ }, do: func() { opened++ }},
 		}
 	})
@@ -469,7 +469,7 @@ func TestOptionsStepArrows(t *testing.T) {
 	withExtraOptions(t, func(a *App) []option {
 		return []option{
 			{label: "Stepper", val: func() string { return "Some" }, step: func(int) {}},
-			{label: "Locked stepper", locked: true, val: func() string { return "Needs a code" }, step: func(int) {}},
+			{label: "Locked stepper", locked: true, val: func() string { return unlockForever }, step: func(int) {}},
 		}
 	})
 	o := NewOptions(a)

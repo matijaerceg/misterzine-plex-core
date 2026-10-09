@@ -171,6 +171,9 @@ func TestBetaScreenPreview(t *testing.T) {
 	render("beta-forget")
 	a.Pop()
 	a.Pop()
+	a.Push(NewCodeEntry(a, nil))
+	render("code-entry")
+	a.Pop()
 	r := updates.Release{ID: "preview", Version: "0.3.0-beta.1", Channel: "beta", Notes: "A synthetic release for testing the installer and update screens.", Size: 12 << 20, Access: &updates.Access{Batch: "next", SHA256: beta.CodeSHA256}}
 	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{"beta": r}}
 	u := &Updates{app: a}
