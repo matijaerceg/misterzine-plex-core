@@ -153,11 +153,25 @@ func (b *BetaAccess) Key(ev input.Event, now time.Time) {
 			b.message = "Could not save access. Check storage and retry."
 			return
 		}
+		// one code serves both gates: a supporter code that is also this
+		// beta's unlocks playback too, and the beta's code counts as a
+		// supporter code where the registry knows it, so neither entry
+		// asks for a code the other has taken
 		var err error
 		if b.premium {
 			_, err = access.Unlock(b.app.betaDir(), string(code))
+			if err == nil {
+				if e := b.requirement.Unlock(b.app.betaDir(), string(code)); e != nil && e != beta.ErrLocked && e != beta.ErrBuild {
+					err = e
+				}
+			}
 		} else {
 			err = b.requirement.Unlock(b.app.betaDir(), string(code))
+			if err == nil {
+				if _, e := access.Unlock(b.app.betaDir(), string(code)); e != nil && e != access.ErrCode {
+					err = e
+				}
+			}
 		}
 		switch err {
 		case nil:
