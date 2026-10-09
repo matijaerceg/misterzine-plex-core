@@ -774,9 +774,22 @@ func (c *Client) Logo(logo string, w, h int) (string, error) {
 	return c.picture(logo, w, h, true)
 }
 
-func (c *Client) picture(src string, w, h int, logo bool) (string, error) {
+// ArtData is Art without writing to the disk cache: the cached copy's
+// bytes when there is one, else the server's, kept in memory only.
+func (c *Client) ArtData(thumb string, w, h int) ([]byte, error) {
+	return c.pictureData(thumb, w, h, false)
+}
+
+// LogoData is Logo without writing to the disk cache.
+func (c *Client) LogoData(logo string, w, h int) ([]byte, error) {
+	return c.pictureData(logo, w, h, true)
+}
+
+// pictureSource is where a picture is cached on disk and the query that
+// fetches it from the server.
+func (c *Client) pictureSource(src string, w, h int, logo bool) (string, url.Values, error) {
 	if src == "" {
-		return "", fmt.Errorf("no art")
+		return "", nil, fmt.Errorf("no art")
 	}
 	ext, q := ".jpg", url.Values{"width": {strconv.Itoa(w)}, "height": {strconv.Itoa(h)}, "minSize": {"1"},
 		"upscale": {"1"}, "format": {"jpeg"}, "url": {src}}
@@ -785,7 +798,25 @@ func (c *Client) picture(src string, w, h int, logo bool) (string, error) {
 			"upscale": {"0"}, "format": {"png"}, "url": {src}}
 	}
 	sum := sha1.Sum([]byte(fmt.Sprintf("%s|%dx%d", src, w, h)))
-	path := filepath.Join(c.CacheDir, hex.EncodeToString(sum[:8])+ext)
+	return filepath.Join(c.CacheDir, hex.EncodeToString(sum[:8])+ext), q, nil
+}
+
+func (c *Client) pictureData(src string, w, h int, logo bool) ([]byte, error) {
+	path, q, err := c.pictureSource(src, w, h, logo)
+	if err != nil {
+		return nil, err
+	}
+	if data, err := os.ReadFile(path); err == nil {
+		return data, nil
+	}
+	return c.Get("/photo/:/transcode", q)
+}
+
+func (c *Client) picture(src string, w, h int, logo bool) (string, error) {
+	path, q, err := c.pictureSource(src, w, h, logo)
+	if err != nil {
+		return "", err
+	}
 	if _, err := os.Stat(path); err == nil {
 		return path, nil
 	}

@@ -53,6 +53,7 @@ type artReq struct {
 	asked        uint64
 	prefetch     bool // spare work: visible requests always go first
 	diskOnly     bool // whole-home warming downloads without decoding
+	noStore      bool // never written to the disk cache, though a cached copy is read
 }
 
 // ArtCap bounds decoded pictures across visible and nearby rows, backdrops,
@@ -285,17 +286,38 @@ func (a *Art) fetchFile(r artReq) (string, error) {
 	return a.client.Art(r.thumb, r.w, (r.h*9+4)/8)
 }
 
-func (a *Art) fetch(r artReq) (*gfx.Image, error) {
+// fetchData is fetchFile for noStore: the picture's bytes, from the disk
+// cache when it holds them, else from the server without caching them.
+func (a *Art) fetchData(r artReq) ([]byte, error) {
+	if r.logo {
+		return a.client.LogoData(r.thumb, r.w*8/9, r.h)
+	}
+	return a.client.ArtData(r.thumb, r.w, (r.h*9+4)/8)
+}
+
+// load decodes the picture as fetched, before any treatment.
+func (a *Art) load(r artReq) (*gfx.Image, error) {
+	if r.noStore {
+		data, err := a.fetchData(r)
+		if err != nil {
+			return nil, err
+		}
+		return gfx.Decode(data)
+	}
 	path, err := a.fetchFile(r)
 	if err != nil {
 		return nil, err
 	}
-	if r.logo {
-		return gfx.LoadFile(path)
-	}
-	img, err := gfx.LoadFile(path)
+	return gfx.LoadFile(path)
+}
+
+func (a *Art) fetch(r artReq) (*gfx.Image, error) {
+	img, err := a.load(r)
 	if err != nil {
 		return nil, err
+	}
+	if r.logo {
+		return img, nil
 	}
 	img = img.Crop(r.w, (r.h*9+4)/8).ScaleH(r.h)
 	if r.w == PosterW || r.w == WallPW {

@@ -5,6 +5,7 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -137,6 +138,47 @@ func TestArtVisibleLoadsWhileBackgroundDownloadBlocked(t *testing.T) {
 			t.Fatal("visible image did not reuse warmed disk cache")
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+// A noStore picture is served and decoded but never written to the disk
+// cache; one the cache holds already is read from it, not from the server.
+func TestArtNoStoreLeavesDiskCacheAlone(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		png.Encode(w, image.NewRGBA(image.Rect(0, 0, 8, 9)))
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	a := NewArt(plex.New(server.URL, "", dir, "test"), 0, nil)
+	files := func() int {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(entries)
+	}
+	r := artReq{thumb: "shown once", w: 8, h: 8, noStore: true}
+	img, err := a.fetch(r)
+	if err != nil || img == nil || img.W != 8 || img.H != 8 {
+		t.Fatalf("noStore picture not served: %v", err)
+	}
+	if n := files(); n != 0 {
+		t.Fatalf("noStore wrote %d files to the disk cache", n)
+	}
+	r.noStore = false
+	if _, err := a.fetch(r); err != nil {
+		t.Fatal(err)
+	}
+	if n := files(); n != 1 {
+		t.Fatalf("a stored fetch left %d files in the disk cache", n)
+	}
+	server.Close()
+	r.noStore = true
+	if img, err := a.fetch(r); err != nil || img == nil {
+		t.Fatalf("noStore did not read the cached copy: %v", err)
+	}
+	if n := files(); n != 1 {
+		t.Fatalf("the disk cache holds %d files after reading one", n)
 	}
 }
 
