@@ -2,14 +2,14 @@
   "schema": 1,
   "releases": {
     "beta": {
-      "id": "beta-0.1.0-beta.17",
-      "version": "0.1.0-beta.17",
+      "id": "beta-0.1.0-beta.18",
+      "version": "0.1.0-beta.18",
       "channel": "beta",
-      "notes": "## 0.1.0-beta.17\n\n- Send a report now includes the outcome of each advertised server connection: local, remote, or relay; HTTP or HTTPS; and failure reasons such as DNS lookup, timeout, certificate verification, or an HTTP status. The new diagnostics contain no server addresses, server names, or sign-in tokens.\n- The report also records how many connections Plex supplied and which connection was selected. Connection selection is unchanged; this update gathers evidence for connection failures, including issue #13, rather than claiming to fix them.\n- Help explains how to troubleshoot blocks from other frames during server video conversion.\n- Removed an unnecessary instruction from the update progress screen.\n\nTo report a connection problem, reproduce it after updating, then open Options > Send a report and share the displayed report code in your support issue. You can reach Options with Back from the sign-in screen.\n\nValidation: public and supporter build checks, Linux tests, ARM vet/build, and report redaction tests. No new MiSTer hardware or CRT/HDMI smoke test was performed for this diagnostics update.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.17/MisterZine-Plex-Core-beta-0.1.0-beta.17.zip",
+      "notes": "## 0.1.0-beta.18\n\n- Plex Home profiles: choose who is watching, switch users from Options, and enter a PIN for protected profiles. Accounts without household profiles continue directly to their library.\n- Optional automatic sign-in remembers the last profile on this MiSTer and skips its startup picker and PIN. Managed profiles can see the current setting greyed out; select the row for an explanation. Full Plex accounts can change it. Manually switching to a protected profile still requires its PIN.\n- Subtitle size: choose Normal, Large, or Extra large from Options or playback More. The saved choice is shared between both menus. Changing size during playback keeps the position and paused state. Results depend on the subtitle format and Plex server conversion.\n- Bottom playback controls sit 24 pixels higher to improve visibility on CRTs with overscan.\n- Options navigation now wraps: Up from the first row goes to Version; Down from Version returns to the first row.\n\nValidated with public and supporter Go tests, ARM vet/builds, release tooling tests, package verification, and DE10-Nano testing of subtitle size, profile selection, incorrect/correct PINs, switching users, and automatic sign-in. Existing settings and beta access are retained when updating.",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.18/MisterZine-Plex-Core-beta-0.1.0-beta.18.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 5086806,
-      "sha256": "3348d5853f54ffa709a2027c01cb1c745a676252e3d56665ec3e0fd792f9607c",
+      "size": 5109293,
+      "sha256": "4cb7a4726c70366af8a8d50440b85fc621a206be6f0380a88d02c047bb102965",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
