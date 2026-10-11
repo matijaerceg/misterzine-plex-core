@@ -105,12 +105,16 @@ func TestOptionsCursorSkipsGaps(t *testing.T) {
 	}
 	now := time.Now()
 	o.Key(input.Event{Key: input.Up}, now)
+	if o.cur != rows[len(rows)-1] {
+		t.Fatalf("Up at the top left the cursor on %d, want the last row %d", o.cur, rows[len(rows)-1])
+	}
+	o.Key(input.Event{Key: input.Down}, now)
 	if o.cur != rows[0] {
-		t.Fatalf("Up at the top left the cursor on %d, want the first row %d", o.cur, rows[0])
+		t.Fatalf("Down at the bottom left the cursor on %d, want the first row %d", o.cur, rows[0])
 	}
 	walk := func(key input.Key) []int {
 		seen := []int{o.cur}
-		for range items { // more presses than rows: the cursor stops at the end
+		for range len(rows) - 1 { // visit each selectable row before wrapping
 			o.Key(input.Event{Key: key}, now)
 			if items[o.cur].header {
 				t.Fatalf("the cursor is on the gap at %d", o.cur)

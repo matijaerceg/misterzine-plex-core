@@ -99,7 +99,8 @@ primary account. Automatic sign-in uses the saved server connection at startup.
 - Options contains video mode, video geometry and crop, theme music, navigation
   taps, autoplay, the skip buttons, bitrate, downmix boost, subtitle size, the 4:3 filter,
   server selection and sign-out. A scrollbar on the right shows where the list
-  is. OK, left or right turns a setting on or off; a setting with more choices
+  is. Up and Down wrap between the first and last rows, skipping group gaps.
+  OK, left or right turns a setting on or off; a setting with more choices
   (bitrate, downmix boost, subtitle size, crop) changes with left and right only, shown by the
   arrows either side of its value when it is selected. The 4:3 filter
   applies to the

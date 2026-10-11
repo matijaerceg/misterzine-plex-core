@@ -227,6 +227,17 @@ func nextOption(items []option, i, d int) int {
 	return i
 }
 
+// loopOption wraps at the list's ends, still skipping the gaps.
+func loopOption(items []option, i, d int) int {
+	if next := nextOption(items, i, d); next != i {
+		return next
+	}
+	if d < 0 {
+		return nextOption(items, len(items), d)
+	}
+	return nextOption(items, -1, d)
+}
+
 // onOption is cur moved onto a row that can be chosen: the list changes
 // under the cursor (a sign-out, beta rows, warnings) and a gap is
 // never the cursor. The next row down is preferred, then the one above.
@@ -267,9 +278,9 @@ func (o *Options) Key(ev input.Event, now time.Time) {
 	o.versionPresses = 0
 	switch ev.Key {
 	case input.Up:
-		o.cur = nextOption(items, o.cur, -1)
+		o.cur = loopOption(items, o.cur, -1)
 	case input.Down:
-		o.cur = nextOption(items, o.cur, 1)
+		o.cur = loopOption(items, o.cur, 1)
 	case input.Enter, input.Left, input.Right:
 		it := items[o.cur]
 		toggle := it.get != nil && it.set != nil && !it.locked && it.readOnlyHint == ""
