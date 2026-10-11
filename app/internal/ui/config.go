@@ -18,15 +18,16 @@ type Config struct {
 	RecentSearches     []string `json:"recent_searches,omitempty"`
 	NoTaps             bool     `json:"no_taps"`
 	NoTheme            bool     `json:"no_theme"`
-	Progressive        bool     `json:"progressive"`           // confirmed HDMI 480p preference
-	FourThree          bool     `json:"only_4x3"`              // hide media wider than 4:3
-	NoAutoplay         bool     `json:"no_autoplay"`           // do not run on to the next episode
-	NoSkipButtons      bool     `json:"no_skip_buttons"`       // no Skip intro / Skip credits button over the markers
-	Bitrate            int      `json:"bitrate"`               // transcode cap in kbit/s; 0 is the default
-	AudioBoost         int      `json:"audio_boost,omitempty"` // gain when the server folds surround to stereo; 0 is the default
-	Geometry           Geometry `json:"geometry"`              // where video goes on the raster (menus ignore it)
-	Crop               Crop     `json:"crop,omitempty"`        // what each playback starts cropping; nothing saved is off
-	ShowBeta           bool     `json:"show_beta_features"`    // show (and run) the features still in beta
+	Progressive        bool     `json:"progressive"`             // confirmed HDMI 480p preference
+	FourThree          bool     `json:"only_4x3"`                // hide media wider than 4:3
+	NoAutoplay         bool     `json:"no_autoplay"`             // do not run on to the next episode
+	NoSkipButtons      bool     `json:"no_skip_buttons"`         // no Skip intro / Skip credits button over the markers
+	Bitrate            int      `json:"bitrate"`                 // transcode cap in kbit/s; 0 is the default
+	AudioBoost         int      `json:"audio_boost,omitempty"`   // gain when the server folds surround to stereo; 0 is the default
+	SubtitleSize       int      `json:"subtitle_size,omitempty"` // Plex burn-in size; 0 is the original size
+	Geometry           Geometry `json:"geometry"`                // where video goes on the raster (menus ignore it)
+	Crop               Crop     `json:"crop,omitempty"`          // what each playback starts cropping; nothing saved is off
+	ShowBeta           bool     `json:"show_beta_features"`      // show (and run) the features still in beta
 	// HiddenLibraries are the keys of the chosen server's libraries left
 	// off Home, the menu and search (Options > Libraries).
 	HiddenLibraries []string `json:"hidden_libraries,omitempty"`
@@ -141,6 +142,33 @@ var AudioBoosts = []struct {
 }{{"Off", 100}, {"Small", 175}, {"Large", 300}}
 
 const DefaultAudioBoost = 300
+
+// SubtitleSizes are Plex's percentage sizes for burned-in subtitles.
+var SubtitleSizes = []struct {
+	Label string
+	Value int
+}{{"Normal", 100}, {"Large", 150}, {"Extra large", 200}}
+
+func (c *Config) SubtitleSizeValue() int {
+	if c.SubtitleSize <= 0 {
+		return 100
+	}
+	for _, s := range SubtitleSizes {
+		if s.Value == c.SubtitleSize {
+			return c.SubtitleSize
+		}
+	}
+	return 100
+}
+
+func (c *Config) subtitleSizeIndex() int {
+	for i, s := range SubtitleSizes {
+		if s.Value == c.SubtitleSizeValue() {
+			return i
+		}
+	}
+	return 0
+}
 
 // AudioBoostValue is the downmix gain in force.
 func (c *Config) AudioBoostValue() int {

@@ -39,7 +39,7 @@ Detailed behavior and display settings. For everyday help, see the
   progress bar and the times, and works the same way: taps and holds add
   up into one seek. The last frame stays on screen until the new position
   starts playing. **More** holds the crop for the playback under way (see
-  Display setup); it is dimmed when no crop would change the picture.
+  Display setup) and the saved subtitle size (see Subtitles).
 - Over an intro or credits the server has found, **Skip intro** or **Skip
   credits** shows for 20 seconds once playback reaches them, also after a
   resume or a seek into them, and goes two seconds before their end. OK skips
@@ -71,10 +71,10 @@ Detailed behavior and display settings. For everyday help, see the
   MisterZine app shows: it is fetched from `misterzine.fyi` with each release
   check and kept in the cache folder for when the MiSTer is offline.
 - Options contains video mode, video geometry and crop, theme music, navigation
-  taps, autoplay, the skip buttons, bitrate, downmix boost, the 4:3 filter,
+  taps, autoplay, the skip buttons, bitrate, downmix boost, subtitle size, the 4:3 filter,
   server selection and sign-out. A scrollbar on the right shows where the list
   is. OK, left or right turns a setting on or off; a setting with more choices
-  (bitrate, downmix boost, crop) changes with left and right only, shown by the
+  (bitrate, downmix boost, subtitle size, crop) changes with left and right only, shown by the
   arrows either side of its value when it is selected. The 4:3 filter
   applies to the
   home rows, search and every library view. Movies and episodes are judged by
@@ -97,6 +97,21 @@ clock has been set from the internet, and secure connections to the server
 fail until then. For its first minute Plex keeps trying every two seconds and
 shows **Connecting** with what it is waiting for. After that it shows the error
 and tries again every 30 seconds; OK tries at once.
+
+### Subtitles
+
+**Options > Subtitle size** chooses Normal (100%), Large (150%) or Extra large
+(200%). Normal keeps Plex's original size. This setting is available to everyone
+and is saved for future playback. During playback, **More > Subtitle size** changes
+the same setting. With a subtitle track selected, changing size briefly restarts
+the stream at the current position; choosing the current size leaves it playing.
+With subtitles off, the choice is saved for when they are enabled.
+
+Plex draws subtitles into the video before sending it to MiSTer. The size setting
+asks Plex to scale them at that stage; the result depends on the server and subtitle
+format. Styled ASS/SSA and image-based PGS/VobSub tracks may behave differently
+from plain text subtitles. It cannot resize lettering already embedded in the
+original video. Crop can cut the ends of long subtitle lines.
 
 ### Sound and playback quality
 

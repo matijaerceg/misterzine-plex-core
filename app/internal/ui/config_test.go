@@ -47,6 +47,30 @@ func TestConfigRecoveryAndSignOut(t *testing.T) {
 		}
 	}
 }
+
+func TestSubtitleSizeDefaultChoicesAndPersistence(t *testing.T) {
+	c := LoadConfig(filepath.Join(t.TempDir(), "settings.json"))
+	if c.SubtitleSizeValue() != 100 || c.subtitleSizeIndex() != 0 {
+		t.Fatalf("missing setting should mean Normal: %d / %d", c.SubtitleSizeValue(), c.subtitleSizeIndex())
+	}
+	for i, want := range []int{100, 150, 200} {
+		c.SubtitleSize = want
+		if got := c.subtitleSizeIndex(); got != i {
+			t.Fatalf("size %d has index %d, want %d", want, got, i)
+		}
+	}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	loaded := LoadConfig(c.path)
+	if loaded.SubtitleSizeValue() != 200 {
+		t.Fatalf("saved size loaded as %d", loaded.SubtitleSizeValue())
+	}
+	loaded.SubtitleSize = 999
+	if loaded.SubtitleSizeValue() != 100 || loaded.subtitleSizeIndex() != 0 {
+		t.Fatal("unknown setting did not safely fall back to Normal")
+	}
+}
 func TestConfigFailedSavePreservesPrimary(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	c := LoadConfig(path)

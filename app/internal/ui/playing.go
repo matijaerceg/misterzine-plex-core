@@ -93,6 +93,7 @@ type Playing struct {
 
 type listMode struct {
 	kind  string
+	hint  string
 	items []string
 	vals  []string // More: each row's value, on the right
 	cur   int
@@ -335,10 +336,17 @@ func (p *Playing) showList(l *listMode) {
 	p.dirty = true
 }
 
-// openMore opens the playback menu: a row per setting with its value, OK
-// opens a row's choices. What it changes lasts until the playback ends.
+// openMore opens the playback menu: a row per available setting with its
+// value, OK opens that row's choices.
 func (p *Playing) openMore() {
-	p.showList(&listMode{kind: "More", items: []string{"Crop"}, vals: []string{p.app.crop.Label()}, set: -1})
+	items, vals := []string{}, []string{}
+	if p.cropMatters() {
+		items = append(items, "Crop")
+		vals = append(vals, p.app.crop.Label())
+	}
+	items = append(items, "Subtitle size")
+	vals = append(vals, SubtitleSizes[p.app.Cfg.subtitleSizeIndex()].Label)
+	p.showList(&listMode{kind: "More", items: items, vals: vals, set: -1})
 }
 
 // openCrop opens the crop choices, the one in force ticked.
@@ -351,14 +359,53 @@ func (p *Playing) openCrop() {
 	p.showList(l)
 }
 
+func (p *Playing) openSubtitleSize() {
+	l := &listMode{kind: "Subtitle size", set: p.app.Cfg.subtitleSizeIndex()}
+	for _, s := range SubtitleSizes {
+		l.items = append(l.items, s.Label)
+	}
+	l.cur = l.set
+	p.showList(l)
+}
+
 // choose acts on a list's cursor: a track restarts the stream with it, a
 // row of More opens its choices, a crop shows within a few frames.
 func (p *Playing) choose(l *listMode) {
 	switch l.kind {
 	case "More":
-		p.openCrop() // its one row
+		if l.items[l.cur] == "Crop" {
+			p.openCrop()
+		} else {
+			p.openSubtitleSize()
+		}
 	case "Crop":
 		p.app.setCrop(Crops[l.cur].Mode)
+		p.list = nil
+	case "Subtitle size":
+		if SubtitleSizes[l.cur].Value == p.app.Cfg.SubtitleSizeValue() {
+			p.list = nil
+			return
+		}
+		old := p.app.Cfg.snapshot()
+		p.app.Cfg.SubtitleSize = SubtitleSizes[l.cur].Value
+		if err := p.app.Cfg.Save(); err != nil {
+			*p.app.Cfg = old
+			l.hint = "Save failed"
+			l.loaded = false
+			return
+		}
+		if p.app.Cfg.SubtitleSizeValue() != old.SubtitleSizeValue() {
+			restart := "0"
+			if activeSubtitle(p.item) {
+				restart = "1"
+			}
+			p.send("subtitle_size " + itoa(p.app.Cfg.SubtitleSizeValue()) + " " + restart)
+			if restart == "1" {
+				p.seekTo = p.pos
+				p.seekAt = time.Now()
+				p.hushAt = p.seekAt
+			}
+		}
 		p.list = nil
 	default:
 		p.app.selectStream(p.item, l.kind, l.cur-l.off)
@@ -373,11 +420,20 @@ func (p *Playing) choose(l *listMode) {
 // closeList goes back a level: from a row's choices to More, from any
 // other list to the controls.
 func (p *Playing) closeList() {
-	if p.list.kind == "Crop" {
+	if p.list.kind == "Crop" || p.list.kind == "Subtitle size" {
 		p.openMore()
 		return
 	}
 	p.list = nil
+}
+
+func activeSubtitle(it *plex.Item) bool {
+	for _, s := range it.Subs {
+		if s.Selected {
+			return true
+		}
+	}
+	return false
 }
 
 // cropMatters reports whether any crop would cut this item's picture; an
@@ -550,9 +606,7 @@ func (p *Playing) Key(ev input.Event, now time.Time) bool {
 				p.openList("Subtitles")
 			}
 		case "More":
-			if p.cropMatters() {
-				p.openMore()
-			}
+			p.openMore()
 		}
 	case input.Left, input.Right:
 		d := 1
@@ -817,7 +871,7 @@ func (p *Playing) dimmed(i int) bool {
 	case "Subs":
 		return len(p.item.Subs) == 0
 	case "More":
-		return !p.cropMatters() // crop is all it holds
+		return false
 	}
 	return false
 }
@@ -1012,7 +1066,11 @@ func (p *Playing) uploadList(osd OSD) {
 	c := gfx.NewCanvas(OsdListW, rows)
 	c.Fill(0, 0, c.W, c.H, gfx.Bg)
 	if base == 0 {
-		c.Text(MenuX, 8, f.Title, gfx.Grey, l.kind)
+		title := l.kind
+		if l.hint != "" {
+			title += " (" + l.hint + ")"
+		}
+		c.Text(MenuX, 8, f.Title, gfx.Grey, title)
 	}
 	for i, item := range l.items {
 		y := OsdListTop + i*OsdListRowH - base

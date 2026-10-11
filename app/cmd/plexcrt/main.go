@@ -156,7 +156,8 @@ func run() int {
 	// The ring stays mapped until the process ends: the pad poller and the
 	// watchdog may still be reading it as the app stops, and exiting unmaps it.
 	player := &ui.Player{Script: *script, Fifo: "/tmp/plexplay.ctl", LogTo: filepath.Join(os.TempDir(), "plexplay.log"),
-		Status: "/tmp/plexfb.stat", Env: playerEnv, Kbps: cfg.BitrateKbps, Boost: cfg.AudioBoostValue}
+		Status: "/tmp/plexfb.stat", Env: playerEnv, Kbps: cfg.BitrateKbps, Boost: cfg.AudioBoostValue,
+		SubtitleSize: cfg.SubtitleSizeValue}
 	player.Access = func() error { return beta.Check(filepath.Dir(*cfgPath)) }
 	app := ui.New(client, r, player, lg)
 	player.Geometry = app.VideoGeometry

@@ -20,6 +20,9 @@ Control while playing: write a line to the FIFO /tmp/plexplay.ctl
     pause | resume | toggle       hold / continue (audio stops with the picture)
     seek <seconds>                absolute position
     seek +30 | seek -10           relative
+    subtitle_size <100|150|200> <restart 0|1>
+                                  change Plex's burned-in subtitle size; restart
+                                  only when an active subtitle needs rebaking
     stop                          end playback
 `plexplay.py ctl seek +30` does the write for you.
 
@@ -53,6 +56,8 @@ BITRATE = int(os.environ.get('PLEX_BITRATE') or 3000)   # kbit/s cap for the tra
 # gain the server applies when it folds surround to stereo (100 is unity);
 # stereo tracks are copied, so it changes nothing for them
 AUDIO_BOOST = int(os.environ.get('PLEX_AUDIO_BOOST') or 300)
+# Plex uses 100 for the original size; larger values enlarge burned-in subs.
+SUBTITLE_SIZE = int(os.environ.get('PLEX_SUBTITLE_SIZE') or 100)
 HOME = os.path.dirname(os.path.abspath(__file__))
 FF = os.environ.get('PLEX_FFMPEG') or os.path.join(HOME, 'ffmpeg')
 PLEXFB = os.path.join(HOME, 'plexfb')
@@ -172,6 +177,8 @@ class Player:
         self.sess = None
         self.fps = 23.976
         self.paused = False
+        self.subtitle_size = SUBTITLE_SIZE
+        self.restart_paused = False
         self.pending = None           # 'stop' | ('seek', seconds)
         self.last_pos = 0.0
         self.lock = threading.Lock()
@@ -193,22 +200,30 @@ class Player:
             pass
 
     # ---- one transcode session ----
+    def transcode_params(self, offset=None, session=None):
+        """Parameters shared by decision and start for one transcode."""
+        if offset is None:
+            offset = self.offset
+        if session is None:
+            session = self.sess
+        return {
+            'path': '/library/metadata/%s' % self.rk, 'mediaIndex': 0, 'partIndex': 0,
+            'protocol': 'http', 'directPlay': 0, 'directStream': 0,
+            'videoResolution': '720x480', 'maxVideoBitrate': BITRATE, 'videoQuality': 100,
+            'audioBoost': AUDIO_BOOST, 'subtitles': 'burn', 'subtitleSize': self.subtitle_size,
+            'X-Plex-Client-Profile-Extra': profile_extra(self.src_fps),
+            'session': session, 'X-Plex-Session-Identifier': session,
+            'copyts': 1, 'offset': int(offset), 'fastSeek': 1,
+            'location': 'wan', 'mediaBufferSize': 12288, 'hasMDE': 1,
+        }
+
     def start(self):
         # one session id for the whole play, like plex-for-kodi: a seek or a
         # restart re-issues decision+start on it and the server replaces the
         # transcoder; stop once at the end.
         if not self.sess: self.sess = str(uuid.uuid4())
         sess = self.sess
-        params = {
-            'path': '/library/metadata/%s' % self.rk, 'mediaIndex': 0, 'partIndex': 0,
-            'protocol': 'http', 'directPlay': 0, 'directStream': 0,
-            'videoResolution': '720x480', 'maxVideoBitrate': BITRATE, 'videoQuality': 100,
-            'audioBoost': AUDIO_BOOST, 'subtitles': 'burn',
-            'X-Plex-Client-Profile-Extra': profile_extra(self.src_fps),
-            'session': sess, 'X-Plex-Session-Identifier': sess,
-            'copyts': 1, 'offset': int(self.offset), 'fastSeek': 1,
-            'location': 'wan', 'mediaBufferSize': 12288, 'hasMDE': 1,
-        }
+        params = self.transcode_params(session=sess)
         # The server 400s a bare start request; a decision call on the same session
         # first is what makes it accept the stream request (and tells us the shape).
         root = ET.fromstring(get('/video/:/transcode/universal/decision', params, timeout=60))
@@ -262,7 +277,6 @@ class Player:
             threading.Thread(target=pump, args=(self.resp, self.p_ff.stdin), daemon=True).start()
         self.p_fb = subprocess.Popen(fb, stdin=self.p_ff.stdout, env=env)
         self.p_ff.stdout.close()
-        self.paused = False
 
     def open_stream(self, url):
         # The same client that just made the decision call fetches the stream,
@@ -321,11 +335,7 @@ class Player:
             return 'HTTP %d in %.2f s' % (r.status, time.time() - t)
         def py_stream():
             sess = str(uuid.uuid4())
-            params = {'path': '/library/metadata/%s' % self.rk, 'mediaIndex': 0, 'partIndex': 0,
-                      'protocol': 'http', 'directPlay': 0, 'directStream': 0, 'videoResolution': '720x480',
-                      'maxVideoBitrate': BITRATE, 'videoQuality': 100, 'subtitles': 'burn',
-                      'session': sess, 'X-Plex-Session-Identifier': sess, 'copyts': 1, 'offset': 0,
-                      'fastSeek': 1, 'location': 'wan', 'mediaBufferSize': 12288, 'hasMDE': 1}
+            params = self.transcode_params(offset=0, session=sess)
             try:
                 get('/video/:/transcode/universal/decision', params, timeout=5)
                 t = time.time()
@@ -454,10 +464,17 @@ class Player:
         if not w: return
         c = w[0]
         if c in ('pause', 'resume', 'toggle'):
-            want = {'pause': True, 'resume': False}.get(c, not self.paused)
-            if want != self.paused and self.p_fb and self.p_fb.poll() is None:
-                self.p_fb.send_signal(signal.SIGUSR1)
-                self.paused = want
+            changed = False
+            with self.lock:
+                want = {'pause': True, 'resume': False}.get(c, not self.paused)
+                if self.restart_paused:
+                    self.paused = want
+                    changed = True
+                elif want != self.paused and self.p_fb and self.p_fb.poll() is None:
+                    self.p_fb.send_signal(signal.SIGUSR1)
+                    self.paused = want
+                    changed = True
+            if changed:
                 log('paused' if want else 'resumed')
                 self.timeline('paused' if want else 'playing')
         elif c == 'seek' and len(w) > 1:
@@ -467,11 +484,39 @@ class Player:
             log('seek %.1f -> %.1f' % (pos, t))
             with self.lock: self.pending = ('seek', t)
             self.interrupt(hold=True)
+        elif c == 'subtitle_size' and len(w) > 1:
+            try: size = max(100, min(200, int(w[1])))
+            except ValueError:
+                log('invalid subtitle size %r' % w[1]); return
+            if size not in (100, 150, 200):
+                log('unsupported subtitle size %d' % size); return
+            restart = len(w) < 3 or w[2] == '1'
+            if size == self.subtitle_size: return
+            pos = self.position()
+            was_paused = self.paused
+            log('subtitle size %d -> %d%s' % (self.subtitle_size, size,
+                ' at %.1f s%s' % (pos, ' (paused)' if was_paused else '') if restart else ' (next stream)'))
+            self.subtitle_size = size
+            if restart:
+                with self.lock: self.pending = ('subtitle_size', size, pos, was_paused)
+                self.interrupt(hold=True)
         elif c == 'stop':
             with self.lock: self.pending = 'stop'
             self.interrupt()
         else:
             log('unknown command %r' % line)
+
+    def restore_pause_if_ready(self):
+        """Apply the desired pause state after plexfb installs its handler."""
+        with self.lock:
+            if not self.restart_paused or not self.p_fb or self.p_fb.poll() is not None:
+                return False
+            if not os.path.exists(STATUS):
+                return False
+            if self.paused:
+                self.p_fb.send_signal(signal.SIGUSR1)
+            self.restart_paused = False
+        return True
 
     def interrupt(self, hold=False):
         # ffmpeg first so its pipe is never the thing that fails, then plexfb,
@@ -513,7 +558,9 @@ class Player:
         try: os.unlink(PLAYSTAT + '.err')
         except OSError: pass
         while not self.stopping():
-            self.paused = False          # a fresh presenter starts running
+            with self.lock:
+                if not self.restart_paused:
+                    self.paused = False
             try:
                 self.start()
             except RuntimeError as e:
@@ -528,10 +575,13 @@ class Player:
                 log('stream not fetched (%s), retry %d/%d' % (e, retries, RETRIES))
                 time.sleep(2 * retries)
                 continue
-            self.timeline('playing')
+            if not self.restart_paused:
+                self.timeline('playing')
             tping = time.time()
             while self.p_fb.poll() is None:
                 time.sleep(0.25)
+                if self.restore_pause_if_ready():
+                    self.timeline('paused' if self.paused else 'playing')
                 self.write_playstat()
                 if time.time() - tping >= TIMELINE_S:
                     tping = time.time()
@@ -543,8 +593,14 @@ class Player:
             self.kill()
             if pend == 'stop':
                 log('stopped at %.1f s' % out_pos); break
-            if isinstance(pend, tuple):            # seek: new session from there
-                self.offset = pend[1]; retries = 0; continue
+            if isinstance(pend, tuple):
+                if pend[0] == 'subtitle_size':
+                    with self.lock:
+                        self.subtitle_size, self.offset, self.restart_paused = pend[1:]
+                        self.paused = self.restart_paused
+                else: # seek: new session from there
+                    self.offset = pend[1]
+                retries = 0; continue
             if s.get('eof') == 1 and out_pos >= self.duration - END_SLACK:
                 log('end of stream at %.1f s' % out_pos); break
             if not s.get('shown') and not self.tested:

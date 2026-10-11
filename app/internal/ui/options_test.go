@@ -63,7 +63,7 @@ func TestOptionsGroups(t *testing.T) {
 	under := groupNames(t, items, groups...)
 	for label, want := range map[string]string{
 		"Only show 4:3 media": "Playback", "Autoplay next episode": "Playback", "Skip intro and credits buttons": "Playback",
-		"Video bitrate": "Playback", "Surround downmix boost": "Playback",
+		"Video bitrate": "Playback", "Surround downmix boost": "Playback", "Subtitle size": "Playback",
 		"Video output": "Picture", "Video geometry": "Picture", "Video crop": "Picture", "HDMI VRR": "Picture",
 		"Theme music": "Sound", "Navigation sounds": "Sound",
 		"Show beta features":  "Extras",
@@ -340,7 +340,7 @@ func TestOptionsStepOnlyWithLeftAndRight(t *testing.T) {
 	a.Push(o)
 	saved := func() bool { _, err := os.Stat(a.Cfg.path); return err == nil }
 	value := func(label string) string { return o.items()[optionRow(o, label)].val() }
-	for _, label := range []string{"Video bitrate", "Surround downmix boost", "Video crop"} {
+	for _, label := range []string{"Video bitrate", "Surround downmix boost", "Subtitle size", "Video crop"} {
 		was := value(label)
 		os.Remove(a.Cfg.path)
 		pressOption(t, o, label, input.Enter)
@@ -382,7 +382,7 @@ func TestOptionsSteppedRowsSayWhereTheyAre(t *testing.T) {
 	for _, tc := range []struct {
 		label string
 		n     int
-	}{{"Video bitrate", len(Bitrates)}, {"Surround downmix boost", len(AudioBoosts)}, {"Video crop", len(Crops)}} {
+	}{{"Video bitrate", len(Bitrates)}, {"Surround downmix boost", len(AudioBoosts)}, {"Subtitle size", len(SubtitleSizes)}, {"Video crop", len(Crops)}} {
 		it := o.items()[optionRow(o, tc.label)]
 		if it.at == nil {
 			t.Fatalf("%s steps but does not say where it is", tc.label)

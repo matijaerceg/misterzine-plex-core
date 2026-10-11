@@ -16,13 +16,14 @@ import (
 // presenter (plexfb) draws into the same ring, so the UI stops presenting
 // and instead drives the overlay through the launcher's control FIFO.
 type Player struct {
-	Script string // path to plexplay.py
-	Fifo   string // its control FIFO
-	LogTo  string
-	Status string     // plexfb's status file; it appears the moment plexfb starts
-	Env    []string   // PLEX_HOST, PLEX_TOKEN, PLEX_CLIENT_ID for the launcher
-	Kbps   func() int // the transcode cap to ask for, read at each start
-	Boost  func() int // the surround-to-stereo gain to ask for, read at each start
+	Script       string // path to plexplay.py
+	Fifo         string // its control FIFO
+	LogTo        string
+	Status       string     // plexfb's status file; it appears the moment plexfb starts
+	Env          []string   // PLEX_HOST, PLEX_TOKEN, PLEX_CLIENT_ID for the launcher
+	Kbps         func() int // the transcode cap to ask for, read at each start
+	Boost        func() int // the surround-to-stereo gain to ask for, read at each start
+	SubtitleSize func() int // Plex's burned-in subtitle size, read at each start
 	// Geometry is the presenter's picture area (PLEXFB_GEOMETRY), read at each start
 	Geometry func() string
 	// Crop is the presenter's crop, read at each start and written to
@@ -120,6 +121,9 @@ func (p *Player) Start(ratingKey string, offset int) (*Session, error) {
 	}
 	if p.Boost != nil {
 		cmd.Env = append(cmd.Env, "PLEX_AUDIO_BOOST="+strconv.Itoa(p.Boost()))
+	}
+	if p.SubtitleSize != nil {
+		cmd.Env = append(cmd.Env, "PLEX_SUBTITLE_SIZE="+strconv.Itoa(p.SubtitleSize()))
 	}
 	if p.Geometry != nil {
 		cmd.Env = append(cmd.Env, "PLEXFB_GEOMETRY="+p.Geometry())

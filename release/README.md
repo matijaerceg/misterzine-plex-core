@@ -16,6 +16,16 @@ OK opens the controls; Back or Down closes them. Press Back with the controls
 hidden to stop. To leave the app, choose Exit to MiSTer menu near the bottom
 of the menu.
 
+### Subtitles are too small
+
+Choose **Options > Subtitle size**, or **More > Subtitle size** in the playback
+controls. Normal, Large and Extra large use 100%, 150% and 200% of Plex's original
+size. Your choice is saved for future videos. Changing size while subtitles are
+enabled briefly reloads the video at your current position.
+
+The result depends on the subtitle format and Plex server. Lettering already
+embedded in the original video cannot be resized this way.
+
 ### Why is it asking for another code?
 
 The Plex sign-in code links your account. Early-access releases also need a

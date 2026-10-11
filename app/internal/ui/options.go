@@ -92,6 +92,10 @@ func (o *Options) items() []option {
 			// a gain set by hand is none of the choices: both ways step
 			return cfg.audioBoostIndex(), len(AudioBoosts)
 		}},
+		{label: "Subtitle size", val: func() string { return SubtitleSizes[cfg.subtitleSizeIndex()].Label }, step: func(d int) {
+			i := max(0, min(len(SubtitleSizes)-1, cfg.subtitleSizeIndex()+d))
+			cfg.SubtitleSize = SubtitleSizes[i].Value
+		}, at: func() (int, int) { return cfg.subtitleSizeIndex(), len(SubtitleSizes) }},
 	}
 	items = o.app.libraryOptions(items)
 	items = append(items, []option{

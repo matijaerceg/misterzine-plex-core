@@ -164,27 +164,84 @@ func TestPlaybackMenuCropsThisPlaybackOnly(t *testing.T) {
 	}
 }
 
-func TestMoreIsDimmedWhenNoCropWouldCut(t *testing.T) {
+func TestMoreAlwaysAvailableForSubtitleSize(t *testing.T) {
 	a := cropApp(t)
 	more := len(osdButtons) - 1
 	for _, tc := range []struct {
 		aspect float64
 		dimmed bool
-	}{{1.33, true}, {1.78, false}, {2.39, false}, {1.37, false}, {0.5625, false}, {0, false}} {
+	}{{1.33, false}, {1.78, false}, {2.39, false}, {1.37, false}, {0.5625, false}, {0, false}} {
 		if got := playingCrop(a, tc.aspect).dimmed(more); got != tc.dimmed {
 			t.Errorf("aspect %v: dimmed %v", tc.aspect, got)
 		}
 	}
-	// a dimmed More does not open
+	// More opens even when this picture does not need cropping.
 	p := playingCrop(a, 1.33)
 	pressPlay(p, input.Enter)
-	if p.list != nil {
-		t.Fatal("More opened for a 4:3 picture")
+	if p.list == nil || p.list.kind != "More" || len(p.list.items) != 1 || p.list.items[0] != "Subtitle size" {
+		t.Fatalf("More should expose subtitle size and omit irrelevant crop: %+v", p.list)
 	}
 	// on a narrow picture area fill cuts even 4:3
 	a.Cfg.Geometry = Geometry{Left: 120, Right: 120}
-	if playingCrop(a, 1.33).dimmed(more) {
-		t.Fatal("More dimmed where fill would cut the sides of 4:3")
+	p = playingCrop(a, 1.33)
+	p.openMore()
+	if len(p.list.items) != 2 || p.list.items[0] != "Crop" {
+		t.Fatal("More should expose crop where fill would cut the sides of 4:3")
+	}
+}
+
+func TestPlaybackSubtitleSizePersistsAndRestartsOnlyWithSelectedTrack(t *testing.T) {
+	a := cropApp(t)
+	var sent []string
+	p := playingCrop(a, 1.33)
+	p.send = func(s string) { sent = append(sent, s) }
+	p.openMore()
+	p.choose(p.list)                      // open Subtitle size
+	pressPlay(p, input.Down, input.Enter) // Large
+	if a.Cfg.SubtitleSizeValue() != 150 || LoadConfig(a.Cfg.path).SubtitleSizeValue() != 150 {
+		t.Fatal("playback choice was not persisted")
+	}
+	if len(sent) != 1 || sent[0] != "subtitle_size 150 0" {
+		t.Fatalf("no selected subtitle should only update the launcher's next-stream size: %q", sent)
+	}
+	if err := os.Remove(a.Cfg.path); err != nil {
+		t.Fatal(err)
+	}
+	p.openMore()
+	p.choose(p.list)
+	p.choose(p.list) // choosing the current size is a no-op
+	if _, err := os.Stat(a.Cfg.path); !os.IsNotExist(err) || len(sent) != 1 {
+		t.Fatalf("unchanged size wrote settings or sent a command: %q", sent)
+	}
+	tracks := []plex.Stream{{ID: "subtitle-1", Title: "English", Selected: true}}
+	p.item.Subs = tracks
+	p.openMore()
+	p.choose(p.list)
+	pressPlay(p, input.Down, input.Enter) // Extra large
+	if a.Cfg.SubtitleSizeValue() != 200 || LoadConfig(a.Cfg.path).SubtitleSizeValue() != 200 {
+		t.Fatal("second playback choice was not persisted")
+	}
+	if len(sent) != 2 || sent[1] != "subtitle_size 200 1" {
+		t.Fatalf("selected subtitle should restart at current position: %q", sent)
+	}
+}
+
+func TestPlaybackSubtitleSizeSaveFailureKeepsChooserAndDoesNotApply(t *testing.T) {
+	a := cropApp(t)
+	var sent []string
+	p := playingCrop(a, 1.33)
+	p.send = func(s string) { sent = append(sent, s) }
+	p.openMore()
+	p.choose(p.list)
+	if err := os.Mkdir(a.Cfg.path+".bak", 0700); err != nil {
+		t.Fatal(err)
+	}
+	pressPlay(p, input.Down, input.Enter)
+	if p.list == nil || p.list.kind != "Subtitle size" || p.list.hint == "" {
+		t.Fatalf("save failure should leave a visible error in the chooser: %+v", p.list)
+	}
+	if a.Cfg.SubtitleSizeValue() != 100 || len(sent) != 0 {
+		t.Fatalf("failed save applied size %d or sent %q", a.Cfg.SubtitleSizeValue(), sent)
 	}
 }
 
