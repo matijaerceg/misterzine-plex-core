@@ -197,7 +197,15 @@ func Servers(clientID, token string) ([]Server, error) {
 // Reach probes a server's connections at once and returns the best that
 // answers: local first, then direct, then relay. Once one answers, a
 // better one gets a moment longer, no more.
-func Reach(s Server) (string, error) {
+func Reach(s Server, logf func(string, ...any)) (string, error) {
+	return reach(s, &http.Client{Timeout: 6 * time.Second}, logf)
+}
+
+func reach(s Server, probe *http.Client, logf func(string, ...any)) (string, error) {
+	if logf == nil {
+		logf = func(string, ...any) {}
+	}
+	logf("server connection: probing %d advertised connections", len(s.Connections))
 	rank := func(c Connection) int {
 		switch {
 		case c.Relay:
@@ -212,25 +220,30 @@ func Reach(s Server) (string, error) {
 		err error
 	}
 	ch := make(chan result, len(s.Connections))
-	probe := &http.Client{Timeout: 6 * time.Second}
 	for i, c := range s.Connections {
+		logf("server connection: candidate %d %s", i+1, connectionKind(c))
 		go func(i int, c Connection) {
+			started := time.Now()
+			finish := func(err error, status int) {
+				logf("server connection: candidate %d %s: %s (%d ms)", i+1, connectionKind(c), connectionOutcome(err, status), time.Since(started).Milliseconds())
+				ch <- result{i, err}
+			}
 			r, err := http.NewRequest("GET", c.URI+"/identity", nil)
 			if err != nil {
-				ch <- result{i, err}
+				finish(err, 0)
 				return
 			}
 			r.Header.Set("X-Plex-Token", s.AccessToken)
 			resp, err := probe.Do(r)
 			if err != nil {
-				ch <- result{i, err}
+				finish(err, 0)
 				return
 			}
 			resp.Body.Close()
 			if resp.StatusCode != 200 {
 				err = fmt.Errorf("%s: HTTP %d", c.URI, resp.StatusCode)
 			}
-			ch <- result{i, err}
+			finish(err, resp.StatusCode)
 		}(i, c)
 	}
 	best := -1
@@ -247,20 +260,24 @@ func Reach(s Server) (string, error) {
 				best = r.i
 			}
 			if rank(s.Connections[best]) == 0 {
+				logf("server connection: selected candidate %d", best+1)
 				return s.Connections[best].URI, nil
 			}
 			if grace == nil {
 				grace = time.After(1500 * time.Millisecond)
 			}
 		case <-grace:
+			logf("server connection: selected candidate %d", best+1)
 			return s.Connections[best].URI, nil
 		}
 	}
 	if best >= 0 {
+		logf("server connection: selected candidate %d", best+1)
 		return s.Connections[best].URI, nil
 	}
 	if last == nil {
 		last = fmt.Errorf("no connections")
 	}
+	logf("server connection: no reachable advertised connection")
 	return "", last
 }

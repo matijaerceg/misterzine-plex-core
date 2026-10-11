@@ -329,6 +329,18 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn('10-0-0-2', text)
         self.assertLessEqual(len(text.encode()), manager.REPORT_MAX_BYTES)
 
+    def test_connection_diagnostics_survive_report_redaction(self):
+        evidence = ('server connection: probing 2 advertised connections\n'
+                    'server connection: candidate 1 local HTTPS: DNS name not found (2 ms)\n'
+                    'server connection: candidate 2 remote HTTP: HTTP 401 (3 ms)\n'
+                    'server connection: no reachable advertised connection\n')
+        with (self.tmp / 'misterzine-plex.log').open('a') as log:
+            log.write(evidence)
+        text = self.report()
+        self.assertIn(evidence, text)
+        self.assertNotIn('TESTtoken', text)
+        self.assertNotIn('10-0-0-2', text)
+
     def test_report_trims_long_logs_to_the_limit(self):
         (self.tmp / 'plexplay.log').write_text('x' * 200 + '\n' + 'a line of playback\n' * 20000)
         text = self.report()
