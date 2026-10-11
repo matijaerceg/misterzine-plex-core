@@ -161,8 +161,9 @@ func abs(v int) int {
 }
 
 const (
-	OsdY      = 296 // controls stay in the safe area; background reaches the raster edge
-	OsdH      = 480 - OsdY
+	OsdBottom = 480 - 24 // lift bottom controls and seek strips by 5% for CRT overscan
+	OsdY      = OsdBottom - 184
+	OsdH      = OsdBottom - OsdY
 	OsdAlpha  = 200
 	OsdHide   = 4 * time.Second
 	BackGrace = time.Second             // after the overlay goes, Back does not stop the playback
@@ -729,7 +730,7 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 			p.last = key
 			p.compose(true)
 			h := p.peekH
-			p.painter.show(osd, 0, 480-h, &gfx.Canvas{W: 720, H: h, Pix: p.canvas.Pix[:720*h*4]}, p.alpha[:720*h])
+			p.painter.show(osd, 0, OsdBottom-h, &gfx.Canvas{W: 720, H: h, Pix: p.canvas.Pix[:720*h*4]}, p.alpha[:720*h])
 		}
 		if !dotFree {
 			p.dotOn = false
@@ -738,7 +739,7 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 			// here), shown once the hold runs; the core places it meanwhile
 			if vx == 0 || !p.dotOn {
 				p.dotOn = p.peekScrub
-				osd.Dot(SafeX+int(float64(SafeW)*p.scrubTo/p.dur+0.5), 480-p.peekH+p.pillY+PillH/2, uint32(gfx.White), p.dotOn)
+				osd.Dot(SafeX+int(float64(SafeW)*p.scrubTo/p.dur+0.5), OsdBottom-p.peekH+p.pillY+PillH/2, uint32(gfx.White), p.dotOn)
 			}
 		} else {
 			p.dotOn = false
