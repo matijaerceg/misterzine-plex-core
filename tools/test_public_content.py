@@ -10,6 +10,11 @@ class ContentTests(unittest.TestCase):
     def test_safe_examples_and_source_allowed(self):
         self.assertEqual(issues('.env.example', b'PLEX_TOKEN=example'), [])
         self.assertEqual(issues('app/player.go', b'// frame ownership'), [])
+        self.assertEqual(issues('app/home.go', b'/api/home/users/123/switch'), [])
+
+    def test_home_api_exception_keeps_filesystem_paths_private(self):
+        for path in (b'/home/' + b'example/project', b'/home/' + b'users/private'):
+            self.assertIn('personal machine path or device address', issues('notes.txt', path))
 
     def test_private_content_rejected_without_printing_it(self):
         path = b'C:' + b'/Users/' + b'example/project'

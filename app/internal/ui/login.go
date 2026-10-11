@@ -112,10 +112,26 @@ func (l *Login) newCode() {
 				return
 			}
 			l.tok = tok
-			l.stat = "Signed in. Finding your servers..."
+			l.stat = "Signed in. Finding Plex users..."
 			l.mu.Unlock()
 			l.wake()
-			l.findServers(gen, tok)
+			l.app.Later(func() {
+				l.mu.Lock()
+				valid := l.gen == gen
+				l.mu.Unlock()
+				stillOpen := false
+				for _, screen := range l.app.stack {
+					if screen == l {
+						stillOpen = true
+						break
+					}
+				}
+				if !valid || !stillOpen {
+					return
+				}
+				l.app.stack = nil
+				l.app.Push(NewHomeUsers(l.app, tok))
+			})
 			return
 		}
 	}()
@@ -184,7 +200,7 @@ func (l *Login) finishConnect(gen int, s plex.Server, uri string) {
 	l.busy = false
 	cfg := l.app.Cfg
 	next := *cfg
-	if next.Token != l.tok {
+	if !l.picker && next.Token != l.tok {
 		next.AccountName = ""
 	}
 	// library keys are the server's own: another server's "1" is another
@@ -197,7 +213,10 @@ func (l *Login) finishConnect(gen int, s plex.Server, uri string) {
 	if !same {
 		next.HiddenLibraries = nil
 	}
-	next.Token, next.ServerURL, next.ServerToken, next.ServerName, next.ServerID = l.tok, uri, s.AccessToken, s.Name, s.ID
+	if !l.picker {
+		next.Token = l.tok
+	}
+	next.ServerURL, next.ServerToken, next.ServerName, next.ServerID = uri, s.AccessToken, s.Name, s.ID
 	if err := next.Save(); err != nil {
 		l.app.Log.Printf("config: %v", err)
 		l.err = "Could not save sign-in. Check free space and retry."
@@ -312,7 +331,11 @@ func (l *Login) Draw(c *gfx.Canvas, now time.Time) bool {
 
 // NewServerPicker refreshes connections without discarding a working account.
 func NewServerPicker(app *App) *Login {
-	l := &Login{app: app, picker: true, tok: app.Cfg.Token, at: time.Now()}
+	tok := app.Cfg.HomeToken
+	if tok == "" {
+		tok = app.Cfg.Token
+	}
+	l := &Login{app: app, picker: true, tok: tok, at: time.Now()}
 	l.refreshServers()
 	return l
 }

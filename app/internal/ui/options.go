@@ -126,7 +126,18 @@ func (o *Options) items() []option {
 	items = extraOptions(o.app, items)
 	items = append(items, option{label: "Show beta features", get: func() bool { return cfg.ShowBeta }, set: func(v bool) { cfg.ShowBeta = v }, after: o.app.accessChanged})
 	items = append(items, optionGap())
-	if cfg.Token != "" {
+	if cfg.Token != "" && o.app.Plex != nil {
+		if cfg.HomePickerNeeded {
+			items = append(items, option{label: "Switch user", val: func() string {
+				if o.app.Showcase {
+					return ""
+				}
+				return cfg.HomeUserTitle
+			}, do: o.app.SwitchUser})
+			if !cfg.HomeRestricted {
+				items = append(items, option{label: "Sign in automatically", get: func() bool { return cfg.AutoSignIn }, set: func(v bool) { cfg.AutoSignIn = v }})
+			}
+		}
 		items = append(items, option{label: "Choose server again", do: func() { o.app.Push(NewServerPicker(o.app)) }})
 	}
 	label := "Sign out"

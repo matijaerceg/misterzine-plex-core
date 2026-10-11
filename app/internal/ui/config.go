@@ -33,17 +33,24 @@ type Config struct {
 	HiddenLibraries []string `json:"hidden_libraries,omitempty"`
 	// Premium is the supporter extras' own settings, by key; the public
 	// build keeps them without using them.
-	Premium     map[string]string `json:"premium,omitempty"`
-	ClientID    string            `json:"client_id"`
-	Token       string            `json:"token"` // the plex.tv account token
-	AccountName string            `json:"account_name,omitempty"`
-	ServerURL   string            `json:"server_url"`   // the chosen server
-	ServerToken string            `json:"server_token"` // the token for that server
-	ServerName  string            `json:"server_name"`
-	ServerID    string            `json:"server_id,omitempty"` // the chosen server's clientIdentifier
-	LoadWarning string            `json:"-"`
-	LoadError   error             `json:"-"`
-	path        string
+	Premium          map[string]string `json:"premium,omitempty"`
+	ClientID         string            `json:"client_id"`
+	Token            string            `json:"token"` // the plex.tv account token
+	AccountName      string            `json:"account_name,omitempty"`
+	HomeUserID       string            `json:"home_user_id,omitempty"` // selected Plex Home user
+	HomeUserTitle    string            `json:"home_user_title,omitempty"`
+	HomeToken        string            `json:"home_token,omitempty"` // selected user's plex.tv token
+	HomeEnabled      bool              `json:"home_enabled,omitempty"`
+	HomePickerNeeded bool              `json:"home_picker_needed,omitempty"`
+	HomeRestricted   bool              `json:"home_restricted,omitempty"`
+	AutoSignIn       bool              `json:"auto_sign_in,omitempty"`
+	ServerURL        string            `json:"server_url"`   // the chosen server
+	ServerToken      string            `json:"server_token"` // the token for that server
+	ServerName       string            `json:"server_name"`
+	ServerID         string            `json:"server_id,omitempty"` // the chosen server's clientIdentifier
+	LoadWarning      string            `json:"-"`
+	LoadError        error             `json:"-"`
+	path             string
 }
 
 // snapshot is a copy to put back when a save fails. The extras' settings
@@ -192,12 +199,20 @@ func (c *Config) audioBoostIndex() int {
 // SignedIn reports whether a server is on record.
 func (c *Config) SignedIn() bool { return c.ServerURL != "" && c.ServerToken != "" }
 
+// ResumeWithoutPicker allows a saved server session only for an explicit
+// automatic sign-in choice with a known profile, or a legacy server-only login.
+func (c *Config) ResumeWithoutPicker() bool {
+	return c.SignedIn() && (c.Token == "" || (c.AutoSignIn && c.HomeUserID != "" && c.HomeToken != ""))
+}
+
 // SignOut forgets the account and the server.
 func (c *Config) SignOut() error {
 	next := *c
 	next.RecentSearches = nil
 	next.HiddenLibraries = nil // the keys belong to the server forgotten here
 	next.AccountName = ""
+	next.HomeUserID, next.HomeUserTitle, next.HomeToken = "", "", ""
+	next.HomeRestricted, next.AutoSignIn, next.HomeEnabled, next.HomePickerNeeded = false, false, false, false
 	next.Token, next.ServerURL, next.ServerToken, next.ServerName, next.ServerID = "", "", "", "", ""
 	data, _ := json.MarshalIndent(&next, "", "  ")
 	// Clear recovery credentials first so a later corrupt primary cannot undo sign-out.

@@ -142,7 +142,7 @@ func New(c *plex.Client, out Presenter, player *Player, lg *log.Logger) *App {
 	a.T = gfx.NewTextCache(1, a.Wake)
 	a.pagers = map[string]*Pager{}
 	if c != nil {
-		go a.loadSections()
+		go a.loadSectionsFor(c)
 	}
 	a.F = Fonts{Title: gfx.Load("med22"), Body: gfx.Load("med18"), BodyLight: gfx.Load("reg18"),
 		Small: gfx.Load("reg16"), SmallBold: gfx.Load("med16"), Big: gfx.Load("bold28"), Mark: gfx.Load("condit24"),
@@ -674,16 +674,33 @@ func (a *App) redraw() {
 }
 
 func (a *App) loadSections() {
+	if a.Plex == nil {
+		return
+	}
 	secs, err := a.Plex.Sections()
 	if err != nil {
 		a.Log.Printf("sections: %v", err)
 		return
 	}
 	a.secs = secs
-	select {
-	case a.Wake <- struct{}{}:
-	default:
+	a.WakeUp()
+}
+
+func (a *App) loadSectionsFor(client *plex.Client) {
+	if client == nil {
+		return
 	}
+	secs, err := client.Sections()
+	if err != nil {
+		a.Log.Printf("sections: %v", err)
+		return
+	}
+	a.Later(func() {
+		if a.Plex != client {
+			return
+		}
+		a.secs = secs
+	})
 }
 
 // knownSections takes the libraries from a Home fetch while the list is
@@ -798,6 +815,10 @@ func (a *App) Start() {
 		a.Push(NewHome(a))
 		return
 	}
+	if a.Cfg.Token != "" && a.Cfg.SignedIn() {
+		a.Push(NewHomeUsers(a, a.Cfg.Token))
+		return
+	}
 	a.Push(NewLogin(a))
 }
 
@@ -811,11 +832,30 @@ func (a *App) Connect() {
 	a.secs = nil
 	a.pagers = map[string]*Pager{}
 	a.places = nil
+	a.seasonData, a.lastSection = nil, ""
+	a.lastFocus, a.focusReady = focusPosition{}, false
 	if a.Player != nil {
 		a.Player.Env = []string{"PLEX_HOST=" + cfg.ServerURL, "PLEX_TOKEN=" + cfg.ServerToken, "PLEX_CLIENT_ID=" + cfg.ClientID}
 	}
 	a.stack = nil
 	a.Push(NewHome(a))
+}
+
+// SwitchUser closes the current library before asking Plex which household
+// member is watching. Old pages and search results cannot cross the switch.
+func (a *App) SwitchUser() {
+	if a.Cfg.Token == "" {
+		return
+	}
+	a.Plex = nil
+	a.Art.SetClient(nil)
+	a.secs = nil
+	a.pagers = map[string]*Pager{}
+	a.places = nil
+	a.seasonData, a.lastSection = nil, ""
+	a.lastFocus, a.focusReady = focusPosition{}, false
+	a.stack = nil
+	a.Push(NewHomeUsers(a, a.Cfg.Token))
 }
 
 // SignOut forgets the sign-in and returns to the sign-in screen.
@@ -826,6 +866,7 @@ func (a *App) SignOut() {
 		return
 	}
 	a.Plex = nil
+	a.Art.SetClient(nil)
 	a.secs = nil
 	a.pagers = map[string]*Pager{}
 	a.places = nil

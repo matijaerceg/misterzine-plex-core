@@ -797,7 +797,9 @@ func (c *Client) pictureSource(src string, w, h int, logo bool) (string, url.Val
 		ext, q = ".png", url.Values{"width": {strconv.Itoa(w)}, "height": {strconv.Itoa(h)}, "minSize": {"0"},
 			"upscale": {"0"}, "format": {"png"}, "url": {src}}
 	}
-	sum := sha1.Sum([]byte(fmt.Sprintf("%s|%dx%d", src, w, h)))
+	// Identical artwork paths on different servers or profiles must not share
+	// cached bytes. Only the digest is written, never the credentials.
+	sum := sha1.Sum([]byte(fmt.Sprintf("%s\x00%s\x00%s|%dx%d", c.Host, c.Token, src, w, h)))
 	return filepath.Join(c.CacheDir, hex.EncodeToString(sum[:8])+ext), q, nil
 }
 

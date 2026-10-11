@@ -5,6 +5,30 @@ Detailed behavior and display settings. For everyday help, see the
 
 ## Using Plex
 
+### Household profiles
+
+Accounts without Plex Home open their libraries without a user-selection screen.
+A Plex Home with one unprotected profile also continues automatically. Homes
+with multiple profiles show **Who's watching?**; selecting a protected profile
+requires its Plex PIN, including the primary account. Use Up/Down to choose a
+digit and OK to enter it, or type the digits on a keyboard. Back erases a digit
+or returns to the profile list when the entry is empty. PINs are not saved.
+
+**Options > Switch user** changes the active household profile without linking
+the device again. Libraries, playback and watch progress use that profile's
+Plex access. Switching clears local recent searches and hidden-library choices
+when the profile changes.
+
+**Options > Sign in automatically** remembers the last selected profile on this
+installation, skipping the picker and its PIN on startup. It is off by default;
+only a signed-in full account can change it. A managed profile can be remembered
+after a full account enables the setting. Explicitly switching to a protected
+profile still requires its PIN. Household options are hidden for ordinary
+accounts without Plex Home.
+
+Checking profiles and switching users requires a connection to Plex. A failed
+lookup or rejected PIN leaves the libraries locked rather than opening the
+primary account. Automatic sign-in uses the saved server connection at startup.
 
 ### Controls
 

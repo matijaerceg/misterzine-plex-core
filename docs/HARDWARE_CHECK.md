@@ -16,5 +16,15 @@ should use the saved size. Check More is available for a 4:3 video too. Compare
 styled ASS/SSA and image-based PGS/VobSub separately and record any server or
 format limitations. Include long lines with cropping enabled.
 
+For household profiles, test an ordinary account with no Plex Home (no picker),
+a Home with one unprotected profile, and a Home with multiple profiles including
+a protected primary account and a managed profile. Check wrong and correct PINs
+using the controller and keyboard, and scroll a long profile list. After switching,
+confirm the available libraries, Continue Watching and playback progress belong
+to the selected profile. Relaunch with automatic sign-in off and on; verify a
+managed profile cannot change that option and explicit switching still asks for
+a protected profile's PIN. Check network failure during selection never opens
+the primary account, and check startup while the network/clock is still settling.
+
 Record the hardware and output combinations tested in the release notes.
 Keep raw device logs and internal test journals outside this public repository.

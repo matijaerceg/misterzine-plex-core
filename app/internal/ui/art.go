@@ -20,6 +20,7 @@ import (
 // The decoded set is bounded (LRU) so memory stays flat however far you scroll.
 type Art struct {
 	client          *plex.Client
+	generation      uint64 // discards downloads from a previous account or server
 	mu              sync.Mutex
 	cond            *sync.Cond
 	have            map[string]*artEntry
@@ -86,12 +87,14 @@ func NewArt(c *plex.Client, n int, wake chan struct{}) *Art {
 	return a
 }
 
-// SetClient points the loader at a server (after sign-in); what is
-// decoded stays, keyed by path, which the new server will not share.
+// SetClient forgets the previous account's decoded and queued artwork.
 func (a *Art) SetClient(c *plex.Client) {
 	a.mu.Lock()
 	a.client = c
+	a.generation++
 	a.have = map[string]*artEntry{}
+	a.wants = nil
+	a.busy = map[string]bool{}
 	a.order = nil
 	a.failed = map[string]bool{}
 	a.warm, a.warmed = nil, nil
@@ -151,14 +154,15 @@ func (a *Art) worker(background bool) {
 	found:
 		k := r.key()
 		a.busy[k] = true
+		client, generation := a.client, a.generation
 		a.mu.Unlock()
 
 		var img *gfx.Image
 		var err error
 		if r.diskOnly {
-			_, err = a.fetchFile(r)
+			_, err = artFile(client, r)
 		} else {
-			img, err = a.fetch(r)
+			img, err = fetchArt(client, r)
 		}
 		var band *gfx.Image
 		if err == nil && !r.diskOnly && r.w == WallPW && r.h == WallPH && !r.logo && r.fade == 0 {
@@ -166,6 +170,10 @@ func (a *Art) worker(background bool) {
 		}
 
 		a.mu.Lock()
+		if generation != a.generation {
+			a.mu.Unlock()
+			continue
+		}
 		delete(a.busy, k)
 		if err != nil {
 			a.failed[k] = true
@@ -279,32 +287,38 @@ func (a *Art) evict() {
 // fetched at square pixels for the shape they will have on screen (a
 // poster box of 135x180 frame px is 135x203 square px) and squeezed
 // vertically here, so nothing is cropped; logos are fetched 8/9 as wide.
-func (a *Art) fetchFile(r artReq) (string, error) {
-	if r.logo {
-		return a.client.Logo(r.thumb, r.w*8/9, r.h)
+func artFile(client *plex.Client, r artReq) (string, error) {
+	if client == nil {
+		return "", fmt.Errorf("no artwork client")
 	}
-	return a.client.Art(r.thumb, r.w, (r.h*9+4)/8)
+	if r.logo {
+		return client.Logo(r.thumb, r.w*8/9, r.h)
+	}
+	return client.Art(r.thumb, r.w, (r.h*9+4)/8)
 }
 
 // fetchData is fetchFile for noStore: the picture's bytes, from the disk
 // cache when it holds them, else from the server without caching them.
-func (a *Art) fetchData(r artReq) ([]byte, error) {
-	if r.logo {
-		return a.client.LogoData(r.thumb, r.w*8/9, r.h)
+func artData(client *plex.Client, r artReq) ([]byte, error) {
+	if client == nil {
+		return nil, fmt.Errorf("no artwork client")
 	}
-	return a.client.ArtData(r.thumb, r.w, (r.h*9+4)/8)
+	if r.logo {
+		return client.LogoData(r.thumb, r.w*8/9, r.h)
+	}
+	return client.ArtData(r.thumb, r.w, (r.h*9+4)/8)
 }
 
 // load decodes the picture as fetched, before any treatment.
-func (a *Art) load(r artReq) (*gfx.Image, error) {
+func loadArt(client *plex.Client, r artReq) (*gfx.Image, error) {
 	if r.noStore {
-		data, err := a.fetchData(r)
+		data, err := artData(client, r)
 		if err != nil {
 			return nil, err
 		}
 		return gfx.Decode(data)
 	}
-	path, err := a.fetchFile(r)
+	path, err := artFile(client, r)
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +326,14 @@ func (a *Art) load(r artReq) (*gfx.Image, error) {
 }
 
 func (a *Art) fetch(r artReq) (*gfx.Image, error) {
-	img, err := a.load(r)
+	a.mu.Lock()
+	client := a.client
+	a.mu.Unlock()
+	return fetchArt(client, r)
+}
+
+func fetchArt(client *plex.Client, r artReq) (*gfx.Image, error) {
+	img, err := loadArt(client, r)
 	if err != nil {
 		return nil, err
 	}

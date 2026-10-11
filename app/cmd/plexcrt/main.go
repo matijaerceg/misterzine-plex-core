@@ -112,7 +112,7 @@ func run() int {
 		}
 	}
 
-	safeOutput := &safelog.Writer{Out: os.Stderr, Secrets: []string{cfg.Token, cfg.ServerToken}}
+	safeOutput := &safelog.Writer{Out: os.Stderr, Secrets: []string{cfg.Token, cfg.HomeToken, cfg.ServerToken}}
 	defer safeOutput.Flush()
 	lg := log.New(safeOutput, "", log.Ltime)
 	lg.Printf("MisterZine Plex Core %s (%s)", version, build)
@@ -120,7 +120,7 @@ func run() int {
 	// with the -host flag; with neither the app opens on the sign-in screen
 	var client *plex.Client
 	var playerEnv []string
-	if cfg.SignedIn() {
+	if cfg.ResumeWithoutPicker() {
 		client = plex.New(cfg.ServerURL, cfg.ServerToken, *cache, cfg.ClientID)
 		playerEnv = []string{"PLEX_HOST=" + cfg.ServerURL, "PLEX_TOKEN=" + cfg.ServerToken, "PLEX_CLIENT_ID=" + cfg.ClientID}
 	} else if tok, err := os.ReadFile(*tokenFile); *host != "" && *tokenFile != "" && err == nil && strings.TrimSpace(string(tok)) != "" {
