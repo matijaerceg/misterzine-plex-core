@@ -2,14 +2,14 @@
   "schema": 1,
   "releases": {
     "beta": {
-      "id": "beta-0.1.0-beta.16",
-      "version": "0.1.0-beta.16",
+      "id": "beta-0.1.0-beta.17",
+      "version": "0.1.0-beta.17",
       "channel": "beta",
-      "notes": "## 0.1.0-beta.16\n\nSupporter features arrive. One MisterZine code, entered once, unlocks today's supporter features for good on that card. Later features come with a new code. The code you already have keeps working, and there is no need to stay subscribed.\n\n**Supporter features (star in Options)**\n- Screensavers: a bouncing DVD logo, MiSTer-kun (a new colour at every bounce), the MisterZine logo, PLEX, or Media art, a slideshow of your libraries' backdrops. Choose the saver and its wait, and OK on either row tries it out.\n- Home logo: turn the wordmark on Home off.\n- Random tab in libraries (beta): a Random tab in every movie and TV library, shuffled again each time you leave the library.\n\n**For everyone**\n- Screen dim after: Never, or 1 to 30 minutes, for the menus and for a running screensaver.\n- Options grouped with gaps instead of headings; values with choices step with left and right, with arrows beside the selected one.\n- Hide any library from Options. Hidden libraries stay out of Home, Continue Watching and search.\n- Collections tab in movie and TV libraries.\n- Shuffle and Go to show on a show's pages.\n- Skip intro and skip credits buttons stay up longer and can be turned off in Options.\n- A failed library page is asked for again after five seconds instead of at once.\n- Longer fades show every step, so Media art and Home cross-fades are smooth.\n- Show beta features in Options reveals features still being tried out.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.16/MisterZine-Plex-Core-beta-0.1.0-beta.16.zip",
+      "notes": "## 0.1.0-beta.17\n\n- Send a report now includes the outcome of each advertised server connection: local, remote, or relay; HTTP or HTTPS; and failure reasons such as DNS lookup, timeout, certificate verification, or an HTTP status. The new diagnostics contain no server addresses, server names, or sign-in tokens.\n- The report also records how many connections Plex supplied and which connection was selected. Connection selection is unchanged; this update gathers evidence for connection failures, including issue #13, rather than claiming to fix them.\n- Help explains how to troubleshoot blocks from other frames during server video conversion.\n- Removed an unnecessary instruction from the update progress screen.\n\nTo report a connection problem, reproduce it after updating, then open Options > Send a report and share the displayed report code in your support issue. You can reach Options with Back from the sign-in screen.\n\nValidation: public and supporter build checks, Linux tests, ARM vet/build, and report redaction tests. No new MiSTer hardware or CRT/HDMI smoke test was performed for this diagnostics update.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.17/MisterZine-Plex-Core-beta-0.1.0-beta.17.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 5084527,
-      "sha256": "11edc2883344c1223b8153228145c8502aec5ea1ed510c091ad2c923ce4f8e19",
+      "size": 5086806,
+      "sha256": "3348d5853f54ffa709a2027c01cb1c745a676252e3d56665ec3e0fd792f9607c",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
