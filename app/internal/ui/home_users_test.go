@@ -36,8 +36,29 @@ func TestHomeGateHidesActionsThatCouldBypassSelection(t *testing.T) {
 		t.Fatal("full selected user cannot switch or enable automatic sign-in")
 	}
 	a.Cfg.HomeRestricted = true
-	if hasOption(o.items(), "Sign in automatically") {
-		t.Fatal("restricted user may change automatic sign-in")
+	row := o.items()[optionRow(o, "Sign in automatically")]
+	if row.readOnlyHint == "" || row.set != nil {
+		t.Fatal("managed profile should see automatic sign-in without permission to change it")
+	}
+}
+
+func TestManagedProfileCanReadAutomaticSignInWithoutChangingIt(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		a := betaTestApp(t)
+		a.Cfg.Token, a.Cfg.HomePickerNeeded, a.Cfg.HomeRestricted = "account-token", true, true
+		a.Cfg.AutoSignIn = enabled
+		a.Plex = &plex.Client{}
+		o := &Options{app: a}
+		row := o.items()[optionRow(o, "Sign in automatically")]
+		if row.get() != enabled {
+			t.Fatal("managed profile cannot read the device's current setting")
+		}
+		for _, key := range []input.Key{input.Left, input.Right, input.Enter} {
+			pressOption(t, o, "Sign in automatically", key)
+			if a.Cfg.AutoSignIn != enabled {
+				t.Fatal("managed profile changed automatic sign-in")
+			}
+		}
 	}
 }
 

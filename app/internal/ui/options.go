@@ -40,6 +40,9 @@ type option struct {
 	// locked greys the row: a supporter extra the card has no code for.
 	// Its value says what it needs and OK opens the code entry.
 	locked bool
+	// readOnlyHint keeps an unavailable setting visible and focusable, with
+	// its current value greyed and the reason shown below the list.
+	readOnlyHint string
 	// supporter marks a supporter extra's row (gated), locked or not: a
 	// star after its label.
 	supporter bool
@@ -134,9 +137,12 @@ func (o *Options) items() []option {
 				}
 				return cfg.HomeUserTitle
 			}, do: o.app.SwitchUser})
-			if !cfg.HomeRestricted {
-				items = append(items, option{label: "Sign in automatically", get: func() bool { return cfg.AutoSignIn }, set: func(v bool) { cfg.AutoSignIn = v }})
+			automatic := option{label: "Sign in automatically", get: func() bool { return cfg.AutoSignIn }, set: func(v bool) { cfg.AutoSignIn = v }}
+			if cfg.HomeRestricted {
+				automatic.set = nil
+				automatic.readOnlyHint = "Switch to a full Plex account to change this setting."
 			}
+			items = append(items, automatic)
 		}
 		items = append(items, option{label: "Choose server again", do: func() { o.app.Push(NewServerPicker(o.app)) }})
 	}
@@ -266,8 +272,8 @@ func (o *Options) Key(ev input.Event, now time.Time) {
 		o.cur = nextOption(items, o.cur, 1)
 	case input.Enter, input.Left, input.Right:
 		it := items[o.cur]
-		toggle := it.get != nil && !it.locked
-		step := it.step != nil && !it.locked && ev.Key != input.Enter
+		toggle := it.get != nil && it.set != nil && !it.locked && it.readOnlyHint == ""
+		step := it.step != nil && !it.locked && it.readOnlyHint == "" && ev.Key != input.Enter
 		if !toggle && !step {
 			// OK runs the row's action: a button's, a locked extra's code
 			// entry, a stepped row's own when it has one (and nothing when
@@ -418,14 +424,16 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 			continue
 		}
 		col := gfx.GreyHi
-		if it.locked {
+		if it.locked || it.readOnlyHint != "" {
 			col = gfx.GreyLo
 		}
 		if i == cur {
-			col = gfx.White
+			if it.readOnlyHint == "" {
+				col = gfx.White
+			}
 			menuFocusBar(c, MenuX, y+9, f.Body.Height())
 		}
-		stepped := it.step != nil && it.val != nil && !it.locked
+		stepped := it.step != nil && it.val != nil && !it.locked && it.readOnlyHint == ""
 		labelW := MenuWidth
 		if it.get != nil {
 			labelW -= f.Body.Width("Off") + 24
@@ -465,6 +473,9 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 			if it.get() {
 				v, vc = "On", gfx.Amber
 			}
+			if it.readOnlyHint != "" {
+				vc = gfx.GreyLo
+			}
 			o.app.textRight(c, MenuRight, y+9, f.Body, vc, v)
 			if it.busy != nil && it.busy() {
 				// the change took at once; the rows behind are still catching up
@@ -473,7 +484,7 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 		}
 		if it.val != nil {
 			vc := gfx.Amber
-			if it.locked {
+			if it.locked || it.readOnlyHint != "" {
 				vc = gfx.GreyLo
 			}
 			star := false
@@ -506,6 +517,12 @@ func (o *Options) Draw(c *gfx.Canvas, now time.Time) bool {
 	// more rows than the window: a scrollbar from the first row's text to
 	// the last's, the list measured in half rows (a gap's height)
 	menuScrollbar(c, ListY0+9, optionRows*MenuRowH-MenuRowH+f.Body.Height(), min(top, total-2*optionRows), 2*optionRows, total)
+	if hint := items[cur].readOnlyHint; hint != "" {
+		for i, line := range wrap(f.SmallBold, hint, MenuWidth, 2) {
+			o.app.text(c, MenuX, SafeBottom-48+i*24, f.SmallBold, gfx.GreyHi, line)
+		}
+		return false
+	}
 	if o.app.Build != "" {
 		o.app.text(c, MenuX, SafeBottom-48, f.Small, gfx.GreyLo, f.Small.Fit("Build: "+o.app.Build, MenuWidth))
 	}

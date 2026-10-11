@@ -21,7 +21,9 @@ when the profile changes.
 
 **Options > Sign in automatically** remembers the last selected profile on this
 installation, skipping the picker and its PIN on startup. It is off by default;
-only a signed-in full account can change it. A managed profile can be remembered
+only a signed-in full account can change it. Managed profiles see its current
+On/Off value greyed out; selecting the row explains how to change it.
+A managed profile can be remembered
 after a full account enables the setting. Explicitly switching to a protected
 profile still requires its PIN. Household options are hidden for ordinary
 accounts without Plex Home.
