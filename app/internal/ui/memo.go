@@ -23,8 +23,8 @@ type memo struct {
 var memos = []memo{
 	{
 		ID:    "2026-10-stable-soon",
-		Title: "Almost stable",
-		Text:  "We're close to a stable first release. If you run into any issues, please report them on Discord, GitHub or the MiSTer forum.",
+		Title: "Close to stable release!",
+		Text:  "We're close to a stable first release. Thanks for your support and issue reports so far! If you run into anything, please report it on Discord, GitHub or the MiSTer forum. -Matija",
 	},
 }
 
