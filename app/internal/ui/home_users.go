@@ -171,7 +171,7 @@ func (h *HomeUsers) connectServer(server plex.Server) {
 			}
 			h.busy = false
 			if err != nil {
-				h.phase, h.status, h.problem = "servers", "", "Could not reach server. Press OK to retry."
+				h.phase, h.status, h.problem = "servers", "", reachFailure("server", err)
 				return
 			}
 			h.finish(server, uri)
@@ -371,7 +371,13 @@ func (h *HomeUsers) Draw(c *gfx.Canvas, now time.Time) bool {
 		return true
 	}
 	if h.problem != "" {
-		h.app.text(c, SafeX, SafeBottom-55, f.Body, gfx.GreyHi, f.Body.Fit(h.problem, SafeW))
+		// two lines: the router remedy does not fit one
+		lines := wrap(f.Body, h.problem, SafeW, 2)
+		y := SafeBottom - 55 - (len(lines)-1)*(f.Body.Height()+4)
+		for _, line := range lines {
+			h.app.text(c, SafeX, y, f.Body, gfx.GreyHi, line)
+			y += f.Body.Height() + 4
+		}
 	}
 	return false
 }

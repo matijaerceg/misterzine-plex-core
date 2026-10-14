@@ -75,6 +75,46 @@ func TestFailedConnectionsAppearInReportLog(t *testing.T) {
 	}
 }
 
+// Report RXN6 (Oct 2026): a router with DNS rebind protection answered that
+// the local plex.direct name does not exist, and the remote one timed out.
+func TestReachNamesTheRouterRefusingTheLocalName(t *testing.T) {
+	var buf bytes.Buffer
+	logger := log.New(&buf, "", 0)
+	const local = "192-168-1-9.0123456789abcdef.plex.direct"
+	s := Server{Name: "private-server", AccessToken: "secret-token", Connections: []Connection{
+		{URI: "https://" + local + ":32400", Local: true},
+		{URI: "https://203-0-113-9.0123456789abcdef.plex.direct:32400"},
+	}}
+	client := &http.Client{Transport: accountTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Hostname() == local {
+			return nil, &net.DNSError{Err: "no such host", Name: local, IsNotFound: true}
+		}
+		return nil, &net.OpError{Op: "dial", Err: syscall.ETIMEDOUT}
+	})}
+	_, err := reach(s, client, logger.Printf)
+	if err == nil || !LocalNameBlocked(err) {
+		t.Fatalf("the refused local name was not reported as the cause: %v", err)
+	}
+	if !strings.Contains(buf.String(), "DNS refused a plex.direct name") {
+		t.Errorf("no hint in the log: %s", buf.String())
+	}
+	for _, secret := range []string{"192-168", "0123456789abcdef", "secret-token", "private-server"} {
+		if strings.Contains(buf.String(), secret) {
+			t.Errorf("log leaked %q", secret)
+		}
+	}
+	// a name that is not Plex's, or a DNS server that gave no answer, is something else
+	for _, other := range []error{
+		&net.DNSError{Err: "no such host", Name: "nas.example", IsNotFound: true},
+		&net.DNSError{Err: "i/o timeout", Name: local, IsTimeout: true},
+		syscall.ECONNREFUSED,
+	} {
+		if LocalNameBlocked(&url.Error{Op: "Get", URL: "https://x", Err: other}) {
+			t.Errorf("%v was blamed on the router", other)
+		}
+	}
+}
+
 func TestConnectionReportSelectionAndEmptyList(t *testing.T) {
 	var buf bytes.Buffer
 	logger := log.New(&buf, "", 0)

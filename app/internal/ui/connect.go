@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"syscall"
 	"time"
+
+	"plexcrt/internal/plex"
 )
 
 // Plex opened soon after the MiSTer is switched on can fail to reach a
@@ -27,9 +29,17 @@ var clockFloor = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 type netProblem int
 
 const (
-	problemServer  netProblem = iota // no answer from the server
-	problemNetwork                   // no route or no DNS server yet
-	problemClock                     // the clock is not set, so no certificate is valid yet
+	problemServer    netProblem = iota // no answer from the server
+	problemNetwork                     // no route or no DNS server yet
+	problemClock                       // the clock is not set, so no certificate is valid yet
+	problemLocalName                   // the router refuses the server's plex.direct name
+)
+
+// Advice for a plex.direct name the router refuses, in the user's terms; the
+// Home screen, the Plex Home screen and the server picker all show it.
+const (
+	routerBlocksName = "Your router blocks the server's name."
+	routerAdvice     = "Allow plex.direct in its DNS rebind protection, or use 1.1.1.1 as DNS."
 )
 
 // unreachable reports whether err means no answer came at all, as opposed
@@ -45,6 +55,9 @@ func classify(err error, now time.Time) netProblem {
 	}
 	// "not found" is an answer from a working DNS server: the name itself
 	// does not resolve, which waiting will not change
+	if plex.LocalNameBlocked(err) {
+		return problemLocalName
+	}
 	var dns *net.DNSError
 	if (errors.As(err, &dns) && !dns.IsNotFound) || errors.Is(err, syscall.ENETUNREACH) {
 		return problemNetwork
@@ -73,6 +86,23 @@ func (p netProblem) failure() (string, string) {
 		return "No network connection.", "Check the MiSTer's network cable or Wi-Fi."
 	case problemClock:
 		return "The MiSTer's clock is not set.", "It gets the time from the internet, and Plex needs it."
+	case problemLocalName:
+		return routerBlocksName, routerAdvice
 	}
 	return "Cannot reach the server.", "Check the network and confirm your Plex server is running."
+}
+
+// settled reports whether retrying soon is pointless: the failure is an
+// answer, not silence, so the error shows at once instead of after the grace.
+func (p netProblem) settled() bool {
+	return p == problemLocalName
+}
+
+// reachFailure is the line for a server that could not be reached while
+// signing in; a router refusing its name gets the remedy, the rest a retry.
+func reachFailure(server string, err error) string {
+	if plex.LocalNameBlocked(err) {
+		return routerBlocksName + " " + routerAdvice + " OK: retry."
+	}
+	return "Could not reach " + server + ". Press OK to retry."
 }

@@ -180,6 +180,9 @@ func (l *Login) connect(gen int, s plex.Server) {
 	if err != nil {
 		l.busy = false
 		l.err = "Cannot reach " + s.Name + ": " + err.Error()
+		if plex.LocalNameBlocked(err) {
+			l.err = routerBlocksName + " " + routerAdvice
+		}
 		l.stat = ""
 		l.mu.Unlock()
 		l.wake()
@@ -316,7 +319,13 @@ func (l *Login) Draw(c *gfx.Canvas, now time.Time) bool {
 		l.app.text(c, SafeX, SafeBottom-18, f.SmallBold, gfx.GreyLo, "Back: Options")
 	}
 	if errS != "" {
-		l.app.text(c, SafeX, y, f.Body, gfx.GreyHi, f.Body.Fit(errS, SafeW))
+		// a second line (the router remedy) goes above, clear of the Back hint
+		lines := wrap(f.Body, errS, SafeW, 2)
+		y -= (len(lines) - 1) * (f.Body.Height() + 4)
+		for _, line := range lines {
+			l.app.text(c, SafeX, y, f.Body, gfx.GreyHi, line)
+			y += f.Body.Height() + 4
+		}
 		return false
 	}
 	if stat != "" {

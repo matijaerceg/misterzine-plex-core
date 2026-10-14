@@ -141,7 +141,7 @@ func (h *Home) load(r homeResult, now time.Time) {
 // answers within the grace period, otherwise as an error retried every 30 s.
 func (h *Home) fail(err error, now time.Time) {
 	problem := classify(err, now)
-	connecting := unreachable(err) && now.Before(h.graceUntil)
+	connecting := unreachable(err) && !problem.settled() && now.Before(h.graceUntil)
 	// once per cause, not once per retry
 	if h.err == nil || problem != h.problem || connecting != h.connecting {
 		h.app.Log.Printf("home: %v", err)

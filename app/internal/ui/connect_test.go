@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -29,6 +30,38 @@ func dialErr(err error) error {
 var noDNS = dialErr(&net.DNSError{Err: "dial udp [::1]:53: socket: address family not supported by protocol",
 	Name: "1-2-3-4.0123456789abcdef.plex.direct", Server: "[::1]:53"})
 
+// As logged behind a router with DNS rebind protection (report RXN6).
+var refusedName = dialErr(&net.DNSError{Err: "no such host", Name: "1-2-3-4.0123456789abcdef.plex.direct", IsNotFound: true})
+
+// A refused name is an answer, so the remedy shows at once, with no grace,
+// on the Home screen and when signing in.
+func TestRefusedLocalNameShowsTheRouterRemedyAtOnce(t *testing.T) {
+	app := &App{Log: log.New(io.Discard, "", 0), Cfg: &Config{ServerName: "Den"},
+		F: Fonts{Body: gfx.Load("med18"), Small: gfx.Load("reg16")}, T: gfx.NewTextCache(1, make(chan struct{}, 1))}
+	now := time.Now()
+	h := &Home{app: app, home: true, graceUntil: now.Add(ConnectGrace)}
+	h.load(homeResult{err: refusedName}, now)
+	if h.connecting || h.problem != problemLocalName || !h.refreshAt.Equal(now.Add(30*time.Second)) {
+		t.Fatal("the refused name was retried quietly instead of shown")
+	}
+	headline, advice := h.problem.failure()
+	if headline != routerBlocksName || advice != routerAdvice {
+		t.Errorf("Home screen text: %q / %q", headline, advice)
+	}
+	if app.F.Small.Width(advice) > SafeW || app.F.Body.Width(headline) > SafeW {
+		t.Error("the Home screen text does not fit its line")
+	}
+	h.Draw(gfx.NewCanvas(720, 480), now)
+
+	signIn := reachFailure("server", refusedName)
+	if !strings.Contains(signIn, routerAdvice) || len(wrap(app.F.Body, signIn, SafeW, 3)) > 2 {
+		t.Errorf("sign-in text missing the remedy or longer than two lines: %q", signIn)
+	}
+	if got := reachFailure("server", dialErr(os.NewSyscallError("connect", syscall.ECONNREFUSED))); got != "Could not reach server. Press OK to retry." {
+		t.Errorf("other failures changed: %q", got)
+	}
+}
+
 func TestClassifyStartupFailures(t *testing.T) {
 	set := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
 	unset := time.Unix(0, 0) // a MiSTer without a clock chip, before the network time
@@ -43,6 +76,8 @@ func TestClassifyStartupFailures(t *testing.T) {
 		{"no DNS server and no clock", noDNS, unset, problemNetwork},
 		{"no route", dialErr(os.NewSyscallError("connect", syscall.ENETUNREACH)), set, problemNetwork},
 		{"name does not resolve", dialErr(&net.DNSError{Err: "no such host", Name: "x", IsNotFound: true}), set, problemServer},
+		{"router refuses the plex.direct name", refusedName, set, problemLocalName},
+		{"router refuses it before the clock is set", refusedName, unset, problemLocalName},
 		{"certificate before the clock is set", cert, unset, problemClock},
 		{"certificate with the clock set", cert, set, problemServer},
 		{"server refuses", dialErr(os.NewSyscallError("connect", syscall.ECONNREFUSED)), set, problemServer},

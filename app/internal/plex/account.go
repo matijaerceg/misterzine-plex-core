@@ -2,8 +2,10 @@ package plex
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -247,13 +249,16 @@ func reach(s Server, probe *http.Client, logf func(string, ...any)) (string, err
 		}(i, c)
 	}
 	best := -1
-	var last error
+	var last, blocked error
 	var grace <-chan time.Time
 	for n := 0; n < len(s.Connections); n++ {
 		select {
 		case r := <-ch:
 			if r.err != nil {
 				last = r.err
+				if LocalNameBlocked(r.err) {
+					blocked = r.err
+				}
 				continue
 			}
 			if best < 0 || rank(s.Connections[r.i]) < rank(s.Connections[best]) {
@@ -275,9 +280,25 @@ func reach(s Server, probe *http.Client, logf func(string, ...any)) (string, err
 		logf("server connection: selected candidate %d", best+1)
 		return s.Connections[best].URI, nil
 	}
+	if blocked != nil {
+		// the one failure the user can name a cause for, so it is the one reported
+		logf("server connection: DNS refused a plex.direct name; routers with rebind protection do that")
+		last = blocked
+	}
 	if last == nil {
 		last = fmt.Errorf("no connections")
 	}
 	logf("server connection: no reachable advertised connection")
 	return "", last
+}
+
+// LocalNameBlocked reports whether err is DNS answering that a plex.direct
+// name does not exist. plex.tv names a server's local connection
+// <ip>.<hash>.plex.direct, resolving to a home-network address, and routers
+// with DNS rebind protection (on by default in OpenWrt, pfSense, Fritz!Box)
+// refuse such answers. Plex's own remedy is an exception for plex.direct on
+// the router, so the app says so instead of blaming the server.
+func LocalNameBlocked(err error) bool {
+	var dns *net.DNSError
+	return errors.As(err, &dns) && dns.IsNotFound && strings.HasSuffix(dns.Name, ".plex.direct")
 }
