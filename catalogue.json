@@ -2,14 +2,14 @@
   "schema": 1,
   "releases": {
     "beta": {
-      "id": "beta-0.1.0-beta.18",
-      "version": "0.1.0-beta.18",
+      "id": "beta-0.1.0-beta.19",
+      "version": "0.1.0-beta.19",
       "channel": "beta",
-      "notes": "## 0.1.0-beta.18\n\n- Plex Home profiles: choose who is watching, switch users from Options, and enter a PIN for protected profiles. Accounts without household profiles continue directly to their library.\n- Optional automatic sign-in remembers the last profile on this MiSTer and skips its startup picker and PIN. Managed profiles can see the current setting greyed out; select the row for an explanation. Full Plex accounts can change it. Manually switching to a protected profile still requires its PIN.\n- Subtitle size: choose Normal, Large, or Extra large from Options or playback More. The saved choice is shared between both menus. Changing size during playback keeps the position and paused state. Results depend on the subtitle format and Plex server conversion.\n- Bottom playback controls sit 24 pixels higher to improve visibility on CRTs with overscan.\n- Options navigation now wraps: Up from the first row goes to Version; Down from Version returns to the first row.\n\nValidated with public and supporter Go tests, ARM vet/builds, release tooling tests, package verification, and DE10-Nano testing of subtitle size, profile selection, incorrect/correct PINs, switching users, and automatic sign-in. Existing settings and beta access are retained when updating.",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.18/MisterZine-Plex-Core-beta-0.1.0-beta.18.zip",
+      "notes": "## 0.1.0-beta.19\n\n- A start-up note from the developer is shown once over Home. Hold OK for a second to close it.\n- Media art screensaver (supporter extra): new Options rows \"Art changes every\" (10 seconds to 5 minutes) and \"Art shows title\" (on by default, drawn at half opacity). Holding OK for a second over a picture opens that film or show; a tap just ends the screensaver; a hold let go early keeps it running.\n- When the router blocks the server's plex.direct name, the message now names the router.\n- The Home logo row is now worded \"Hide home logo\", so a locked row says what it unlocks.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.19/MisterZine-Plex-Core-beta-0.1.0-beta.19.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 5109293,
-      "sha256": "4cb7a4726c70366af8a8d50440b85fc621a206be6f0380a88d02c047bb102965",
+      "size": 5118071,
+      "sha256": "e410167ad42804e12f5a7112fb5261bf9c780ed3b5194bda2b8147758af6006f",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
