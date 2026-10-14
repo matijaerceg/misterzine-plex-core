@@ -37,15 +37,35 @@ func TestMemoShortTapDoesNotDismiss(t *testing.T) {
 	}
 }
 
+// frame does what the main loop does before each frame.
+func frame(a *App, now time.Time) {
+	if s, ok := a.top().(interface{ pollRefresh(time.Time) }); ok {
+		s.pollRefresh(now)
+	}
+}
+
+// frames runs the loop's frames from..to every 20 ms (the pad sends no
+// repeats for OK, only the press and the release).
+func frames(a *App, from, to time.Time) {
+	for at := from; !at.After(to); at = at.Add(20 * time.Millisecond) {
+		frame(a, at)
+	}
+}
+
 func TestMemoReleaseBeforeHoldResets(t *testing.T) {
 	a, _, p := memoApp(t)
 	t0 := time.Now()
 	a.key(input.Event{Key: input.Enter}, t0)
+	frames(a, t0, t0.Add(900*time.Millisecond))
 	a.key(input.Event{Key: input.Enter, Release: true}, t0.Add(900*time.Millisecond))
+	frames(a, t0.Add(900*time.Millisecond), t0.Add(1500*time.Millisecond))
+	if a.top() != p {
+		t.Fatal("dismissed after an early release")
+	}
 	// pressed again: the earlier 0.9 s does not count
-	t1 := t0.Add(1000 * time.Millisecond)
+	t1 := t0.Add(1500 * time.Millisecond)
 	a.key(input.Event{Key: input.Enter}, t1)
-	a.key(input.Event{Key: input.Enter, Repeat: true, Count: 1}, t1.Add(400*time.Millisecond))
+	frames(a, t1, t1.Add(900*time.Millisecond))
 	if a.top() != p {
 		t.Fatal("dismissed before a full hold")
 	}
@@ -54,33 +74,52 @@ func TestMemoReleaseBeforeHoldResets(t *testing.T) {
 	}
 }
 
-func TestMemoHoldDismissesAndSwallowsPress(t *testing.T) {
+func TestMemoPadHoldDismissesOnTheFrameAndSwallowsRelease(t *testing.T) {
 	a, under, p := memoApp(t)
 	t0 := time.Now()
 	a.key(input.Event{Key: input.Enter}, t0)
-	for i := 1; i <= 5; i++ {
-		at := t0.Add(400*time.Millisecond + time.Duration(i-1)*140*time.Millisecond)
-		a.key(input.Event{Key: input.Enter, Repeat: true, Count: i}, at)
-		if at.Sub(t0) < MemoHold && a.top() != p {
-			t.Fatalf("dismissed at %v", at.Sub(t0))
-		}
+	frames(a, t0, t0.Add(MemoHold-time.Millisecond))
+	if a.top() != p {
+		t.Fatal("dismissed before 1 s")
 	}
-	a.key(input.Event{Key: input.Enter, Repeat: true, Count: 6}, t0.Add(1100*time.Millisecond))
+	frame(a, t0.Add(MemoHold))
 	if a.top() == Screen(p) {
-		t.Fatal("a 1 s hold did not dismiss")
+		t.Fatal("a 1 s hold did not dismiss while OK was still down")
 	}
-	a.key(input.Event{Key: input.Enter, Repeat: true, Count: 7}, t0.Add(1240*time.Millisecond))
-	a.key(input.Event{Key: input.Enter, Release: true, Count: 7}, t0.Add(1300*time.Millisecond))
+	if !slices.Equal(a.Cfg.SeenMemos, []string{"test-a"}) {
+		t.Fatalf("seen %v", a.Cfg.SeenMemos)
+	}
+	a.key(input.Event{Key: input.Enter, Release: true}, t0.Add(3*time.Second))
 	if len(under.keys) != 0 {
-		t.Fatalf("the rest of the press reached Home: %v", under.keys)
+		t.Fatalf("the release reached Home: %v", under.keys)
 	}
-	a.key(input.Event{Key: input.Enter}, t0.Add(2*time.Second))
+	a.key(input.Event{Key: input.Enter}, t0.Add(4*time.Second))
 	if len(under.keys) != 1 {
 		t.Fatal("the next press was lost")
 	}
 }
 
-func TestMemoHoldReleasedAfterSecondDismisses(t *testing.T) {
+func TestMemoKeyboardHoldSwallowsTypematic(t *testing.T) {
+	a, under, p := memoApp(t)
+	enter := input.Event{Key: input.Enter, Keyboard: true, ScanCode: 0x5A}
+	rep, rel := enter, enter
+	rep.Repeat, rel.Release = true, true
+	t0 := time.Now()
+	a.key(enter, t0)
+	a.key(rep, t0.Add(500*time.Millisecond))
+	frames(a, t0, t0.Add(MemoHold))
+	if a.top() == Screen(p) {
+		t.Fatal("a keyboard hold did not dismiss")
+	}
+	a.key(rep, t0.Add(1100*time.Millisecond))
+	a.key(rel, t0.Add(1200*time.Millisecond))
+	if len(under.keys) != 0 {
+		t.Fatalf("the rest of the key press reached Home: %v", under.keys)
+	}
+}
+
+func TestMemoReleaseAfterSecondDismisses(t *testing.T) {
+	// a slow frame: the release lands before the frame that would time it
 	a, _, p := memoApp(t)
 	t0 := time.Now()
 	a.key(input.Event{Key: input.Enter}, t0)

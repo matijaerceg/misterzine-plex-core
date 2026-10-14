@@ -61,8 +61,9 @@ func (a *App) showMemo() {
 type MemoPage struct {
 	app    *App
 	m      memo
-	downAt time.Time // when OK went down; zero while it is up
-	nudge  time.Time // another button was pressed: the hint flashes amber
+	downAt time.Time   // when OK went down; zero while it is up
+	press  input.Event // that press, so the rest of it can be swallowed
+	nudge  time.Time   // another button was pressed: the hint flashes amber
 }
 
 // Back is used up: the memo stays until OK is held.
@@ -95,11 +96,21 @@ func (p *MemoPage) Key(ev input.Event, now time.Time) {
 		}
 		p.downAt = time.Time{} // let go early: start again
 	case ev.Repeat:
+		// a keyboard's typematic repeat; the pad's OK does not repeat
 		if !p.downAt.IsZero() && now.Sub(p.downAt) >= MemoHold {
 			p.dismiss(ev, now)
 		}
 	default:
-		p.downAt = now
+		p.downAt, p.press = now, ev
+	}
+}
+
+// pollRefresh runs before each frame. The pad never repeats OK, so the hold
+// is timed here: Draw keeps frames coming while OK is down, and the memo
+// closes the frame the hold completes, with the release still to come.
+func (p *MemoPage) pollRefresh(now time.Time) {
+	if !p.downAt.IsZero() && now.Sub(p.downAt) >= MemoHold {
+		p.dismiss(p.press, now)
 	}
 }
 
@@ -113,7 +124,7 @@ func (p *MemoPage) held(now time.Time) float64 {
 
 // dismiss records the memo as seen and closes it. The rest of the press
 // (its repeats and release) is swallowed, so it cannot open the item under
-// it on Home. A failed save still closes it for this run.
+// it on Home (ev is the press, or a repeat or release of it). A failed save still closes it for this run.
 func (p *MemoPage) dismiss(ev input.Event, now time.Time) {
 	a := p.app
 	if a.Cfg != nil {
@@ -128,7 +139,8 @@ func (p *MemoPage) dismiss(ev input.Event, now time.Time) {
 		}
 	}
 	if !ev.Release {
-		a.dim.wokeBy, a.dim.woken = ev, true // as a waking press: the rest is used up
+		// as a waking press: its repeats and the release still due are used up
+		a.dim.wokeBy, a.dim.woken = input.Event{Key: ev.Key, Keyboard: ev.Keyboard, ScanCode: ev.ScanCode}, true
 	}
 	a.Pop()
 }
