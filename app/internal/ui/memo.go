@@ -63,29 +63,20 @@ type MemoPage struct {
 	m      memo
 	downAt time.Time   // when OK went down; zero while it is up
 	press  input.Event // that press, so the rest of it can be swallowed
-	nudge  time.Time   // another button was pressed: the hint flashes amber
 }
 
 // Back is used up: the memo stays until OK is held.
-func (p *MemoPage) Back() bool { p.nudge = time.Now(); return true }
+func (p *MemoPage) Back() bool { return true }
 
 // Keyboard takes every key, so typing cannot reach the page under it.
 func (p *MemoPage) Keyboard(ev input.Event, now time.Time) bool {
-	if ev.Key == input.Back {
-		if !ev.Repeat && !ev.Release {
-			p.nudge = now
-		}
-		return true
-	}
 	p.Key(ev, now)
 	return true
 }
 
+// Key times the hold of OK; every other button does nothing.
 func (p *MemoPage) Key(ev input.Event, now time.Time) {
 	if ev.Key != input.Enter {
-		if !ev.Repeat && !ev.Release {
-			p.nudge = now
-		}
 		return
 	}
 	switch {
@@ -170,13 +161,7 @@ func (p *MemoPage) Draw(c *gfx.Canvas, now time.Time) bool {
 		ty += lineH
 	}
 	ty += 20
-	hint := "Hold OK to dismiss"
-	col := gfx.GreyLo
-	nudged := !p.nudge.IsZero() && now.Sub(p.nudge) < 600*time.Millisecond
-	if nudged {
-		col = gfx.Amber
-	}
-	c.TextCenter(c.W/2, ty, f.Small, col, hint)
+	c.TextCenter(c.W/2, ty, f.Small, gfx.GreyLo, "Hold OK to dismiss")
 	ty += f.Small.Height() + 8
 	bx := (c.W - memoBarW) / 2
 	c.Fill(bx, ty, memoBarW, 2, 0x404040)
@@ -184,5 +169,5 @@ func (p *MemoPage) Draw(c *gfx.Canvas, now time.Time) bool {
 	if held > 0 {
 		c.Fill(bx, ty, int(float64(memoBarW)*held), 2, gfx.Amber)
 	}
-	return held > 0 || nudged
+	return held > 0
 }
