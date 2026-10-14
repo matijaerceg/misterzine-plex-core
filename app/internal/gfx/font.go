@@ -111,6 +111,12 @@ func (f *Font) Fit(s string, maxW int) string {
 
 // Text draws s with its cell top at y and returns the x after the last glyph.
 func (c *Canvas) Text(x, y int, f *Font, col Color, s string) int {
+	return c.TextAlpha(x, y, f, col, 255, s)
+}
+
+// TextAlpha is Text with the glyphs' coverage scaled by alpha (0..255), so
+// the text shows through to what is under it: 128 is half-transparent.
+func (c *Canvas) TextAlpha(x, y int, f *Font, col Color, alpha int, s string) int {
 	b, g, r := int(byte(col)), int(byte(col>>8)), int(byte(col>>16))
 	for i := 0; i < len(s); i++ {
 		gi := glyph(s[i])
@@ -130,6 +136,12 @@ func (c *Canvas) Text(x, y int, f *Font, col Color, s string) int {
 					continue
 				}
 				o := (py*c.W + px) * 4
+				if alpha < 255 {
+					a = byte(int(a) * alpha / 255)
+					if a == 0 {
+						continue
+					}
+				}
 				if a == 255 {
 					c.Pix[o], c.Pix[o+1], c.Pix[o+2] = byte(b), byte(g), byte(r)
 					continue
