@@ -31,6 +31,8 @@ type Config struct {
 	// HiddenLibraries are the keys of the chosen server's libraries left
 	// off Home, the menu and search (Options > Libraries).
 	HiddenLibraries []string `json:"hidden_libraries,omitempty"`
+	// SeenMemos are the ids of the start-up memos already dismissed.
+	SeenMemos []string `json:"seen_memos,omitempty"`
 	// Premium is the supporter extras' own settings, by key; the public
 	// build keeps them without using them.
 	Premium          map[string]string `json:"premium,omitempty"`

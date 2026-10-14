@@ -99,13 +99,14 @@ type App struct {
 	Notice   string
 	NoticeAt time.Time
 	// later holds closures for the render thread (results of background work).
-	later      chan func()
-	seasonData *seasonData // one selected season, shared with its opening page
-	scr        *gfx.Canvas
-	osd        OSD  // the playback overlay: the core's plane
-	crop       Crop // the playback's crop: Options' at the start, then the playback menu's
-	dim        idleDim
-	playing    bool // a playback has the screen (playLoop), paused or not
+	later       chan func()
+	seasonData  *seasonData // one selected season, shared with its opening page
+	scr         *gfx.Canvas
+	osd         OSD  // the playback overlay: the core's plane
+	crop        Crop // the playback's crop: Options' at the start, then the playback menu's
+	dim         idleDim
+	playing     bool // a playback has the screen (playLoop), paused or not
+	memoChecked bool // Home has been reached this run and the memos looked at (memo.go)
 
 	stack  []Screen
 	dirty  bool
@@ -1063,6 +1064,7 @@ func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
 			return
 		}
 		a.runLater()
+		a.showMemo()
 		a.idle(time.Now(), a.menuWaiting()) // the idle tick checks it every second
 		a.pollUpdates(time.Now())
 		if h, ok := a.top().(*Home); ok {

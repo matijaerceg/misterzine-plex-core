@@ -125,6 +125,13 @@ fail until then. For its first minute Plex keeps trying every two seconds and
 shows **Connecting** with what it is waiting for. After that it shows the error
 and tries again every 30 seconds; OK tries at once.
 
+### Release notes on start
+
+A release can carry a short note. It appears once, over Home, the first time
+Home has connected after the app starts, and stays until OK is held for one
+second (a bar under the hint fills while it is held). Once dismissed, that
+note is remembered in the settings file and does not show again.
+
 ### Subtitles
 
 **Options > Subtitle size** chooses Normal (100%), Large (150%) or Extra large

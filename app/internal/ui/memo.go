@@ -1,0 +1,176 @@
+package ui
+
+import (
+	"slices"
+	"time"
+
+	"plexcrt/internal/gfx"
+	"plexcrt/internal/input"
+)
+
+// A memo is a short note from the developers, bundled with the release. Each
+// one shows once, over Home, the first time Home is reached after start-up,
+// and stays until OK is held for MemoHold. Its id is kept in the config when
+// it is dismissed, so it never shows again; a new note takes a new id.
+type memo struct {
+	ID    string // never reused: the config remembers dismissed ids
+	Title string
+	Text  string
+}
+
+// memos lists the notes, oldest first. Add a new one at the end with a new
+// id; the first one not yet dismissed is the one shown.
+var memos = []memo{
+	{
+		ID:    "2026-10-stable-soon",
+		Title: "Almost stable",
+		Text:  "We're close to a stable first release. If you run into any issues, please report them on Discord, GitHub or the MiSTer forum.",
+	},
+}
+
+// MemoHold is how long OK must be held to dismiss a memo.
+const MemoHold = time.Second
+
+// unseenMemo is the first memo in list not dismissed in the config.
+func unseenMemo(cfg *Config, list []memo) (memo, bool) {
+	for _, m := range list {
+		if cfg == nil || !slices.Contains(cfg.SeenMemos, m.ID) {
+			return m, true
+		}
+	}
+	return memo{}, false
+}
+
+// showMemo puts the unseen memo, if any, over Home once per run: only when
+// Home is on top and connected, with no playback or stream start in the way.
+func (a *App) showMemo() {
+	if a.memoChecked || a.playing || !a.Starting.IsZero() || len(a.stack) == 0 {
+		return
+	}
+	h, ok := a.top().(*Home)
+	if !ok || !h.home || h.err != nil || h.connecting {
+		return // not Home, or Home still connecting: wait for it
+	}
+	a.memoChecked = true
+	if m, ok := unseenMemo(a.Cfg, memos); ok {
+		a.Push(&MemoPage{app: a, m: m})
+	}
+}
+
+// MemoPage is the memo's popup. Only a held OK takes it away.
+type MemoPage struct {
+	app    *App
+	m      memo
+	downAt time.Time // when OK went down; zero while it is up
+	nudge  time.Time // another button was pressed: the hint flashes amber
+}
+
+// Back is used up: the memo stays until OK is held.
+func (p *MemoPage) Back() bool { p.nudge = time.Now(); return true }
+
+// Keyboard takes every key, so typing cannot reach the page under it.
+func (p *MemoPage) Keyboard(ev input.Event, now time.Time) bool {
+	if ev.Key == input.Back {
+		if !ev.Repeat && !ev.Release {
+			p.nudge = now
+		}
+		return true
+	}
+	p.Key(ev, now)
+	return true
+}
+
+func (p *MemoPage) Key(ev input.Event, now time.Time) {
+	if ev.Key != input.Enter {
+		if !ev.Repeat && !ev.Release {
+			p.nudge = now
+		}
+		return
+	}
+	switch {
+	case ev.Release:
+		if !p.downAt.IsZero() && now.Sub(p.downAt) >= MemoHold {
+			p.dismiss(ev, now)
+			return
+		}
+		p.downAt = time.Time{} // let go early: start again
+	case ev.Repeat:
+		if !p.downAt.IsZero() && now.Sub(p.downAt) >= MemoHold {
+			p.dismiss(ev, now)
+		}
+	default:
+		p.downAt = now
+	}
+}
+
+// held is how far through the hold OK is, 0..1.
+func (p *MemoPage) held(now time.Time) float64 {
+	if p.downAt.IsZero() {
+		return 0
+	}
+	return min(1, float64(now.Sub(p.downAt))/float64(MemoHold))
+}
+
+// dismiss records the memo as seen and closes it. The rest of the press
+// (its repeats and release) is swallowed, so it cannot open the item under
+// it on Home. A failed save still closes it for this run.
+func (p *MemoPage) dismiss(ev input.Event, now time.Time) {
+	a := p.app
+	if a.Cfg != nil {
+		before := a.Cfg.snapshot()
+		a.Cfg.SeenMemos = append(slices.Clone(a.Cfg.SeenMemos), p.m.ID)
+		if err := a.Cfg.Save(); err != nil {
+			if a.Log != nil {
+				a.Log.Printf("config: %v", err)
+			}
+			*a.Cfg = before
+			a.Notice, a.NoticeAt = "Could not save settings. Check free space and retry.", now
+		}
+	}
+	if !ev.Release {
+		a.dim.wokeBy, a.dim.woken = ev, true // as a waking press: the rest is used up
+	}
+	a.Pop()
+}
+
+const (
+	memoX, memoW = SafeX + 40, SafeW - 80
+	memoPad      = 24
+	memoBarW     = 240
+)
+
+func (p *MemoPage) Draw(c *gfx.Canvas, now time.Time) bool {
+	f := p.app.F
+	c.Fill(0, 0, c.W, c.H, gfx.Bg)
+	lines := wrapAll(f.Body, p.m.Text, memoW-2*memoPad)
+	lineH := f.Body.Height() + 6
+	h := memoPad + f.Title.Height() + 12 + 2 + 16 + len(lines)*lineH + 20 + f.Small.Height() + 8 + 2 + memoPad
+	y := max(SafeY, SafeY+(SafeH-h)/2)
+	c.Fill(memoX, y, memoW, h, gfx.Bar)
+	c.Frame(memoX, y, memoW, h, 2, gfx.GreyLo)
+	ty := y + memoPad
+	c.TextCenter(c.W/2, ty, f.Title, gfx.White, p.m.Title)
+	ty += f.Title.Height() + 12
+	c.Fill(memoX+memoPad, ty, memoW-2*memoPad, 2, gfx.Amber)
+	ty += 2 + 16
+	for _, l := range lines {
+		c.Text(memoX+memoPad, ty, f.Body, gfx.White, l)
+		ty += lineH
+	}
+	ty += 20
+	hint := "Hold OK to dismiss"
+	col := gfx.GreyLo
+	nudged := !p.nudge.IsZero() && now.Sub(p.nudge) < 600*time.Millisecond
+	if nudged {
+		col = gfx.Amber
+	}
+	c.TextCenter(c.W/2, ty, f.Small, col, hint)
+	ty += f.Small.Height() + 8
+	bx := (c.W - memoBarW) / 2
+	c.Fill(bx, ty, memoBarW, 2, 0x404040)
+	held := p.held(now)
+	if held > 0 {
+		c.Fill(bx, ty, int(float64(memoBarW)*held), 2, gfx.Amber)
+	}
+	return held > 0 || nudged
+}
