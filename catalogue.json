@@ -2,14 +2,14 @@
   "schema": 1,
   "releases": {
     "beta": {
-      "id": "beta-0.1.0-beta.20",
-      "version": "0.1.0-beta.20",
+      "id": "beta-0.1.0-beta.21",
+      "version": "0.1.0-beta.21",
       "channel": "beta",
-      "notes": "## 0.1.0-beta.20\n\n- Media art screensaver (supporter extra): titles are now picked evenly across all your movie and TV libraries, so a small library no longer repeats its few titles, and titles shown lately are skipped.\n- The dimming row in Options is now \"Menu dim after\", or \"Screensaver dim after\" when a screensaver is on, so it says what it counts from. Paused video still dims after 3 minutes.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.20/MisterZine-Plex-Core-beta-0.1.0-beta.20.zip",
+      "notes": "## 0.1.0-beta.21\n\n- Media art screensaver (supporter extra): choose which libraries it shows. Options has an \"Art from\" switch for each movie and TV library the app shows. Libraries hidden in Options never appear in the screensaver, and at least one library always stays on.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.21/MisterZine-Plex-Core-beta-0.1.0-beta.21.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 5120011,
-      "sha256": "b5dbe8b001558083adb829855bb2742d6638598be76a955c9f924f08f09f309c",
+      "size": 5124274,
+      "sha256": "b7ac28f49f2ac55ccf7ecac543f03fb6be58b5c9ef4dfc27e11dcdd89abad14a",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
