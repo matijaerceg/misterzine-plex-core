@@ -200,6 +200,10 @@ var latin1 = []byte("AAAAAAACEEEEIIIIDNOOOOOxOUUUUYTsaaaaaaaceeeeiiiidnooooo/ouu
 // Playable reports whether Enter should play rather than browse.
 func (it *Item) Playable() bool { return it.Type == "movie" || it.Type == "episode" }
 
+// IsFolder reports whether the item is a folder of a library's folder
+// view: a Directory with no rating key and no type, whose Key lists it.
+func (it *Item) IsFolder() bool { return it.RatingKey == "" && it.Type == "" && it.Key != "" }
+
 // Label is the list title: "S1E3 Title" for episodes.
 func (it *Item) Label() string {
 	if it.Type == "episode" {
@@ -531,6 +535,22 @@ func (c *Client) Page(path string, q url.Values, start, size int) ([]*Item, int,
 		total = len(out)
 	}
 	return out, total, nil
+}
+
+// FolderListing is the path and query of a folder view's listing, for
+// Page: a library's root folders when key is "", else the folder the
+// server named by key. The key of a folder Directory is given as a path
+// with its query ("/library/sections/1/folder?parent=12"), at times as a
+// whole URL; the host is dropped, the path and query kept as given.
+func FolderListing(section, key string) (string, url.Values) {
+	if key == "" {
+		return "/library/sections/" + section + "/folder", url.Values{}
+	}
+	u, err := url.Parse(key)
+	if err != nil || u.Path == "" {
+		return key, url.Values{}
+	}
+	return u.Path, u.Query()
 }
 
 // Letter is one entry of a section's first-character index.

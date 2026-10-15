@@ -23,7 +23,7 @@ type Wall struct {
 	views   []wallView // the library's views: wallViews with the extras' (syncViews)
 	extras  []wallView // the extras' views that views was made with
 	seek    string     // a remembered place's item, looked for once the listing is in
-	coll    *plex.Item // the collection whose items this wall shows; nil for the library's views
+	coll    *plex.Item // the collection or folder whose items this wall shows; nil for the library's views
 	pager   *Pager
 	letters []plex.Letter
 	cur     int
@@ -91,6 +91,16 @@ const (
 
 const WallPrefetchRows = 3 // in both directions once the focused row rests
 
+// A folder's tile: a folder tab (a short bar over a line across the
+// tile) above its name.
+const (
+	FolderTabX  = 12
+	FolderTabY  = 14
+	FolderTabW  = 40
+	FolderTabH  = 6
+	FolderLineH = 2
+)
+
 // CollectionsRetry spaces the requests for a collections listing that has
 // failed, while a library's wall is on screen.
 const CollectionsRetry = 30 * time.Second
@@ -121,20 +131,22 @@ type wallView struct {
 	left func(s plex.Section)
 }
 
-// The labels are short enough for all five tabs to fit across the frame,
-// six with the tabs closed up.
+// The labels are short enough for all six tabs to fit across the frame,
+// seven with the tabs closed up.
 var wallViews = []wallView{
 	{name: "A to Z", path: "/library/sections/%s/all", query: url.Values{"sort": {"titleSort"}}, az: true},
 	{name: "Added", path: "/library/sections/%s/all", query: url.Values{"sort": {"addedAt:desc"}}},
 	{name: "Released", path: "/library/sections/%s/all", query: url.Values{"sort": {"originallyAvailableAt:desc"}}},
+	// the library's folders on disk: each opens as a wall of its own
+	{name: "Folders", path: "/library/sections/%s/folder"},
 	{name: "Continue Watching", path: "/hubs/sections/%s/continueWatching/items"},
 	// last, so a library without collections shows the views before it
 	{name: "Collections", path: "/library/sections/%s/collections", collections: true},
 }
 
 // wallExtrasAt is where the extras' views go among a library's: after
-// the sorts of the whole library, before Continue Watching.
-const wallExtrasAt = 3
+// the sorts of the whole library and Folders, before Continue Watching.
+const wallExtrasAt = 4
 
 // extraWallViews is the extras' views for a library (premium.go); the
 // tests put their own in its place.
@@ -164,6 +176,16 @@ func NewWallView(app *App, s plex.Section, view int) *Wall {
 // Back leaves it for the Collections tab where it was.
 func NewCollectionWall(app *App, s plex.Section, coll *plex.Item) *Wall {
 	w := newWall(app, s, coll)
+	w.load()
+	return w
+}
+
+// NewFolderWall opens a folder of the library's folder view: its
+// subfolders and files as the server lists them, under the library's
+// title with the folder's name as the only tab. Back leaves it for the
+// wall it was opened from.
+func NewFolderWall(app *App, s plex.Section, folder *plex.Item) *Wall {
+	w := newWall(app, s, folder)
 	w.load()
 	return w
 }
@@ -296,7 +318,11 @@ func (w *Wall) findPlace() {
 
 func (w *Wall) load() {
 	v := w.views[w.view]
-	if w.coll != nil {
+	if w.coll != nil && w.coll.IsFolder() {
+		// the folder's listing at the path the server gave for it
+		path, q := plex.FolderListing(w.section.Key, w.coll.Key)
+		v = wallView{name: w.coll.Title, path: path, query: q}
+	} else if w.coll != nil {
 		// the path the server gave for the collection's items, else the usual one
 		path := w.coll.Key
 		if !strings.HasPrefix(path, "/library/") || !strings.HasSuffix(path, "/children") {
@@ -480,6 +506,8 @@ func (w *Wall) Key(ev input.Event, now time.Time) {
 	case input.Enter:
 		if it := w.pager.Get(w.cur); it != nil && it.Type == "collection" {
 			w.app.Push(NewCollectionWall(w.app, w.section, it))
+		} else if it != nil && it.IsFolder() {
+			w.app.Push(NewFolderWall(w.app, w.section, it))
 		} else if it != nil {
 			w.app.Open(it, false)
 		}
@@ -930,11 +958,19 @@ func (w *Wall) drawPoster(c *gfx.Canvas, it *plex.Item, x, y int, focus bool) {
 	} else {
 		c.Fill(x, hy0, WallPW, hy1-hy0, gfx.Bar)
 		if it != nil && whole {
-			f := w.app.F.SmallBold
+			// a folder has no picture: its name in the body face, bright,
+			// under a folder tab; anything else waiting for its poster
+			// shows its title small
+			f, col := w.app.F.SmallBold, gfx.GreyLo
+			if it.IsFolder() {
+				f, col = w.app.F.Body, gfx.GreyHi
+				c.Fill(x+FolderTabX, y+FolderTabY, FolderTabW, FolderTabH, gfx.GreyLo)
+				c.Fill(x+FolderTabX, y+FolderTabY+FolderTabH, WallPW-2*FolderTabX, FolderLineH, gfx.GreyLo)
+			}
 			lines := wrap(f, it.Title, WallPW-16, 4)
 			ty := y + WallPH/2 - len(lines)*f.Height()/2
 			for _, l := range lines {
-				w.app.textCenterOn(c, x+WallPW/2, ty, f, gfx.GreyLo, gfx.Bar, l)
+				w.app.textCenterOn(c, x+WallPW/2, ty, f, col, gfx.Bar, l)
 				ty += f.Height()
 			}
 		}
