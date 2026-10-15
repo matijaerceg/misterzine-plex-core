@@ -210,7 +210,7 @@ func TestWallCollectionsRetryAfterFailure(t *testing.T) {
 	}
 }
 
-// All five tabs fit inside the frame's safe area at 720x480, before the
+// All six tabs fit inside the frame's safe area at 720x480, before the
 // scrollbar at its right edge; a collection's single tab is cut to the
 // posters' width however long its title.
 func TestWallTabsFit(t *testing.T) {

@@ -676,7 +676,7 @@ func TestWallViewKeepsItsPlace(t *testing.T) {
 	}
 }
 
-// With an extra view the library has six tabs; Collections stays the last
+// With an extra view the library has seven tabs; Collections stays the last
 // and shows only once the library has some.
 func TestWallSixTabs(t *testing.T) {
 	s := newPagedServer(t, 10)
@@ -700,19 +700,20 @@ func TestWallSixTabs(t *testing.T) {
 		t.Fatalf("a library without collections has %d tabs", n)
 	}
 
-	// five tabs keep their spacing; six close up to fit before the scrollbar
+	// six tabs keep their spacing; seven, the extra's among them, close up
+	// to fit before the scrollbar
 	if gap := w.tabGap(len(wallViews)); gap != WallTabGap {
-		t.Fatalf("five tabs %d apart", gap)
+		t.Fatalf("six tabs %d apart", gap)
 	}
-	five, six := tabsRightEdge(w, len(wallViews)), tabsRightEdge(w, len(wallViews)+1)
-	if six <= five+20 {
-		t.Fatalf("the sixth tab was not drawn: %d then %d", five, six)
+	six, seven := tabsRightEdge(w, len(wallViews)), tabsRightEdge(w, len(wallViews)+1)
+	if seven <= six+20 {
+		t.Fatalf("the seventh tab was not drawn: %d then %d", six, seven)
 	}
-	if six >= WallTabsRight || six >= WallBarX {
-		t.Fatalf("six tabs run to x=%d, past %d", six, WallTabsRight)
+	if seven >= WallTabsRight || seven >= WallBarX {
+		t.Fatalf("seven tabs run to x=%d, past %d", seven, WallTabsRight)
 	}
 	if gap := w.tabGap(len(wallViews) + 1); gap < WallTabMinGap || gap >= WallTabGap {
-		t.Fatalf("six tabs %d apart", gap)
+		t.Fatalf("seven tabs %d apart", gap)
 	}
 }
 

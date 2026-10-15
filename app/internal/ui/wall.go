@@ -132,14 +132,16 @@ type wallView struct {
 }
 
 // The labels are short enough for all six tabs to fit across the frame,
-// seven with the tabs closed up.
+// seven (with the extras' view) with the tabs closed up. The Continue
+// Watching view's tab reads Continue for that; the home row and the
+// drawer keep the full name.
 var wallViews = []wallView{
 	{name: "A to Z", path: "/library/sections/%s/all", query: url.Values{"sort": {"titleSort"}}, az: true},
 	{name: "Added", path: "/library/sections/%s/all", query: url.Values{"sort": {"addedAt:desc"}}},
 	{name: "Released", path: "/library/sections/%s/all", query: url.Values{"sort": {"originallyAvailableAt:desc"}}},
 	// the library's folders on disk: each opens as a wall of its own
 	{name: "Folders", path: "/library/sections/%s/folder"},
-	{name: "Continue Watching", path: "/hubs/sections/%s/continueWatching/items"},
+	{name: "Continue", path: "/hubs/sections/%s/continueWatching/items"},
 	// last, so a library without collections shows the views before it
 	{name: "Collections", path: "/library/sections/%s/collections", collections: true},
 }
