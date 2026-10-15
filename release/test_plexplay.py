@@ -34,6 +34,15 @@ class Process:
         self.stdin = Pipe()
 
 
+class ServerAddressTests(unittest.TestCase):
+    def test_private_lan_from_either_connection_form(self):
+        self.assertIs(plexplay.private_host('10-0-0-2.abcdef.plex.direct'), True)
+        self.assertIs(plexplay.private_host('1-1-1-1.abcdef.plex.direct'), False)
+        self.assertIs(plexplay.private_host('10.0.0.2'), True)
+        self.assertIs(plexplay.private_host('1.1.1.1'), False)
+        self.assertIsNone(plexplay.private_host('plex.test'))
+
+
 class SubtitleTranscodeTests(unittest.TestCase):
     def test_size_is_sent_to_decision_and_start_requests(self):
         player = plexplay.Player.__new__(plexplay.Player)

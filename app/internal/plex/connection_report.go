@@ -47,6 +47,8 @@ func connectionOutcome(err error, status int) string {
 	var record tls.RecordHeaderError
 	var network net.Error
 	switch {
+	case errors.Is(err, errOtherServer):
+		return "answered by a different server"
 	case errors.As(err, &dns):
 		if dns.IsTimeout {
 			return "DNS timeout"
@@ -55,7 +57,13 @@ func connectionOutcome(err error, status int) string {
 			return "DNS name not found"
 		}
 		return "DNS lookup failed"
-	case errors.As(err, &cert), errors.As(err, &invalid), errors.As(err, &unknown), errors.As(err, &hostname):
+	case errors.As(err, &invalid) && invalid.Reason == x509.Expired:
+		return "TLS certificate expired or not yet valid"
+	case errors.As(err, &unknown):
+		return "TLS certificate not trusted"
+	case errors.As(err, &hostname):
+		return "TLS certificate name mismatch"
+	case errors.As(err, &cert), errors.As(err, &invalid):
 		return "TLS certificate verification failed"
 	case errors.As(err, &record):
 		return "TLS handshake failed"

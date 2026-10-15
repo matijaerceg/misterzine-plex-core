@@ -2,6 +2,7 @@ package plex
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -167,9 +168,12 @@ func Servers(clientID, token string) ([]Server, error) {
 		AccessToken string `json:"accessToken"`
 		Owned       bool   `json:"owned"`
 		Connections []struct {
-			URI   string `json:"uri"`
-			Local bool   `json:"local"`
-			Relay bool   `json:"relay"`
+			URI      string `json:"uri"`
+			Protocol string `json:"protocol"`
+			Address  string `json:"address"`
+			Port     int    `json:"port"`
+			Local    bool   `json:"local"`
+			Relay    bool   `json:"relay"`
 		} `json:"connections"`
 	}
 	if err := json.Unmarshal(body, &rs); err != nil {
@@ -184,8 +188,21 @@ func Servers(clientID, token string) ([]Server, error) {
 		if s.AccessToken == "" {
 			s.AccessToken = token
 		}
+		// plex.tv lists the plex.direct HTTPS form; Plex's own apps also try
+		// the plain address, and the server's Secure connections setting
+		// decides whether it answers. A relay is HTTPS only.
+		seen := map[string]bool{}
+		add := func(c Connection) {
+			if c.URI != "" && !seen[c.URI] {
+				seen[c.URI] = true
+				s.Connections = append(s.Connections, c)
+			}
+		}
 		for _, c := range r.Connections {
-			s.Connections = append(s.Connections, Connection{URI: c.URI, Local: c.Local, Relay: c.Relay})
+			add(Connection{URI: c.URI, Local: c.Local, Relay: c.Relay})
+			if !c.Relay && c.Protocol != "http" && c.Address != "" && c.Port > 0 {
+				add(Connection{URI: "http://" + net.JoinHostPort(c.Address, strconv.Itoa(c.Port)), Local: c.Local})
+			}
 		}
 		if r.Owned {
 			out = append([]Server{s}, out...)
@@ -196,9 +213,12 @@ func Servers(clientID, token string) ([]Server, error) {
 	return out, nil
 }
 
+// errOtherServer is a connection that answered with another server's identity.
+var errOtherServer = errors.New("answered by a different server")
+
 // Reach probes a server's connections at once and returns the best that
-// answers: local first, then direct, then relay. Once one answers, a
-// better one gets a moment longer, no more.
+// answers: local first, then direct, then relay, and HTTPS before plain
+// HTTP at each. Once one answers, a better one gets a moment longer, no more.
 func Reach(s Server, logf func(string, ...any)) (string, error) {
 	return reach(s, &http.Client{Timeout: 6 * time.Second}, logf)
 }
@@ -209,13 +229,17 @@ func reach(s Server, probe *http.Client, logf func(string, ...any)) (string, err
 	}
 	logf("server connection: probing %d advertised connections", len(s.Connections))
 	rank := func(c Connection) int {
+		r := 2
 		switch {
 		case c.Relay:
-			return 2
+			return 4
 		case c.Local:
-			return 0
+			r = 0
 		}
-		return 1
+		if strings.HasPrefix(c.URI, "http://") {
+			r++
+		}
+		return r
 	}
 	type result struct {
 		i   int
@@ -241,30 +265,54 @@ func reach(s Server, probe *http.Client, logf func(string, ...any)) (string, err
 				finish(err, 0)
 				return
 			}
+			var id struct {
+				MachineIdentifier string `xml:"machineIdentifier,attr"`
+			}
+			if resp.StatusCode == 200 {
+				// a body that is missing or does not parse names no server, so it passes
+				xml.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&id)
+			}
 			resp.Body.Close()
 			if resp.StatusCode != 200 {
 				err = fmt.Errorf("%s: HTTP %d", c.URI, resp.StatusCode)
+			} else if s.ID != "" && id.MachineIdentifier != "" && id.MachineIdentifier != s.ID {
+				// a plain address proves nothing about who answers there, and a
+				// LAN address can belong to another machine on another network
+				finish(errOtherServer, 0)
+				return
 			}
 			finish(err, resp.StatusCode)
 		}(i, c)
 	}
 	best := -1
+	done := make([]bool, len(s.Connections))
+	// beatable reports whether a probe still running could rank above best
+	beatable := func() bool {
+		for i, c := range s.Connections {
+			if !done[i] && rank(c) < rank(s.Connections[best]) {
+				return true
+			}
+		}
+		return false
+	}
 	var last, blocked error
 	var grace <-chan time.Time
 	for n := 0; n < len(s.Connections); n++ {
 		select {
 		case r := <-ch:
+			done[r.i] = true
 			if r.err != nil {
 				last = r.err
 				if LocalNameBlocked(r.err) {
 					blocked = r.err
 				}
-				continue
-			}
-			if best < 0 || rank(s.Connections[r.i]) < rank(s.Connections[best]) {
+			} else if best < 0 || rank(s.Connections[r.i]) < rank(s.Connections[best]) {
 				best = r.i
 			}
-			if rank(s.Connections[best]) == 0 {
+			if best < 0 {
+				continue
+			}
+			if !beatable() {
 				logf("server connection: selected candidate %d", best+1)
 				return s.Connections[best].URI, nil
 			}

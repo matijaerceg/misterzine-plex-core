@@ -341,6 +341,16 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn('TESTtoken', text)
         self.assertNotIn('10-0-0-2', text)
 
+    def test_plain_http_server_address_stays_out_of_the_report(self):
+        lan = '10.0.0.2'
+        (self.root / 'plexcrt.json').write_text(json.dumps({'token': 'TESTtoken', 'server_url': 'http://%s:32400' % lan}))
+        with (self.tmp / 'misterzine-plex.log').open('a') as log:
+            log.write('home: dial tcp %s:32400: connect: connection refused\n' % lan)
+        text = self.report()
+        self.assertIn('connect: connection refused', text)
+        self.assertIn('"scheme": "http"', text)
+        self.assertNotIn(lan, text)
+
     def test_report_trims_long_logs_to_the_limit(self):
         (self.tmp / 'plexplay.log').write_text('x' * 200 + '\n' + 'a line of playback\n' * 20000)
         text = self.report()

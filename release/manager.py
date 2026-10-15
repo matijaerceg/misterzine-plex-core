@@ -1284,12 +1284,20 @@ def system_facts(root, secrets, proc_root=Path('/proc'), altcfg=read_altcfg):
     try:
         cfg = json.loads((root / 'plexcrt.json').read_text())
         url = cfg.get('server_url', '')
-        import urllib.parse
+        import ipaddress, urllib.parse
         u = urllib.parse.urlsplit(url)
         host = u.hostname or ''
+        if host.endswith('.plex.direct'):
+            private = bool(re.match(r'(10-|192-168-|172-(1[6-9]|2\d|3[01])-)', host))
+        else:
+            # the plain HTTP connection is the address itself
+            try:
+                private = ipaddress.ip_address(host).is_private
+            except ValueError:
+                private = None
         facts['server'] = {'scheme': u.scheme, 'port': u.port,
                            'kind': 'relay' if u.port == 8443 else 'plex.direct' if host.endswith('.plex.direct') else 'address',
-                           'private_lan': bool(re.match(r'(10-|192-168-|172-(1[6-9]|2\d|3[01])-)', host)) if host.endswith('.plex.direct') else None,
+                           'private_lan': private,
                            'bitrate': cfg.get('bitrate'), 'progressive': cfg.get('progressive')}
     except (OSError, ValueError):
         pass
@@ -1312,11 +1320,14 @@ def system_facts(root, secrets, proc_root=Path('/proc'), altcfg=read_altcfg):
 
 def report_secrets(root):
     """Values that must never leave the card, read only to redact them."""
+    import urllib.parse
     secrets = []
     for path in (root / 'plexcrt.json', root / 'plexcrt.json.bak'):
         try:
             cfg = json.loads(path.read_text())
             secrets += [cfg.get(k, '') for k in ('token', 'server_token', 'server_url', 'server_name', 'client_id', 'account_name')]
+            # a plain HTTP server URL is a bare address, which network errors quote without the URL
+            secrets.append(urllib.parse.urlsplit(str(cfg.get('server_url') or '')).hostname or '')
         except (OSError, ValueError):
             pass
     return secrets

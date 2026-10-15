@@ -674,6 +674,17 @@ class UpdateTests(unittest.TestCase):
         self.assertNotIn('192-168', json.dumps(facts))
         self.assertNotIn('TEST-ONLY', json.dumps(facts))
 
+    def test_diagnostics_describe_a_plain_http_server(self):
+        self.root.mkdir(parents=True, exist_ok=True)
+        lan = '10.0.0.2'
+        (self.root / 'plexcrt.json').write_text(json.dumps({'server_url': 'http://%s:32400' % lan, 'bitrate': 3000}))
+        facts = manager.system_facts(self.root, [], proc_root=self.card / 'no-proc')
+        self.assertEqual(facts['server'], {'scheme': 'http', 'port': 32400, 'kind': 'address', 'private_lan': True,
+                                           'bitrate': 3000, 'progressive': None})
+        self.assertNotIn(lan, json.dumps(facts))
+        (self.root / 'plexcrt.json').write_text(json.dumps({'server_url': 'http://%s:32400' % '1.1.1.1'}))
+        self.assertIs(manager.system_facts(self.root, [], proc_root=self.card / 'no-proc')['server']['private_lan'], False)
+
     def test_publishing_database_owns_only_staging_and_installer_is_standalone(self):
         r, z, _ = self.release()
         out = self.fixture / 'dist'

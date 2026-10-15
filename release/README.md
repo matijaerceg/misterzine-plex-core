@@ -39,6 +39,8 @@ Check the network connection, SD card space and that MiSTer Linux is current
 (Python 3.9 or newer). Rerun the installer to repair files; settings are kept.
 For an expired Plex sign-in code, request a new one on the sign-in screen.
 For a missing server, try **Options > Choose server again**.
+If the server cannot be reached but other Plex apps on your network work, set
+the server's **Settings > Network > Secure connections** to **Preferred**.
 Older builds may have different script names; follow their included instructions.
 
 ### Playback stutters

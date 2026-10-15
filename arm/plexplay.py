@@ -83,6 +83,15 @@ PLEX_HDRS = {
 
 HOSTNAME = urllib.parse.urlsplit(HOST).hostname or ''
 
+def private_host(host):
+    """True for a home-network address, False for a public one, None when the
+    name does not tell: plex.direct names carry the address with dashes, and
+    a plain HTTP connection is the address itself"""
+    if host.endswith('.plex.direct'):
+        return bool(__import__('re').match(r'(10-|192-168-|172-(1[6-9]|2\d|3[01])-)', host))
+    try: return __import__('ipaddress').ip_address(host).is_private
+    except ValueError: return None
+
 def safe_text(value):
     text = str(value)
     for secret in (TOKEN, urllib.parse.quote(TOKEN, safe=''), urllib.parse.quote_plus(TOKEN)):
@@ -322,7 +331,7 @@ class Player:
             u = urllib.parse.urlsplit(HOST)
             host = u.hostname or ''
             kind = 'relay' if u.port == 8443 else 'plex.direct' if host.endswith('.plex.direct') else 'address'
-            private = bool(__import__('re').match(r'(10-|192-168-|172-(1[6-9]|2\d|3[01])-)', host)) if kind == 'plex.direct' else None
+            private = private_host(host) if kind != 'relay' else None
             log('selftest: server %s %s port %s%s' % (u.scheme, kind, u.port or 'default',
                 {True: ' (private LAN address)', False: ' (public address)'}.get(private, '')))
             t = time.time()

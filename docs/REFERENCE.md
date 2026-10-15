@@ -125,6 +125,16 @@ fail until then. For its first minute Plex keeps trying every two seconds and
 shows **Connecting** with what it is waiting for. After that it shows the error
 and tries again every 30 seconds; OK tries at once.
 
+### Server connection
+
+On sign-in and when choosing a server, Plex tries every connection plex.tv
+lists for the server at once and keeps the best that answers: the home
+network first, then the internet, then Plex's relay. At each it uses a secure
+(HTTPS) connection when one works, and otherwise a plain HTTP connection where
+the server allows it. The relay is secure only. The server's **Secure
+connections** setting (Settings > Network) decides: **Required** refuses plain
+connections, **Preferred** accepts them.
+
 ### Release notes on start
 
 A release can carry a short note. It appears once, over Home, the first time
