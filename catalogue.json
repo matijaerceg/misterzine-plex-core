@@ -2,14 +2,14 @@
   "schema": 1,
   "releases": {
     "beta": {
-      "id": "beta-0.1.0-beta.19",
-      "version": "0.1.0-beta.19",
+      "id": "beta-0.1.0-beta.20",
+      "version": "0.1.0-beta.20",
       "channel": "beta",
-      "notes": "## 0.1.0-beta.19\n\n- A start-up note from the developer is shown once over Home. Hold OK for a second to close it.\n- Media art screensaver (supporter extra): new Options rows \"Art changes every\" (10 seconds to 5 minutes) and \"Art shows title\" (on by default, drawn at half opacity). Holding OK for a second over a picture opens that film or show; a tap just ends the screensaver; a hold let go early keeps it running.\n- When the router blocks the server's plex.direct name, the message now names the router.\n- The Home logo row is now worded \"Hide home logo\", so a locked row says what it unlocks.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.19/MisterZine-Plex-Core-beta-0.1.0-beta.19.zip",
+      "notes": "## 0.1.0-beta.20\n\n- Media art screensaver (supporter extra): titles are now picked evenly across all your movie and TV libraries, so a small library no longer repeats its few titles, and titles shown lately are skipped.\n- The dimming row in Options is now \"Menu dim after\", or \"Screensaver dim after\" when a screensaver is on, so it says what it counts from. Paused video still dims after 3 minutes.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.20/MisterZine-Plex-Core-beta-0.1.0-beta.20.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 5118071,
-      "sha256": "e410167ad42804e12f5a7112fb5261bf9c780ed3b5194bda2b8147758af6006f",
+      "size": 5120011,
+      "sha256": "b5dbe8b001558083adb829855bb2742d6638598be76a955c9f924f08f09f309c",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
