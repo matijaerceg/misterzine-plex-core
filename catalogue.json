@@ -2,14 +2,14 @@
   "schema": 1,
   "releases": {
     "beta": {
-      "id": "beta-0.1.0-beta.21",
-      "version": "0.1.0-beta.21",
+      "id": "beta-0.1.0-beta.22",
+      "version": "0.1.0-beta.22",
       "channel": "beta",
-      "notes": "## 0.1.0-beta.21\n\n- Media art screensaver (supporter extra): choose which libraries it shows. Options has an \"Art from\" switch for each movie and TV library the app shows. Libraries hidden in Options never appear in the screensaver, and at least one library always stays on.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.21/MisterZine-Plex-Core-beta-0.1.0-beta.21.zip",
+      "notes": "## 0.1.0-beta.22\n\n- Server connection: the app now tries a plain connection beside the secure one for every address the server advertises, the way Plex's own apps do. A secure connection is still preferred when it works; when the server's certificate cannot be verified (or its name cannot be resolved), a plain connection is used wherever the server's Secure connections setting allows it. The relay stays secure only, and any address that answers for a different server is skipped.\n- Reports: the connection log now names the exact certificate problem (expired, not trusted, name mismatch) instead of one generic line, and a plain-connection server address is kept out of the report.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.22/MisterZine-Plex-Core-beta-0.1.0-beta.22.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 5124274,
-      "sha256": "b7ac28f49f2ac55ccf7ecac543f03fb6be58b5c9ef4dfc27e11dcdd89abad14a",
+      "size": 5125884,
+      "sha256": "bfd6a96eebb845bd9e398cc78b32729751deb2668cc9660b066024509bcbc8f5",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
