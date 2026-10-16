@@ -2,14 +2,14 @@
   "schema": 1,
   "releases": {
     "beta": {
-      "id": "beta-0.1.0-beta.23",
-      "version": "0.1.0-beta.23",
+      "id": "beta-0.1.0-beta.24",
+      "version": "0.1.0-beta.24",
       "channel": "beta",
-      "notes": "## 0.1.0-beta.23\n\n- Every library has a **Folders** tab, after Continue and before Collections: the library's folders on disk as the server lists them. OK on a folder opens its subfolders and files; a file opens as from any other view; Back comes out one folder at a time. Made for libraries of unmatched files (Plex \"Other Videos\", such as music videos kept in artist folders), which the other views show as one flat list.\n- The library's Continue Watching tab now reads **Continue**, so all tabs fit on one row.\n- A plain HTTP server connection is tried beside HTTPS; the server decides which is used (helps servers whose certificate fails to verify).\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.23/MisterZine-Plex-Core-beta-0.1.0-beta.23.zip",
+      "notes": "## 0.1.0-beta.24\n\n- Fixed **Only show 4:3 media** letting widescreen seasons appear in Home's **Recently Added in TV Shows** row. Season entries now follow the same aspect-ratio check as their parent show in the TV library.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.24/MisterZine-Plex-Core-beta-0.1.0-beta.24.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 5128745,
-      "sha256": "bc945a115af5460e01dbcc78cbfcc64caa6b28b5eaa7aa55b4ba6774b6fc846f",
+      "size": 5128949,
+      "sha256": "fa380eda8818bbd007739cde84d8ce2b4fa2d9c7bf518e771fe0d66c197e03ec",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
