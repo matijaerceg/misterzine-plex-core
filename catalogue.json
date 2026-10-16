@@ -2,14 +2,14 @@
   "schema": 1,
   "releases": {
     "beta": {
-      "id": "beta-0.1.0-beta.22",
-      "version": "0.1.0-beta.22",
+      "id": "beta-0.1.0-beta.23",
+      "version": "0.1.0-beta.23",
       "channel": "beta",
-      "notes": "## 0.1.0-beta.22\n\n- Server connection: the app now tries a plain connection beside the secure one for every address the server advertises, the way Plex's own apps do. A secure connection is still preferred when it works; when the server's certificate cannot be verified (or its name cannot be resolved), a plain connection is used wherever the server's Secure connections setting allows it. The relay stays secure only, and any address that answers for a different server is skipped.\n- Reports: the connection log now names the exact certificate problem (expired, not trusted, name mismatch) instead of one generic line, and a plain-connection server address is kept out of the report.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.22/MisterZine-Plex-Core-beta-0.1.0-beta.22.zip",
+      "notes": "## 0.1.0-beta.23\n\n- Every library has a **Folders** tab, after Continue and before Collections: the library's folders on disk as the server lists them. OK on a folder opens its subfolders and files; a file opens as from any other view; Back comes out one folder at a time. Made for libraries of unmatched files (Plex \"Other Videos\", such as music videos kept in artist folders), which the other views show as one flat list.\n- The library's Continue Watching tab now reads **Continue**, so all tabs fit on one row.\n- A plain HTTP server connection is tried beside HTTPS; the server decides which is used (helps servers whose certificate fails to verify).\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.23/MisterZine-Plex-Core-beta-0.1.0-beta.23.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 5125884,
-      "sha256": "bfd6a96eebb845bd9e398cc78b32729751deb2668cc9660b066024509bcbc8f5",
+      "size": 5128745,
+      "sha256": "bc945a115af5460e01dbcc78cbfcc64caa6b28b5eaa7aa55b4ba6774b6fc846f",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
