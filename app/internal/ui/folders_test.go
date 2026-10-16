@@ -78,8 +78,8 @@ func TestWallFoldersTab(t *testing.T) {
 	press := func(k input.Key) { a.key(input.Event{Key: k}, now) }
 
 	folders := viewNamed(wallViews, "Folders")
-	if folders != 3 || wallExtrasAt != folders+1 {
-		t.Fatalf("Folders is view %d, the extras go at %d", folders, wallExtrasAt)
+	if folders != len(wallViews)-2 || wallExtrasAt >= folders {
+		t.Fatalf("Folders is view %d of %d, the extras go at %d", folders, len(wallViews), wallExtrasAt)
 	}
 	library := NewWallView(a, filmsLibrary, folders)
 	a.Push(library)

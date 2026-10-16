@@ -139,16 +139,18 @@ var wallViews = []wallView{
 	{name: "A to Z", path: "/library/sections/%s/all", query: url.Values{"sort": {"titleSort"}}, az: true},
 	{name: "Added", path: "/library/sections/%s/all", query: url.Values{"sort": {"addedAt:desc"}}},
 	{name: "Released", path: "/library/sections/%s/all", query: url.Values{"sort": {"originallyAvailableAt:desc"}}},
-	// the library's folders on disk: each opens as a wall of its own
-	{name: "Folders", path: "/library/sections/%s/folder"},
 	{name: "Continue", path: "/hubs/sections/%s/continueWatching/items"},
+	// the library's folders on disk, each opening as a wall of its own:
+	// after the everyday views, as it matters most to libraries of
+	// unmatched files (Other Videos)
+	{name: "Folders", path: "/library/sections/%s/folder"},
 	// last, so a library without collections shows the views before it
 	{name: "Collections", path: "/library/sections/%s/collections", collections: true},
 }
 
 // wallExtrasAt is where the extras' views go among a library's: after
-// the sorts of the whole library and Folders, before Continue Watching.
-const wallExtrasAt = 4
+// the sorts of the whole library, before Continue Watching.
+const wallExtrasAt = 3
 
 // extraWallViews is the extras' views for a library (premium.go); the
 // tests put their own in its place.

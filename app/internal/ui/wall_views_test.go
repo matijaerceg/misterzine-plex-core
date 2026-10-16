@@ -571,7 +571,7 @@ func TestWallViewKeepsItsPlace(t *testing.T) {
 	// another tab and back
 	press(input.Back)
 	press(input.Left)
-	if w.cur != 0 || w.views[w.view].name != "Folders" {
+	if w.cur != 0 || w.views[w.view].name != "Released" {
 		t.Fatalf("Left went to %q at %d", w.views[w.view].name, w.cur)
 	}
 	press(input.Right)

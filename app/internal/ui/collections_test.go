@@ -117,7 +117,7 @@ func TestWallCollectionsTabOnlyWithCollections(t *testing.T) {
 	a := collectionTestApp(t, s, false)
 	now := time.Now()
 
-	cw := len(wallViews) - 2 // Continue Watching, the tab before Collections
+	cw := len(wallViews) - 2 // Folders, the tab before Collections
 	films := NewWallView(a, filmsLibrary, cw)
 	if n := films.tabCount(); n != len(wallViews)-1 {
 		t.Fatalf("%d tabs before the collections listing landed", n)
@@ -134,7 +134,7 @@ func TestWallCollectionsTabOnlyWithCollections(t *testing.T) {
 	}
 	films.Key(input.Event{Key: input.Right}, now)
 	if films.view != len(wallViews)-1 || !wallViews[films.view].collections {
-		t.Fatalf("Right from Continue Watching went to view %d", films.view)
+		t.Fatalf("Right from Folders went to view %d", films.view)
 	}
 	if films.pager != films.collections() || films.pager.Filtered() {
 		t.Fatal("the tab does not show the collections listing")

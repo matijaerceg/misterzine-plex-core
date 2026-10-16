@@ -41,6 +41,13 @@ primary account. Automatic sign-in uses the saved server connection at startup.
   least one. OK on a collection shows its items, in the collection's order and
   through the 4:3 filter like any view; one Back returns to it on the
   Collections tab.
+- Every library has a **Folders** tab, after Continue (the library's
+  Continue Watching) and before Collections: the library's folders on disk
+  as the server lists them. OK on a folder shows its subfolders and files
+  under the folder's name; a file opens as from any other view; Back comes
+  out one folder at a time. It is meant for libraries of unmatched files
+  (Plex's "Other Videos", such as music videos kept in artist folders),
+  where the other views show one flat list.
 - With a MisterZine code that covers it and **Show beta features** on,
   Options has **Random library order**, marked BETA, on by default. Movie
   and TV libraries then have a
