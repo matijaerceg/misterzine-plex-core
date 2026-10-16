@@ -50,6 +50,11 @@ func TestShowsAreMeasuredOnceForTheFilter(t *testing.T) {
 	odd := &plex.Item{RatingKey: "77", Type: "show", Title: "Specials only"}
 	movie := &plex.Item{RatingKey: "7", Type: "movie", Aspect: 2.35}
 	items := []*plex.Item{wide, square, odd, movie}
+	// Recently added TV hubs can contain seasons instead of shows. They
+	// must use the same parent-show measurement as the library wall.
+	wideSeason := &plex.Item{RatingKey: "160", ParentKey: "16", Type: "season"}
+	squareSeason := &plex.Item{RatingKey: "430", ParentKey: "43", Type: "season"}
+	items = append(items, wideSeason, squareSeason)
 	if !a.Keep(wide) || !a.Keep(square) || !a.Keep(odd) {
 		t.Fatal("an unmeasured show must stay visible")
 	}
@@ -63,16 +68,25 @@ func TestShowsAreMeasuredOnceForTheFilter(t *testing.T) {
 	if wide.Aspect != 1.78 {
 		t.Fatalf("season 1 should decide a show, got %v", wide.Aspect)
 	}
+	if a.Keep(wideSeason) || !a.Keep(squareSeason) {
+		t.Fatal("recently added seasons did not use their parent show's shape")
+	}
+	h := &Home{app: a}
+	h.applyHome([]*plex.Hub{{Items: []*plex.Item{wideSeason, squareSeason, {Type: "more"}}}})
+	if len(h.hubs) != 1 || len(h.hubs[0].Items) != 2 || h.hubs[0].Items[0] != squareSeason {
+		t.Fatal("Home did not remove the wide season and keep the 4:3 season and See all")
+	}
 
 	// a fresh app on the same cache folder knows the answers without asking
 	b := &App{Plex: plex.New(server.URL, "", dir, "test"), Cfg: &Config{FourThree: true}}
 	b.SetCacheDir(dir)
-	again := []*plex.Item{{RatingKey: "16", Type: "show"}, {RatingKey: "43", Type: "show"}, {RatingKey: "77", Type: "show"}}
+	again := []*plex.Item{{RatingKey: "16", Type: "show"}, {RatingKey: "43", Type: "show"}, {RatingKey: "77", Type: "show"},
+		{RatingKey: "160", ParentKey: "16", Type: "season"}, {RatingKey: "430", ParentKey: "43", Type: "season"}}
 	b.measureShows(again)
 	if sweeps.Load() != 1 || probes.Load() != 1 {
 		t.Fatal("remembered shows were asked about again")
 	}
-	if b.Keep(again[0]) || !b.Keep(again[1]) || b.Keep(again[2]) {
+	if b.Keep(again[0]) || !b.Keep(again[1]) || b.Keep(again[2]) || b.Keep(again[3]) || !b.Keep(again[4]) {
 		t.Fatal("remembered shapes were not applied")
 	}
 
@@ -82,5 +96,34 @@ func TestShowsAreMeasuredOnceForTheFilter(t *testing.T) {
 	c.measureShows([]*plex.Item{{RatingKey: "99", Type: "show"}})
 	if sweeps.Load() != 1 || probes.Load() != 1 {
 		t.Fatal("asked with the filter off")
+	}
+}
+
+func TestSeasonAspectProbeUsesParentShow(t *testing.T) {
+	var probes atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/library/metadata/16/allLeaves" {
+			t.Errorf("unexpected request %s", r.URL.Path)
+		}
+		probes.Add(1)
+		fmt.Fprint(w, `<MediaContainer><Video type="episode"><Media aspectRatio="1.78"/></Video></MediaContainer>`)
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	a := &App{Plex: plex.New(server.URL, "", dir, "test"), Cfg: &Config{FourThree: true}}
+	a.SetCacheDir(dir)
+	// A finished sweep missed this show's first episode.
+	a.aspects.swept = make(chan struct{})
+	close(a.aspects.swept)
+	season := &plex.Item{RatingKey: "160", ParentKey: "16", Type: "season"}
+	orphan := &plex.Item{RatingKey: "170", Type: "season"}
+	a.measureHubs([]*plex.Hub{{Items: []*plex.Item{season, orphan}}})
+	if probes.Load() != 1 || a.Keep(season) || !a.Keep(orphan) {
+		t.Fatal("season probe must use its parent; a missing parent must stay visible")
+	}
+	show := &plex.Item{RatingKey: "16", Type: "show"}
+	a.measureShows([]*plex.Item{show})
+	if probes.Load() != 1 || a.Keep(show) {
+		t.Fatal("season probe did not populate the parent show's cache")
 	}
 }

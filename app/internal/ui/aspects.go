@@ -60,15 +60,29 @@ func (a *Aspects) set(key string, v float64) {
 	a.mu.Unlock()
 }
 
-// apply fills in the aspect of shows already known, without any request.
+// aspectShowKey identifies the show whose first episode decides the shape.
+// Recently added hubs can supply seasons; use their parent show so they
+// agree with the same show's entry in the library.
+func aspectShowKey(it *plex.Item) string {
+	switch it.Type {
+	case "show":
+		return it.RatingKey
+	case "season":
+		return it.ParentKey
+	}
+	return ""
+}
+
+// apply fills in the aspect of shows and seasons already known, without any request.
 func (a *Aspects) apply(items []*plex.Item) (unknown []*plex.Item) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for _, it := range items {
-		if it.Type != "show" || it.Aspect != 0 {
+		key := aspectShowKey(it)
+		if key == "" || it.Aspect != 0 {
 			continue
 		}
-		if v, ok := a.known[it.RatingKey]; ok {
+		if v, ok := a.known[key]; ok {
 			it.Aspect = v
 		} else {
 			unknown = append(unknown, it)
@@ -113,7 +127,7 @@ func (a *Aspects) sweep(client *plex.Client, then func()) <-chan struct{} {
 	return done
 }
 
-// measureShows fills in the aspect of every show in items: from the
+// measureShows fills in the aspect of every show and season in items: from the
 // library sweep first, then by probing what it missed (a few at a time,
 // within a time budget). Safe from any goroutine; meant for the workers
 // that fetch listings.
@@ -149,11 +163,12 @@ func (a *App) measureShows(items []*plex.Item) {
 		go func(it *plex.Item) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			v, err := client.ShowAspect(it.RatingKey)
+			key := aspectShowKey(it)
+			v, err := client.ShowAspect(key)
 			if err != nil {
 				return // left unknown: visible now, probed again next time
 			}
-			a.aspects.set(it.RatingKey, v)
+			a.aspects.set(key, v)
 			it.Aspect = v
 		}(it)
 	}
