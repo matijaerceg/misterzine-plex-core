@@ -162,16 +162,17 @@ func abs(v int) int {
 }
 
 const (
-	OsdBottom = 480 - 24 // lift bottom controls and seek strips by 5% for CRT overscan
-	OsdY      = OsdBottom - 184
-	OsdH      = OsdBottom - OsdY
-	OsdAlpha  = 200
-	OsdHide   = 4 * time.Second
-	BackGrace = time.Second             // after the overlay goes, Back does not stop the playback
-	OsdFlash  = 2 * time.Second         // how long a closed-overlay seek shows the bar
-	OsdLinger = 3500 * time.Millisecond // how long the start strip stays over the picture
-	OsdBtnGap = 30
-	SkipHold  = 20 * time.Second // the skip button stays this long once playback is in the marker
+	OsdBottom   = 480 - 24 // lift bottom controls and seek strips by 5% for CRT overscan
+	OsdControlH = 184
+	OsdY        = OsdBottom - OsdControlH
+	OsdH        = 480 - OsdY // panel background reaches the output edge
+	OsdAlpha    = 200
+	OsdHide     = 4 * time.Second
+	BackGrace   = time.Second             // after the overlay goes, Back does not stop the playback
+	OsdFlash    = 2 * time.Second         // how long a closed-overlay seek shows the bar
+	OsdLinger   = 3500 * time.Millisecond // how long the start strip stays over the picture
+	OsdBtnGap   = 30
+	SkipHold    = 20 * time.Second // the skip button stays this long once playback is in the marker
 )
 
 var osdButtons = []string{"-10", "Pause", "+10", "Prev", "Next", "Audio", "Subs", "More"}
