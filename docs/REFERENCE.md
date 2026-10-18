@@ -232,6 +232,21 @@ keeps its own entry, `zaparoo/launchers/misterzine-plex.toml`, pointed at the
 selected release and removes it on uninstall. Nothing needs adding to Zaparoo's
 `config.toml`.
 
+Plex also supplies its **MisterZine Plex Core** logotype and a shorter
+**MisterZine Plex** display name for Zaparoo Frontend. Existing pinned Plex
+tiles receive the artwork in place; the installer does not pin Plex, rearrange
+the Hub, enable Frontend, or change `MiSTer.ini`. Restart Frontend to see new
+artwork. Personal display names, tile icons and existing system artwork take
+priority. The same check runs at boot, including when Zaparoo was installed
+after Plex or Plex was pinned later.
+
+Artwork ownership is tracked in `misterzine-plex/zaparoo-art.json`. Uninstall
+and rollback to a release without this support remove only unchanged defaults
+installed by Plex, preserving later user edits. Custom artwork directories on
+the same card are supported. Directories outside the card, symbolic links, and
+Frontend configurations using syntax beyond its usual generated format are
+left alone; the reason is recorded as `zaparoo_art` in `maintenance.json`.
+
 Each release also checks its own entries at boot and once an update to it has
 finished: the main-menu entry, the Scripts entries and the Zaparoo entry. An in-app
 update is installed by the previous release's code, so this is what brings them up

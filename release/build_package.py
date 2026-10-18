@@ -1,5 +1,6 @@
 """Build an allowlisted release ZIP; never copy developer state or history."""
 import argparse
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -15,6 +16,17 @@ SOURCE_EXTENSIONS = {'.v', '.sv', '.vh', '.vhd', '.qip', '.sdc', '.tcl', '.mif',
 
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def manager_source(root=None):
+    """Embed artwork without changing the package schema older updaters accept."""
+    root = root or ROOT
+    source = (root / 'release/manager.py').read_bytes()
+    marker = b"ZAPAROO_LOGO = ''"
+    if source.count(marker) != 1:
+        raise ValueError('Expected one Zaparoo artwork placeholder')
+    logo = (root / 'app/internal/ui/assets/misterzine-stacked-v1.png').read_bytes()
+    return source.replace(marker, b"ZAPAROO_LOGO = '" + base64.b64encode(logo) + b"'")
 
 
 def build(out, core_tree, ident, version='0.1.0-beta.16'):
@@ -42,7 +54,10 @@ def build(out, core_tree, ident, version='0.1.0-beta.16'):
             manifest.update(channel=info['channel'], access=info['access'])
         (package / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         for name in ('manager.py', 'update_service.py', 'catalogue.py', 'menu_launcher.py', 'README.md', 'TERMS.md', 'THIRD_PARTY_NOTICES.md', 'BETA_ACCESS.md'):
-            shutil.copyfile(ROOT / 'release' / name, package / name)
+            if name == 'manager.py':
+                (package / name).write_bytes(manager_source())
+            else:
+                shutil.copyfile(ROOT / 'release' / name, package / name)
         shutil.copytree(ROOT / 'release/licenses', package / 'licenses')
         script = stage / 'Scripts/MisterZine-Plex-Install.sh'
         script.parent.mkdir()

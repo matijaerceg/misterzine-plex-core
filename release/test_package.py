@@ -16,7 +16,7 @@ FILES = ['app/dist/plexcrt', 'arm/plexplay.py', 'arm/plexfb.c', 'core/PlexCRT.rb
          'core/LICENSING.md', 'core/rtl/fixture.v', 'core/sys/fixture.v',
          'release/manager.py', 'release/update_service.py', 'release/catalogue.py', 'release/menu_launcher.py', 'release/README.md', 'release/TERMS.md',
          'release/THIRD_PARTY_NOTICES.md', 'release/BETA_ACCESS.md',
-         'release/licenses/fixture.txt']
+         'release/licenses/fixture.txt', 'app/internal/ui/assets/misterzine-stacked-v1.png']
 
 
 def fake_gcc(args, cwd, check, capture_output=False, text=False):
@@ -33,6 +33,7 @@ def fixture_tree(root):
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b'synthetic public fixture')
+    (root / 'release/manager.py').write_text("ZAPAROO_LOGO = ''\n")
     with patch.object(build_presenter.subprocess, 'run', side_effect=fake_gcc) as gcc:
         build_presenter.build(root=root)
     return gcc

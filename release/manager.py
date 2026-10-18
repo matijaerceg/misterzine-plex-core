@@ -5,6 +5,7 @@ Only named files are replaced. Old releases, account settings and caches are
 preserved. This module also runs against a temporary card root in its tests.
 """
 import argparse
+import base64
 import contextlib
 import hashlib
 import http.client
@@ -80,6 +81,192 @@ def repair_menu_entry(card):
 
 
 ZAPAROO_ENTRY = 'misterzine-plex.toml'
+
+# Zaparoo's UUIDv5 namespace + "mister_core:misterzine-plex", encoded as
+# lowercase base32. This is the same on every device; do not rename the launcher.
+ZAPAROO_SYSTEM = '54pxmxbaxzkp3jpkpj3r7gw76m'
+ZAPAROO_ICON = 'misterzine-plex'
+ZAPAROO_ART_STATE = 'zaparoo-art.json'
+# The packager embeds the existing PNG here, keeping the four-helper package
+# format compatible with older updaters. Source checkouts read the source asset.
+ZAPAROO_LOGO = ''
+
+
+def zaparoo_logo():
+    if ZAPAROO_LOGO:
+        return base64.b64decode(ZAPAROO_LOGO, validate=True)
+    return (Path(__file__).resolve().parent.parent /
+            'app/internal/ui/assets/misterzine-stacked-v1.png').read_bytes()
+
+
+def frontend_tables(text):
+    """Conservative, lossless editor for Frontend's generated TOML subset.
+
+    Python 3.9 on MiSTer has no TOML parser. Never guess around multiline
+    strings, dotted keys or unfamiliar headers: leave such configs untouched.
+    Values we do not use (arrays, booleans, etc.) remain byte-for-byte intact.
+    """
+    if '\"\"\"' in text or "'''" in text:
+        raise ValueError('Multiline Frontend config left unchanged')
+    tables = []
+    current = {'header': '', 'start': 0, 'values': {}}
+    lines = text.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#'):
+            continue
+        if stripped.startswith('['):
+            match = re.fullmatch(r'(\[\[?[A-Za-z0-9_.-]+\]\]?)\s*(?:#.*)?', stripped)
+            if not match or match[1].count('[') != match[1].count(']'):
+                raise ValueError('Unfamiliar Frontend table left unchanged')
+            current['end'] = index
+            tables.append(current)
+            current = {'header': match[1], 'start': index + 1, 'values': {}}
+            continue
+        match = re.fullmatch(r'([A-Za-z0-9_-]+|"[^"\\]+"|\'[^\']+\')\s*=\s*(.*)', stripped)
+        if not match:
+            raise ValueError('Unfamiliar Frontend key left unchanged')
+        key, raw = match[1].strip('\"\''), match[2]
+        if key in current['values']:
+            raise ValueError('Duplicate Frontend key left unchanged')
+        value = None
+        string = re.fullmatch(r'("(?:[^"\\]|\\.)*"|\'[^\']*\')\s*(?:#.*)?', raw)
+        if string:
+            value = json.loads(string[1]) if string[1].startswith('"') else string[1][1:-1]
+        current['values'][key] = (index, value)
+    current['end'] = len(lines)
+    tables.append(current)
+    for header in ('[custom]', '[custom.system_names]'):
+        if sum(t['header'] == header for t in tables) > 1:
+            raise ValueError('Duplicate Frontend table left unchanged')
+    return lines, tables
+
+
+def zaparoo_art(card, enable=True):
+    """Supply defaults, never replace personal art or rearrange Hub tiles.
+
+    Record ownership before writes, so retries and removal only touch our
+    unchanged files/fields. No Frontend restart and no MiSTer.ini changes.
+    """
+    root, zaparoo = card / 'misterzine-plex', card / 'zaparoo'
+    state_path = root / ZAPAROO_ART_STATE
+    config = zaparoo / 'frontend.toml'
+    def safe(path):
+        return path.resolve().is_relative_to(card.resolve()) and not any(
+            p.is_symlink() for p in (path, *path.parents) if p != card.parent)
+    if not all(safe(p) for p in (state_path, zaparoo, config)):
+        return 'unsafe path'
+    state = json.loads(state_path.read_text()) if state_path.exists() else {'files': {}}
+    before = config.read_bytes() if config.exists() else b''
+    try:
+        lines, tables = frontend_tables(before.decode('utf-8'))
+    except (ValueError, UnicodeError):
+        return 'custom config preserved'
+    custom = next((t['values'] for t in tables if t['header'] == '[custom]'), {})
+    art = zaparoo / 'custom'
+    if 'dir' in custom:
+        directory = custom['dir'][1]
+        if not directory:
+            return 'custom directory preserved'
+        art = Path(directory)
+        if not art.is_absolute():
+            return 'custom directory preserved'
+    if not safe(art):
+        return 'custom directory preserved'
+    edits, additions, changed = {}, {}, False
+    newline = '\r\n' if b'\r\n' in before else '\n'
+    def append_at(index, value):
+        additions[index] = additions.get(index, '') + value + newline
+    def value(table, key):
+        return table['values'].get(key, (None, None))[1]
+    names = next((t for t in tables if t['header'] == '[custom.system_names]'), None)
+    pins = [t for t in tables if t['header'] == '[[hub.items]]'
+            and value(t, 'type') == 'system' and value(t, 'id') == ZAPAROO_SYSTEM]
+    def save_state():
+        write_if_changed(state_path, (json.dumps(state, sort_keys=True) + '\n').encode())
+    def image_default(namespace, ident, data):
+        folder = art / namespace
+        if not safe(folder):
+            return None
+        candidates = [p for p in folder.iterdir() if p.stem.lower() == ident.lower()
+                      and p.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp', '.bmp', '.svg')] if folder.is_dir() else []
+        target = folder / (ident + '.png')
+        relative = target.relative_to(card).as_posix()
+        owned = state['files'].get(relative)
+        if candidates and (candidates != [target] or not safe(target)
+                           or not owned or digest(target) != owned):
+            return None
+        state['files'][relative] = hashlib.sha256(data).hexdigest()
+        save_state()
+        return write_if_changed(target, data)
+    if enable:
+        data = zaparoo_logo()
+        system = image_default('systems', ZAPAROO_SYSTEM, data)
+        changed |= bool(system)
+        # A personal system image is also a deliberate choice: do not add a
+        # different default logo to that person's pinned tile.
+        if system is not None and any('icon' not in pin['values'] or
+                                     state.get('hub') and value(pin, 'icon') == ZAPAROO_ICON
+                                     for pin in pins):
+            hub = image_default('hub', ZAPAROO_ICON, data)
+            changed |= bool(hub)
+            if hub is not None:
+                for pin in pins:
+                    if 'icon' not in pin['values']:
+                        state['hub'] = True
+                        append_at(pin['start'], 'icon = ' + json.dumps(ZAPAROO_ICON))
+        existing_names = names['values'] if names else {}
+        if not any(re.sub('[^a-z0-9]', '', key.lower()) == ZAPAROO_SYSTEM for key in existing_names):
+            state['name'] = True
+            if names:
+                append_at(names['start'], ZAPAROO_SYSTEM + ' = "MisterZine Plex"')
+            else:
+                append_at(len(lines), '\n[custom.system_names]\n' + ZAPAROO_SYSTEM + ' = "MisterZine Plex"')
+        save_state()
+    else:
+        hub_owned = False
+        for relative, sha in state['files'].items():
+            target = card / relative
+            if (target.parent.name, target.name) not in (
+                    ('systems', ZAPAROO_SYSTEM + '.png'), ('hub', ZAPAROO_ICON + '.png')):
+                continue
+            if safe(target) and target.is_file() and digest(target) == sha:
+                target.unlink()
+                changed = True
+                if target.name == ZAPAROO_ICON + '.png':
+                    hub_owned = True
+            elif safe(target) and not target.exists() and target.name == ZAPAROO_ICON + '.png':
+                hub_owned = True
+        if state.get('hub') and hub_owned:
+            for pin in pins:
+                if value(pin, 'icon') == ZAPAROO_ICON:
+                    edits[pin['values']['icon'][0]] = ''
+        if state.get('name') and names and value(names, ZAPAROO_SYSTEM) == 'MisterZine Plex':
+            edits[names['values'][ZAPAROO_SYSTEM][0]] = ''
+    after = ''.join(additions.get(i, '') + edits.get(i, line) for i, line in enumerate(lines))
+    if len(lines) in additions:
+        after += ('\n' if after and not after.endswith('\n') else '') + additions[len(lines)]
+    if after.encode() != before:
+        # Frontend also saves this file. Do not knowingly replace a newer layout.
+        if (config.read_bytes() if config.exists() else b'') != before:
+            return 'config changed; retry next boot'
+        atomic(config, after.encode())
+        changed = True
+    if not enable:
+        state_path.unlink(missing_ok=True)
+    return 'updated; restart Frontend' if changed else 'current'
+
+
+def maintain_zaparoo_art(card, enable=True):
+    """Artwork is optional: a customized or unwritable config cannot fail an update."""
+    root = card / 'misterzine-plex'
+    try:
+        # Rollback has already restored the selected manager before this call.
+        supported = b'def zaparoo_art(' in (root / 'manager.py').read_bytes()
+        outcome = zaparoo_art(card, enable and supported)
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        outcome = type(exc).__name__
+    note(root, zaparoo_art=outcome)
 
 
 ZAPAROO_API = 'http://localhost:7497/api/v0.1'
@@ -184,6 +371,8 @@ def zaparoo_entry(card, enable=True, folder=None, reload=None):
             return 'symlink'
     if (not enable or legacy_watcher(root) or not maintains_zaparoo(root)
             or not (root / 'active.json').is_file() and folder is None):
+        if (root / ZAPAROO_ART_STATE).exists():
+            maintain_zaparoo_art(card, enable=False)
         if path.is_file():
             path.unlink()
             reload(card)
@@ -191,6 +380,7 @@ def zaparoo_entry(card, enable=True, folder=None, reload=None):
         return 'none'
     if not zaparoo.is_dir():
         return 'no zaparoo'
+    maintain_zaparoo_art(card)
     body = zaparoo_body(root, folder)
     try:
         if path.read_bytes() == body:

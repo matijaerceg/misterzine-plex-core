@@ -773,6 +773,34 @@ class UpdateTests(unittest.TestCase):
             self.assertEqual(len(reloads), count + 2)
             self.assertTrue((self.card / 'zaparoo').is_dir())   # Zaparoo's own folders stay
 
+    def test_zaparoo_art_follows_upgrade_rollback_and_uninstall(self):
+        watcher = "SELECTIONS = ('MisterZine Plex Core',)\n"
+        old_helpers = {'menu_launcher.py': watcher, 'manager.py': 'def zaparoo_entry(): pass\n'}
+        new_helpers = dict(old_helpers, **{'manager.py': 'def zaparoo_entry(): pass\ndef zaparoo_art(): pass\n'})
+        _, _, old = self.release('art-before', helpers=old_helpers)
+        _, _, new = self.release('art-after', helpers=new_helpers)
+        z = self.card / 'zaparoo'
+        z.mkdir()
+        config = z / 'frontend.toml'
+        config.write_text('[[hub.items]]\ntype = "system"\nid = "' + manager.ZAPAROO_SYSTEM + '"\n')
+        image = z / 'custom/systems' / (manager.ZAPAROO_SYSTEM + '.png')
+        with patch.object(manager, 'reload_zaparoo', return_value='ok'), \
+                patch.object(manager, 'zaparoo_logo', return_value=b'synthetic artwork'):
+            manager.install(self.card, old)
+            self.assertFalse(image.exists())
+            manager.install(self.card, new)
+            self.assertEqual(image.read_bytes(), b'synthetic artwork')
+            self.assertIn('icon = "misterzine-plex"', config.read_text())
+            manager.rollback(self.root)
+            self.assertFalse(image.exists())
+            self.assertNotIn('icon =', config.read_text())
+            manager.install(self.card, new)
+            self.assertTrue(image.exists())
+            service.uninstall(self.card)
+            self.assertFalse(image.exists())
+            self.assertNotIn('icon =', config.read_text())
+            self.assertIn(manager.ZAPAROO_SYSTEM, config.read_text())  # pin/layout preserved
+
     def test_rollback_to_a_manager_without_zaparoo_support_removes_the_entry(self):
         (self.card / 'zaparoo').mkdir()
         entry = self.card / 'zaparoo/launchers' / manager.ZAPAROO_ENTRY

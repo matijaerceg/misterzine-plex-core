@@ -11,6 +11,7 @@ import time
 import zipfile
 
 import catalogue
+import build_package
 
 ROOT = Path(__file__).resolve().parent
 REPO = 'matijaerceg/misterzine-plex-core'
@@ -21,7 +22,8 @@ def installer(out, name, channel=None, pinned=None, database=None):
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, 'w', zipfile.ZIP_DEFLATED) as z:
         for helper in ('manager.py', 'update_service.py', 'catalogue.py', 'menu_launcher.py'):
-            z.writestr(helper, (ROOT / helper).read_bytes())
+            z.writestr(helper, build_package.manager_source(ROOT.parent) if helper == 'manager.py'
+                       else (ROOT / helper).read_bytes())
         z.writestr('__main__.py', 'from update_service import cli\ncli()\n')
     payload = base64.b64encode(stream.getvalue()).decode()
     script = '#!/bin/bash\nset -eu\n'
