@@ -1302,6 +1302,14 @@ def system_facts(root, secrets, proc_root=Path('/proc'), altcfg=read_altcfg):
     except (OSError, ValueError):
         pass
     facts['decoder_present'] = (root / 'ffmpeg').is_file() and os.access(root / 'ffmpeg', os.X_OK)
+    # Free space on the card and in /tmp (a RAM disk here): a full one slows the
+    # board and fails writes, and a reboot hides it again.
+    for label, place in (('card', card), ('tmp', Path('/tmp'))):
+        try:
+            usage = shutil.disk_usage(place)
+            facts[label + '_space_mb'] = {'free': usage.free // (1024 * 1024), 'total': usage.total // (1024 * 1024)}
+        except OSError:
+            pass
     try:
         state = read_state(root)
         folder = root / 'releases' / state['current']
@@ -1374,8 +1382,13 @@ def build_report(root, proc_root=Path('/proc'), tmp=Path('/tmp'), now=None):
         for key, value in facts.items():
             lines.append(safe_log(key + ': ' + json.dumps(value, sort_keys=True), secrets))
         for name, path in logs:
-            lines += ['', '== LOG ' + name + ' (' + time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(path.stat().st_mtime)) + ')']
-            lines.append(safe_log(log_tail(path, limit), secrets).rstrip('\n'))
+            try:
+                stamp = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(path.stat().st_mtime))
+                tail = safe_log(log_tail(path, limit), secrets).rstrip('\n')
+            except OSError as exc:
+                # A log that cannot be read is a finding, not a reason to lose the report.
+                stamp, tail = 'unreadable', write_problem(exc)
+            lines += ['', '== LOG ' + name + ' (' + stamp + ')', tail]
         text = '\n'.join(lines) + '\n'
         if len(text.encode()) <= REPORT_MAX_BYTES or limit <= 1024:
             return text
@@ -1411,18 +1424,41 @@ def send_report(text, version='unknown', opener=None):
     return code
 
 
-def diagnostics(root, upload=False):
+def write_problem(exc):
+    """A local file failure, worded for the screen. Never echoes paths or
+    the exception text."""
+    import errno
+    words = {errno.ENOSPC: 'The card is full.', errno.EROFS: 'The card is read-only.',
+             errno.EACCES: 'The card refused the write.', errno.EPERM: 'The card refused the write.',
+             errno.ENOENT: 'The Plex folder is missing.', errno.EIO: 'The card gave a read/write error.'}
+    name = errno.errorcode.get(exc.errno or 0, type(exc).__name__)
+    return words.get(exc.errno, 'The card could not be written (' + name + ').')
+
+
+def diagnostics(root, upload=False, tmp=Path('/tmp')):
     """Write the report beside the app and, when asked, send it. Returns (path, code, problem):
-    code is '' when the upload did not happen and problem then says why."""
+    code is '' when the upload did not happen and problem then says why.
+
+    A card that cannot take the file is itself what the report is for, so the
+    report then goes to /tmp, and the upload is tried either way; path is None
+    only when neither place took it."""
     text = build_report(root)
-    out = root / 'report.txt'
-    atomic(out, text.encode())
+    out, saving = None, ''
+    for place in (root / 'report.txt', tmp / 'misterzine-plex-report.txt'):
+        try:
+            atomic(place, text.encode())
+            out = place
+            break
+        except OSError as exc:
+            saving = saving or write_problem(exc)
+    if saving:
+        saving = 'The report could not be saved on the card: ' + saving
     if not upload:
-        return out, '', ''
+        return out, '', saving
     try:
         return out, send_report(text, report_version(root)), ''
     except ReportError as exc:
-        return out, '', str(exc)
+        return out, '', (str(exc) + ' ' + saving).strip()
 
 
 def stop_child(child):
@@ -1955,17 +1991,23 @@ def main():
     try:
         if args.action in ('diagnostics', 'report'):
             # Reading logs needs no lock, so a report can be sent from the running app.
-            out, code, problem = diagnostics(root, upload=not args.no_upload)
+            try:
+                out, code, problem = diagnostics(root, upload=not args.no_upload)
+            except OSError as exc:
+                # Gathering failed before anything could be sent: say why, in
+                # words the app shows, instead of the generic failure below.
+                out, code, problem = None, '', 'The report could not be made. ' + write_problem(exc)
             if args.action == 'report':
                 # Lines the app parses.
-                print('saved: ' + str(out))
+                if out is not None:
+                    print('saved: ' + str(out))
                 print('code: ' + code if code else 'error: ' + problem, flush=True)
                 return 0
-            print('Report saved as ' + str(out))
+            print('Report saved as ' + str(out) if out is not None else 'Report not saved')
             if code:
                 print('Report sent. Post this code where you asked for help: ' + code)
             elif problem:
-                print('Not sent: ' + problem + ' You can send the saved file instead.')
+                print('Not sent: ' + problem + (' You can send the saved file instead.' if out is not None else ''))
             print('It can name media titles and playback details. Account files and tokens are never included.')
             return 0 if code or args.no_upload else 1
         if args.action == 'maintain':

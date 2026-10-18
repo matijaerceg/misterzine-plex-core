@@ -1,3 +1,5 @@
+import contextlib
+import errno
 import hashlib
 import io
 import json
@@ -398,6 +400,57 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(out, self.root / 'report.txt')
         self.assertEqual(out.read_text(), 'MisterZine report v1\nApp: x\n')
         self.assertEqual((code, problem), ('', ''))
+
+    def test_report_goes_to_tmp_when_the_card_cannot_take_it(self):
+        full = OSError(errno.ENOSPC, 'No space left on device')
+        real = manager.atomic
+
+        def atomic(path, data):
+            if path.parent == self.root:
+                raise full
+            real(path, data)
+        with mock.patch.object(manager, 'build_report', return_value='MisterZine report v1\nApp: x\n'), \
+                mock.patch.object(manager, 'atomic', side_effect=atomic), \
+                mock.patch.object(manager, 'send_report', return_value='K7M4'):
+            out, code, problem = manager.diagnostics(self.root, upload=True, tmp=self.tmp)
+        self.assertEqual(out, self.tmp / 'misterzine-plex-report.txt')
+        self.assertEqual(out.read_text(), 'MisterZine report v1\nApp: x\n')
+        self.assertEqual((code, problem), ('K7M4', ''))
+        with mock.patch.object(manager, 'build_report', return_value='x'), \
+                mock.patch.object(manager, 'atomic', side_effect=atomic), \
+                mock.patch.object(manager, 'send_report', side_effect=manager.ReportError('Offline.')):
+            out, code, problem = manager.diagnostics(self.root, upload=True, tmp=self.tmp)
+        self.assertEqual(problem, 'Offline. The report could not be saved on the card: The card is full.')
+        with mock.patch.object(manager, 'build_report', return_value='x'), \
+                mock.patch.object(manager, 'atomic', side_effect=full), \
+                mock.patch.object(manager, 'send_report', return_value='K7M4'):
+            out, code, problem = manager.diagnostics(self.root, upload=True, tmp=self.tmp)
+        self.assertEqual((out, code, problem), (None, 'K7M4', ''))
+
+    def test_report_action_words_a_local_failure_for_the_app(self):
+        self.assertEqual(manager.write_problem(OSError(errno.EROFS, 'x')), 'The card is read-only.')
+        self.assertEqual(manager.write_problem(OSError(errno.EBUSY, '/secret/path')), 'The card could not be written (EBUSY).')
+        self.assertEqual(manager.write_problem(OSError('no errno')), 'The card could not be written (OSError).')
+        out = io.StringIO()
+        with mock.patch.object(manager, 'build_report', side_effect=OSError(errno.EIO, 'Input/output error')), \
+                mock.patch.object(manager.sys, 'argv', ['manager.py', 'report', '--card', str(self.card)]), \
+                contextlib.redirect_stdout(out):
+            self.assertEqual(manager.main(), 0)
+        self.assertEqual(out.getvalue(), 'error: The report could not be made. The card gave a read/write error.\n')
+        out = io.StringIO()
+        with mock.patch.object(manager, 'build_report', side_effect=OSError(errno.EIO, 'Input/output error')), \
+                mock.patch.object(manager.sys, 'argv', ['manager.py', 'diagnostics', '--card', str(self.card)]), \
+                contextlib.redirect_stdout(out):
+            self.assertEqual(manager.main(), 1)
+        self.assertIn('Report not saved\nNot sent: The report could not be made. The card gave a read/write error.\n', out.getvalue())
+        self.assertNotIn('saved file', out.getvalue())
+
+    def test_report_survives_an_unreadable_log_and_states_free_space(self):
+        with mock.patch.object(manager, 'log_tail', side_effect=OSError(errno.EIO, 'bad')):
+            text = self.report()
+        self.assertIn('== LOG misterzine-plex.log (unreadable)\nThe card gave a read/write error.\n', text)
+        self.assertIn('card_space_mb: {"free": ', text)
+        self.assertIn('tmp_space_mb: {"free": ', text)
 
     def test_report_service_off_is_worded(self):
         with self.assertRaisesRegex(manager.ReportError, 'switched off'):
