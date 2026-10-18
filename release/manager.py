@@ -1217,7 +1217,31 @@ def zaparoo_facts(root, version=None):
     return facts
 
 
-def system_facts(root, secrets, proc_root=Path('/proc'), altcfg=read_altcfg):
+KERNEL_WORDS = re.compile(r'exfat|fat-fs|ext4-fs|mmc|i/o error|remount|read-only|sd[a-z]\b|blk_update', re.I)
+
+
+def kernel_lines(dmesg=None, limit=40):
+    """The kernel's recent lines about storage: a card mounted dirty, an I/O
+    error, a remount read-only. Each cut to 200 characters, newest kept."""
+    if dmesg is None:
+        def dmesg():
+            return subprocess.run(['dmesg'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                  timeout=10, check=False).stdout.decode('utf-8', errors='replace')
+    lines = [line.strip()[:200] for line in dmesg().splitlines() if KERNEL_WORDS.search(line)]
+    return lines[-limit:]
+
+
+def mount_facts(mountpoint, mounts=Path('/proc/mounts')):
+    """How the card is mounted: its filesystem and options. 'ro' among the
+    options means the kernel has turned the card read-only after an error."""
+    for line in mounts.read_text(errors='replace').splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[1] == str(mountpoint):
+            return {'type': parts[2], 'options': parts[3][:200]}
+    return None
+
+
+def system_facts(root, secrets, proc_root=Path('/proc'), altcfg=read_altcfg, dmesg=None):
     """Facts about the board that decide whether a launch or a picture can
     work, gathered read-only. Each is best-effort and absent when unreadable."""
     facts = {}
@@ -1302,6 +1326,16 @@ def system_facts(root, secrets, proc_root=Path('/proc'), altcfg=read_altcfg):
     except (OSError, ValueError):
         pass
     facts['decoder_present'] = (root / 'ffmpeg').is_file() and os.access(root / 'ffmpeg', os.X_OK)
+    # The card's mount and the kernel's word on it: a card remounted read-only
+    # after an error fails every write and drags the board until a reboot.
+    try:
+        facts['card_mount'] = mount_facts(card, proc_root / 'mounts')
+    except OSError:
+        pass
+    try:
+        facts['kernel_storage_lines'] = [safe_log(line, secrets) for line in kernel_lines(dmesg)]
+    except (OSError, subprocess.SubprocessError):
+        pass
     # Free space on the card and in /tmp (a RAM disk here): a full one slows the
     # board and fails writes, and a reboot hides it again.
     for label, place in (('card', card), ('tmp', Path('/tmp'))):

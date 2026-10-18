@@ -445,6 +445,28 @@ class ReportTests(unittest.TestCase):
         self.assertIn('Report not saved\nNot sent: The report could not be made. The card gave a read/write error.\n', out.getvalue())
         self.assertNotIn('saved file', out.getvalue())
 
+    def test_report_states_the_card_mount_and_kernel_storage_lines(self):
+        (self.proc.parent / 'mounts').write_text(
+            '/dev/root / ext4 rw,relatime 0 0\n'
+            '/dev/mmcblk0p1 %s exfat ro,relatime,errors=remount-ro 0 0\n' % self.card)
+        dmesg = lambda: ('[    1.0] exFAT-fs (mmcblk0p1): Volume was not properly unmounted. Some data may be corrupt.\n'
+                         '[    2.0] usb 1-1: new high-speed USB device\n'
+                         '[  900.1] mmcblk0: error -110 transferring data\n'
+                         '[  900.2] exFAT-fs (mmcblk0p1): Remounting filesystem read-only, see https://10-0-0-2.abc.plex.direct\n')
+        secrets = manager.report_secrets(self.root)
+        facts = manager.system_facts(self.root, secrets, self.proc.parent, dmesg=dmesg)
+        self.assertEqual(facts['card_mount'], {'type': 'exfat', 'options': 'ro,relatime,errors=remount-ro'})
+        self.assertEqual(len(facts['kernel_storage_lines']), 3)
+        self.assertIn('not properly unmounted', facts['kernel_storage_lines'][0])
+        self.assertIn('error -110', facts['kernel_storage_lines'][1])
+        self.assertNotIn('10-0-0-2', facts['kernel_storage_lines'][2])
+        self.assertEqual(manager.kernel_lines(lambda: 'mmc0: x\n' * 100), ['mmc0: x'] * 40)
+        # No mounts file and a dmesg that fails: the report still comes out.
+        (self.proc.parent / 'mounts').unlink()
+        facts = manager.system_facts(self.root, secrets, self.proc.parent, dmesg=lambda: (_ for _ in ()).throw(OSError(2, 'no')))
+        self.assertNotIn('card_mount', facts)
+        self.assertNotIn('kernel_storage_lines', facts)
+
     def test_report_survives_an_unreadable_log_and_states_free_space(self):
         with mock.patch.object(manager, 'log_tail', side_effect=OSError(errno.EIO, 'bad')):
             text = self.report()
