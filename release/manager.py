@@ -27,7 +27,11 @@ import time
 import urllib.request
 from xml.sax.saxutils import escape
 
-FF_URL = 'https://johnvansickle.com/ffmpeg/releases/ffmpeg-7.0.2-armhf-static.tar.xz'
+# The upstream build first, then an identical copy for when that site is
+# down. Only the pinned hash is trusted, so a source may fail or lie.
+FF_URLS = ('https://johnvansickle.com/ffmpeg/releases/ffmpeg-7.0.2-armhf-static.tar.xz',
+           'https://raw.githubusercontent.com/MotionquestAI/ffmpeg-static-build/'
+           '4d1dbe2d1518d39d2f6692d7b686368407c42c12/ffmpeg-release-armhf-static.tar.xz')
 FF_SHA = '7d41f558cb1f3395b313f8ceabed78b3731c79a0962abf405ebb5cd393e93991'
 PAYLOAD = {'plexcrt', 'plexplay.py', 'plexfb', 'MisterZine Plex Core.rbf'}
 LEGACY_PAYLOAD = (PAYLOAD - {'MisterZine Plex Core.rbf'}) | {'MisterZine Plex.rbf'}
@@ -738,15 +742,28 @@ def decoder(root, archive=None):
         known = json.loads(stamp.read_text())
         if known.get('archive_sha256') == FF_SHA and digest(ff) == known.get('binary_sha256'):
             return
+    source = FF_URLS[0]
     if archive is None:
         archive = root / 'ffmpeg-7.0.2-armhf-static.tar.xz'
         if not archive.exists() or digest(archive) != FF_SHA:
             print('Downloading the pinned FFmpeg decoder (about 20 MB)...', flush=True)
-            try:
-                with urllib.request.urlopen(FF_URL, timeout=60) as response:
-                    atomic(archive, response.read(64 * 1024 * 1024 + 1))
-            except (OSError, http.client.HTTPException) as exc:
-                raise DecoderFetchError('Could not fetch the FFmpeg decoder') from exc
+            failure = None
+            for source in FF_URLS:
+                if failure is not None:
+                    print('Trying another copy of the decoder...', flush=True)
+                try:
+                    with urllib.request.urlopen(source, timeout=60) as response:
+                        atomic(archive, response.read(64 * 1024 * 1024 + 1))
+                except (OSError, http.client.HTTPException) as exc:
+                    failure = exc
+                    continue
+                if digest(archive) == FF_SHA:
+                    break
+                failure = ValueError('Decoder checksum failed')
+            else:
+                # The last error: a full or read-only card shows up there
+                # even when the first site was simply down.
+                raise DecoderFetchError('Could not fetch the FFmpeg decoder') from failure
     if digest(archive) != FF_SHA:
         raise ValueError('Decoder checksum failed. No release was activated.')
     with tarfile.open(str(archive), 'r:xz') as tar:
@@ -759,7 +776,7 @@ def decoder(root, archive=None):
                 dest = ff if name == 'ffmpeg' else root / 'decoder-notices' / name
                 atomic(dest, src.read())
     ff.chmod(0o755)
-    write_json(stamp, {'archive_sha256': FF_SHA, 'binary_sha256': digest(ff), 'url': FF_URL})
+    write_json(stamp, {'archive_sha256': FF_SHA, 'binary_sha256': digest(ff), 'url': source})
 
 
 def wrappers(card):

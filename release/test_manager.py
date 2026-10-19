@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import shutil
 import socket
 import struct
 import tarfile
@@ -269,6 +270,32 @@ class InstallerTests(unittest.TestCase):
             manager.decoder(self.root)
         self.assertEqual((self.root / 'ffmpeg').read_bytes(), b'synthetic ffmpeg')
         self.assertTrue((self.root / 'decoder.json').is_file())
+
+    def test_decoder_falls_back_to_the_copy_when_the_upstream_site_fails_or_lies(self):
+        stream = io.BytesIO()
+        with tarfile.open(fileobj=stream, mode='w:xz') as tar:
+            for name in ('ffmpeg', 'GPLv3.txt', 'readme.txt'):
+                data = ('synthetic ' + name).encode()
+                info = tarfile.TarInfo('ffmpeg-7.0.2-armhf-static/' + name)
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+        archive = stream.getvalue()
+        upstream, mirror = manager.FF_URLS
+        for first in (ConnectionRefusedError(111, 'refused'), b'<html>parked domain</html>'):
+            shutil.rmtree(self.root, ignore_errors=True)
+            self.root.mkdir(parents=True)
+            asked = []
+            def fetch(url, timeout):
+                asked.append(url)
+                if url == upstream and isinstance(first, Exception):
+                    raise first
+                return io.BytesIO(first if url == upstream else archive)
+            with mock.patch.object(manager, 'FF_SHA', hashlib.sha256(archive).hexdigest()), \
+                    mock.patch.object(manager.urllib.request, 'urlopen', fetch):
+                manager.decoder(self.root)
+            self.assertEqual(asked, [upstream, mirror])
+            self.assertEqual((self.root / 'ffmpeg').read_bytes(), b'synthetic ffmpeg')
+            self.assertEqual(json.loads((self.root / 'decoder.json').read_text())['url'], mirror)
 
     def test_reject_path_escape(self):
         self.root.mkdir(parents=True)

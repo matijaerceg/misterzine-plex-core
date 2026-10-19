@@ -38,6 +38,11 @@ The installer downloads John Van Sickle's FFmpeg 7.0.2 ARM hard-float static
 build separately from:
 https://johnvansickle.com/ffmpeg/releases/ffmpeg-7.0.2-armhf-static.tar.xz
 
+When that site cannot be reached, it downloads the identical archive from a
+third-party copy at https://github.com/MotionquestAI/ffmpeg-static-build
+(`ffmpeg-release-armhf-static.tar.xz`). Either file is used only if it matches
+the hash below.
+
 Archive SHA-256:
 `7d41f558cb1f3395b313f8ceabed78b3731c79a0962abf405ebb5cd393e93991`
 
