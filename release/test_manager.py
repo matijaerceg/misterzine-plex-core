@@ -209,6 +209,20 @@ class InstallerTests(unittest.TestCase):
                 with mock.patch.object(manager, 'mister_processes', side_effect=[plex] + [after] * 100):
                     self.assertFalse(manager.load_menu(self.card, cmd, wait=.1))
 
+    def test_a_lock_held_for_a_moment_is_waited_for(self):
+        import fcntl
+        import threading
+        self.root.mkdir(parents=True)
+        holder = (self.root / 'manager.lock').open('a')
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        with self.assertRaises(RuntimeError):
+            with manager.locked(self.root):
+                pass
+        # the watcher's entry check letting go while the launch waits
+        threading.Timer(.3, holder.close).start()
+        with manager.locked(self.root, patience=5):
+            pass
+
     def test_exit_lingers_with_the_lock_let_go(self):
         import fcntl
         self.root.mkdir(parents=True)

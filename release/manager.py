@@ -718,14 +718,22 @@ def read_state(root):
 
 
 @contextlib.contextmanager
-def locked(root):
+def locked(root, patience=0):
+    """Hold the manager lock. With `patience`, a lock held for a moment is
+    waited for: an install restarts the watcher, whose entry check takes the
+    lock just as the install script's next line launches the app."""
     import fcntl
     root.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + patience
     with (root / 'manager.lock').open('a') as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise RuntimeError('MisterZine Plex Core is running. Return to the MiSTer menu first.')
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('MisterZine Plex Core is running. Return to the MiSTer menu first.')
+                time.sleep(.2)
         yield
 
 
@@ -2255,7 +2263,9 @@ def main():
             sys.stdout = sys.stderr         # the log; stdout only tells the watcher when to go on
             return maintain(args.card, released=let_the_watcher_go)
         to_menu = False
-        with locked(root):
+        # Longer than the watcher lets its entry check run (20 s), so a check
+        # never turns a fresh install's launch into a "running" error.
+        with locked(root, patience=30):
             if args.action == 'install':
                 install(args.card, args.package, args.decoder_archive)
                 prune_releases(root)
