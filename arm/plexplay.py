@@ -46,9 +46,10 @@ Robustness:
     presenter missed, the server's CPU when the account may see it, and a
     summary at the end go into the log, so one report tells a server that
     cannot keep up from a board that cannot;
-  - next to each server line, how fast the stream arrived here since the last
-    ping (average and busiest second, from ffmpeg's /proc io counter) and how
-    much CPU ffmpeg used, so bitrate peaks and a maxed-out decoder show up.
+  - next to each server line, how fast data arrived here since the last ping
+    (average and busiest second, from the board's network interface counters,
+    so the stream plus the app's own small requests) and how much CPU ffmpeg
+    used, so bitrate peaks and a maxed-out decoder show up.
 """
 import os, sys, uuid, subprocess, signal, threading, time, errno, socket, stat as st_
 import urllib.request, urllib.parse, urllib.error
@@ -229,7 +230,7 @@ def read_status():
 
 
 class Intake:
-    """ffmpeg's bytes read and CPU ticks, sampled once a second, summed per
+    """network bytes in and ffmpeg's CPU ticks, sampled once a second, summed per
     timeline ping"""
     def __init__(self):
         self.lock = threading.Lock()
@@ -252,18 +253,25 @@ class Intake:
         return b * 8 / 1e6 / s, pk * 8 / 1e6, tk / hz / s * 100, cores * 100
 
 def intake_text(m):
-    if m is None: return 'stream in: not measured'
-    return 'stream in: avg %.1f Mbps, peak second %.1f Mbps; decoder cpu %.0f%% of %d%%' % m
+    if m is None: return 'network in: not measured'
+    return 'network in: avg %.1f Mbps, peak second %.1f Mbps; decoder cpu %.0f%% of %d%%' % m
+
+def net_rx(text):
+    """received bytes of every interface but lo, from /proc/net/dev text"""
+    total = 0
+    for line in text.splitlines()[2:]:
+        name, _, rest = line.partition(':')
+        if rest and name.strip() != 'lo': total += int(rest.split()[0])
+    return total
 
 def read_proc(pid):
-    """(bytes read, utime+stime ticks) of a process, or None"""
+    """(network bytes in, ffmpeg's utime+stime ticks), or None"""
     try:
-        with open('/proc/%d/io' % pid) as f:
-            rchar = int(next(l for l in f if l.startswith('rchar')).split()[1])
+        with open('/proc/net/dev') as f: rx = net_rx(f.read())
         with open('/proc/%d/stat' % pid) as f:
             w = f.read().rsplit(')', 1)[1].split()
-        return rchar, int(w[11]) + int(w[12])
-    except (OSError, ValueError, IndexError, StopIteration):
+        return rx, int(w[11]) + int(w[12])
+    except (OSError, ValueError, IndexError):
         return None
 
 def sample_intake(p, intake):
@@ -630,7 +638,7 @@ class Player:
         if not self.intake: return None
         try: hz = os.sysconf('SC_CLK_TCK')
         except (AttributeError, ValueError, OSError): hz = 100
-        return self.intake.take(hz, os.cpu_count() or 2)
+        return self.intake.take(hz, 2)   # both boards are dual-core
 
     def server_cpu(self):
         """The server's own CPU figures, in the background. Plex shows them to
@@ -660,7 +668,7 @@ class Player:
         sp = sorted(h['speeds'])
         speed = ('lowest %.1fx, median %.1fx' % (sp[0], sp[len(sp) // 2])) if sp else 'not measured'
         log('server summary: %d reports; converting speed %s; throttled in %d of %d; closest to playback %s; '
-            'hardware %s; frames missed here %d; stream in peak second %s; decoder cpu highest %s'
+            'hardware %s; frames missed here %d; network in peak second %s; decoder cpu highest %s'
             % (h['reports'], speed, h['throttled'], h['reports'],
                '%.0f s ahead' % h['closest'] if h['closest'] is not None else 'unknown',
                ' / '.join(h['hardware']), h['missed'],
