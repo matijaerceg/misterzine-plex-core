@@ -2,14 +2,14 @@
   "schema": 1,
   "releases": {
     "beta": {
-      "id": "beta-0.1.0-beta.25",
-      "version": "0.1.0-beta.25",
+      "id": "beta-0.1.0-beta.26",
+      "version": "0.1.0-beta.26",
       "channel": "beta",
-      "notes": "## 0.1.0-beta.25\n\n- Plex now uses the MisterZine Plex Core logotype in Zaparoo Frontend, including existing pinned tiles. Menu positions, custom icons and custom names are preserved. Restart Frontend after updating to see the artwork.\n- Improved diagnostics when the SD card cannot save a report, with clearer failure messages and more storage information for troubleshooting.\n\nExisting beta access codes continue to work.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.25/MisterZine-Plex-Core-beta-0.1.0-beta.25.zip",
+      "notes": "## 0.1.0-beta.26\n\n- Send a report now shows how your Plex server copes during playback: how fast it converts the video, how far ahead of playback it is, whether it uses hardware transcoding, and, for the server's owner, its CPU load, next to any frames the MiSTer missed. One report can now tell a server that cannot keep up (for example converting 4K HEVC without hardware transcoding) from a problem on the MiSTer.\n- The FFmpeg decoder download falls back to an identical copy when its own site is down.\n- An install or update no longer sometimes ends by saying the app is already running.\n\nExisting beta access codes continue to work.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.26/MisterZine-Plex-Core-beta-0.1.0-beta.26.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 5145975,
-      "sha256": "84ddbd7fbb1d9f8e2bd8f2b8c7e28a9304401a688fa90a1e01ceec4d948d95d6",
+      "size": 5148927,
+      "sha256": "b1122b6c1716a3c071610e3632ad35ca8a56735e7c12ec59460c3fb80cede153",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
