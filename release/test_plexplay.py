@@ -130,5 +130,83 @@ class SubtitleTranscodeTests(unittest.TestCase):
         player.interrupt.assert_not_called()
 
 
+TIMELINE_REPLY = (b'<MediaContainer size="2" playbackState="ignore"><Bandwidths><Bandwidth time="0" bandwidth="2384"/></Bandwidths>'
+                  b'<TranscodeSession key="/transcode/sessions/synthetic" throttled="0" speed="0.80000001" '
+                  b'maxOffsetAvailable="612.5" minOffsetAvailable="600.0" videoDecision="transcode" '
+                  b'sourceVideoCodec="hevc" transcodeHwRequested="0"/></MediaContainer>')
+
+
+class ServerHealthTests(unittest.TestCase):
+    def player(self, starved=0, pos=610.0):
+        player = plexplay.Player.__new__(plexplay.Player)
+        player.health = {'first': None, 'logged': 0.0, 'starved': 0, 'missed': 0, 'reports': 0,
+                         'throttled': 0, 'speeds': [], 'closest': None, 'hardware': [], 'silent': False}
+        player.cpu = 'refused'
+        player.position = lambda: pos
+        return player
+
+    def test_timeline_reply_becomes_one_plain_line(self):
+        ts = plexplay.transcode_health(TIMELINE_REPLY)
+        self.assertEqual(plexplay.health_text(ts, 610.0, 7),
+                         'server: converting at 0.8x, 2 s ahead of playback, video transcode from hevc, '
+                         'hardware off; frames missed here: 7')
+
+    def test_throttled_and_hardware_sessions_read_as_such(self):
+        ts = {'throttled': '1', 'speed': '0', 'maxOffsetAvailable': '700', 'videoDecision': 'transcode',
+              'sourceVideoCodec': 'hevc', 'transcodeHwRequested': '1', 'transcodeHwDecoding': 'vaapi',
+              'transcodeHwEncodingTitle': 'Intel (QuickSync)'}
+        line = plexplay.health_text(ts, 600.0, 0)
+        self.assertIn('throttled (ahead enough, resting), 100 s ahead', line)
+        self.assertIn('hardware decode vaapi, encode Intel (QuickSync)', line)
+        self.assertEqual(plexplay.hardware_text({'transcodeHwRequested': '1'}), 'requested but not in use')
+        self.assertIn('converting (speed not measured yet)', plexplay.health_text({'throttled': '0', 'speed': '0'}, 0, 0))
+
+    def test_replies_without_a_session_are_noted_once(self):
+        self.assertIsNone(plexplay.transcode_health(b'<MediaContainer size="0"/>'))
+        self.assertIsNone(plexplay.transcode_health(b'not xml'))
+        player = self.player()
+        with patch.object(plexplay, 'log') as log:
+            player.note_health(b'<MediaContainer size="0"/>')
+            player.note_health(b'<MediaContainer size="0"/>')
+        log.assert_called_once_with('server: no transcode report in the timeline reply')
+
+    def test_missed_frames_follow_the_presenter_count_and_feed_the_summary(self):
+        player = self.player()
+        with patch.object(plexplay, 'read_status', return_value={'starved': 12.0}), \
+             patch.object(plexplay, 'log') as log:
+            player.note_health(TIMELINE_REPLY)
+        self.assertIn('frames missed here: 12', log.call_args.args[0])
+        # a restarted presenter counts from zero again
+        with patch.object(plexplay, 'read_status', return_value={'starved': 3.0}), \
+             patch.object(plexplay, 'log') as log:
+            player.note_health(TIMELINE_REPLY.replace(b'0.80000001', b'0.9'))
+        self.assertIn('frames missed here: 3', log.call_args.args[0])
+        with patch.object(plexplay, 'log') as log:
+            player.health_summary()
+        self.assertEqual(log.call_args.args[0],
+                         'server summary: 2 reports; converting speed lowest 0.8x, median 0.9x; throttled in 0 of 2; '
+                         'closest to playback 2 s ahead; hardware off; frames missed here 15')
+
+    def test_quiet_healthy_minutes_are_not_logged_every_ping(self):
+        player = self.player(pos=500.0)
+        healthy = TIMELINE_REPLY.replace(b'throttled="0"', b'throttled="1"')
+        with patch.object(plexplay, 'read_status', return_value={}), \
+             patch.object(plexplay, 'log') as log, \
+             patch.object(plexplay.time, 'time', side_effect=[1000.0, 1010.0, 1130.0, 1140.0, 1180.0]):
+            for _ in range(5):
+                player.note_health(healthy)
+        # the first two minutes, then once a minute
+        self.assertEqual(log.call_count, 3)
+        self.assertEqual(player.health['reports'], 5)
+
+    def test_source_names_what_the_server_decodes(self):
+        video = plexplay.ET.fromstring(
+            '<Video><Media videoCodec="hevc" width="3840" height="2160" bitrate="54808" container="mkv">'
+            '<Part><Stream streamType="1" bitDepth="10" colorTrc="smpte2084"/></Part></Media>'
+            '<Media videoCodec="h264" width="1920" height="1080"/></Video>')
+        self.assertEqual(plexplay.source_text(video), 'hevc 3840x2160 10-bit HDR 54808 kbps mkv, 2 versions')
+        self.assertEqual(plexplay.source_text(plexplay.ET.fromstring('<Video/>')), 'unknown')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -41,6 +41,11 @@ Robustness:
     runs it before playing.
   - stop/seek/end all shut the transcode session down; a seek leaves the
     last frame on screen until the new stream's first frame.
+  - the source file, then what each timeline reply says about the transcode
+    (speed, how far ahead of playback, hardware use) next to the frames the
+    presenter missed, the server's CPU when the account may see it, and a
+    summary at the end go into the log, so one report tells a server that
+    cannot keep up from a board that cannot.
 """
 import os, sys, uuid, subprocess, signal, threading, time, errno, socket, stat as st_
 import urllib.request, urllib.parse, urllib.error
@@ -137,14 +142,64 @@ def find(query, section=1):
             for v in root.findall('Video')]
 
 def item_info(rk):
-    """title, duration (s), saved resume point (s), source frame rate (0 if unknown)"""
+    """title, duration (s), saved resume point (s), source frame rate (0 if unknown),
+    a one-line description of the file the server converts"""
     v = ET.fromstring(get('/library/metadata/%s' % rk)).find('Video')
     s, m = v.find('.//Stream[@streamType="1"]'), v.find('Media')
     try: fps = float(s.get('frameRate') or 0) if s is not None else 0.0
     except ValueError: fps = 0.0
     if not fps and m is not None:
         fps = {'50p': 50.0, '60p': 59.94}.get(m.get('videoFrameRate') or '', 0.0)
-    return (v.get('title'), int(v.get('duration', 0)) / 1000.0, int(v.get('viewOffset', 0)) / 1000.0, fps)
+    return (v.get('title'), int(v.get('duration', 0)) / 1000.0, int(v.get('viewOffset', 0)) / 1000.0, fps,
+            source_text(v))
+
+def source_text(video):
+    """what the server has to decode for us: the first version, which the
+    transcode asks for (mediaIndex 0), and how many versions there are"""
+    media = video.findall('Media')
+    if not media: return 'unknown'
+    m, s = media[0], media[0].find('.//Stream[@streamType="1"]')
+    s = s if s is not None else ET.Element('Stream')
+    words = [m.get('videoCodec') or '?', '%sx%s' % (m.get('width') or '?', m.get('height') or '?')]
+    if s.get('bitDepth'): words.append('%s-bit' % s.get('bitDepth'))
+    if s.get('DOVIPresent') == '1': words.append('Dolby Vision')
+    elif s.get('colorTrc') in ('smpte2084', 'arib-std-b67'): words.append('HDR')
+    words.append('%s kbps %s' % (m.get('bitrate') or '?', m.get('container') or '?'))
+    return '%s, %d version%s' % (' '.join(words), len(media), '' if len(media) == 1 else 's')
+
+def transcode_health(body):
+    """the server's own account of this client's transcode, from a timeline
+    reply: speed, throttled, maxOffsetAvailable, hardware use ... (or None)"""
+    try: ts = ET.fromstring(body).find('TranscodeSession')
+    except ET.ParseError: return None
+    return dict(ts.attrib) if ts is not None else None
+
+def flag(value):
+    return value in ('1', 'true')
+
+def hardware_text(ts):
+    """what the server says about hardware transcoding for this session"""
+    dec = ts.get('transcodeHwDecodingTitle') or ts.get('transcodeHwDecoding')
+    enc = ts.get('transcodeHwEncodingTitle') or ts.get('transcodeHwEncoding')
+    if dec or enc:
+        return 'decode %s, encode %s' % (dec or 'software', enc or 'software')
+    return 'requested but not in use' if flag(ts.get('transcodeHwRequested')) else 'off'
+
+def health_text(ts, pos, missed):
+    """one log line: how fast the server converts, how far ahead of our
+    position it is, and how many frames the presenter found missing"""
+    try: ahead = float(ts['maxOffsetAvailable']) - pos
+    except (KeyError, ValueError): ahead = None
+    try: speed = float(ts.get('speed') or 0)
+    except ValueError: speed = 0.0
+    # a throttled transcoder is idling far enough ahead; its speed reads 0 then,
+    # and for a moment after it starts again
+    if flag(ts.get('throttled')): words = ['throttled (ahead enough, resting)']
+    else: words = ['converting at %.1fx' % speed if speed > 0 else 'converting (speed not measured yet)']
+    if ahead is not None: words.append('%.0f s ahead of playback' % ahead)
+    words.append('video %s from %s' % (ts.get('videoDecision') or '?', ts.get('sourceVideoCodec') or '?'))
+    words.append('hardware %s' % hardware_text(ts))
+    return 'server: %s; frames missed here: %d' % (', '.join(words), missed)
 
 def profile_extra(src_fps):
     """the limits added to the Plex Web client profile for this item"""
@@ -191,7 +246,11 @@ class Player:
         self.pending = None           # 'stop' | ('seek', seconds)
         self.last_pos = 0.0
         self.lock = threading.Lock()
-        self.title, self.duration, _, self.src_fps = item_info(rk)
+        self.title, self.duration, _, self.src_fps, self.source = item_info(rk)
+        # what the server says about its transcode, gathered from timeline replies
+        self.health = {'first': None, 'logged': 0.0, 'starved': 0, 'missed': 0, 'reports': 0,
+                       'throttled': 0, 'speeds': [], 'closest': None, 'hardware': [], 'silent': False}
+        self.cpu = None               # None | 'asking' | 'refused'
 
     # ---- position ----
     def position(self):
@@ -455,9 +514,9 @@ class Player:
         self.sess = None
 
     # ---- timeline ----
-    def timeline(self, state):
+    def timeline(self, state, health=False):
         try:
-            get('/:/timeline', {
+            body = get('/:/timeline', {
                 'ratingKey': self.rk, 'key': '/library/metadata/%s' % self.rk,
                 'state': state, 'time': int(self.position() * 1000),
                 'duration': int(self.duration * 1000),
@@ -465,7 +524,80 @@ class Player:
                 'identifier': 'com.plexapp.plugins.library', 'hasMDE': 1, 'continuing': 0,
             }, timeout=10)
         except Exception as e:
-            log('timeline %s: %r' % (state, e))
+            log('timeline %s: %r' % (state, e)); return
+        if health and state == 'playing':
+            self.note_health(body)
+
+    # ---- the server's side of a stutter ----
+    def note_health(self, body):
+        """Log what the timeline reply says about our transcode next to what the
+        presenter saw, so one report shows whether the server kept ahead. Every
+        reply for the first two minutes, then once a minute, and whenever frames
+        went missing or the server is close to running dry."""
+        h = self.health
+        ts = transcode_health(body)
+        if ts is None:
+            if not h['silent']: log('server: no transcode report in the timeline reply')
+            h['silent'] = True
+            return
+        starved = int(read_status().get('starved', 0))
+        if starved < h['starved']: h['starved'] = 0      # a new presenter counts from zero
+        missed, h['starved'] = starved - h['starved'], starved
+        pos = self.position()
+        try: ahead = float(ts['maxOffsetAvailable']) - pos
+        except (KeyError, ValueError): ahead = None
+        throttled = flag(ts.get('throttled'))
+        h['reports'] += 1
+        h['missed'] += missed
+        if throttled: h['throttled'] += 1
+        else:
+            # 0 before the transcoder has measured itself
+            try: speed = float(ts.get('speed') or 0)
+            except ValueError: speed = 0.0
+            if speed > 0: h['speeds'].append(speed)
+        if ahead is not None and (h['closest'] is None or ahead < h['closest']): h['closest'] = ahead
+        hw = hardware_text(ts)
+        if hw not in h['hardware']: h['hardware'].append(hw)
+        now = time.time()
+        h['first'] = h['first'] or now
+        if (now - h['first'] < 120 or now - h['logged'] >= 60 or missed
+                or (not throttled and ahead is not None and ahead < 10)):
+            log(health_text(ts, pos, missed))
+            h['logged'] = now
+            self.server_cpu()
+
+    def server_cpu(self):
+        """The server's own CPU figures, in the background. Plex shows them to
+        the server's owner only; anyone else is asked once."""
+        if self.cpu: return
+        self.cpu = 'asking'
+        def ask():
+            state = None
+            try:
+                rows = ET.fromstring(get('/statistics/resources', {'timespan': 6}, timeout=5)).findall('StatisticsResources')
+                if rows:
+                    r = max(rows, key=lambda e: float(e.get('at') or 0))
+                    log('server CPU (last 6 s): whole machine %.0f%%, Plex %.0f%%'
+                        % (float(r.get('hostCpuUtilization') or 0), float(r.get('processCpuUtilization') or 0)))
+            except urllib.error.HTTPError as e:
+                if e.code in (401, 403):
+                    log('server CPU: not shown to this account'); state = 'refused'
+                else: log('server CPU: %r' % e)
+            except Exception as e:
+                log('server CPU: %r' % e)
+            self.cpu = state
+        threading.Thread(target=ask, daemon=True).start()
+
+    def health_summary(self):
+        h = self.health
+        if not h['reports']: return
+        sp = sorted(h['speeds'])
+        speed = ('lowest %.1fx, median %.1fx' % (sp[0], sp[len(sp) // 2])) if sp else 'not measured'
+        log('server summary: %d reports; converting speed %s; throttled in %d of %d; closest to playback %s; '
+            'hardware %s; frames missed here %d'
+            % (h['reports'], speed, h['throttled'], h['reports'],
+               '%.0f s ahead' % h['closest'] if h['closest'] is not None else 'unknown',
+               ' / '.join(h['hardware']), h['missed']))
 
     # ---- control ----
     def command(self, line):
@@ -562,6 +694,7 @@ class Player:
 
         retries = 0
         log('playing: %s, %.0f min' % (self.title, self.duration / 60))
+        log('source: %s' % self.source)
         if os.environ.get('PLEX_SELFTEST'):
             self.self_test()
         try: os.unlink(PLAYSTAT + '.err')
@@ -594,7 +727,7 @@ class Player:
                 self.write_playstat()
                 if time.time() - tping >= TIMELINE_S:
                     tping = time.time()
-                    self.timeline('paused' if self.paused else 'playing')
+                    self.timeline('paused' if self.paused else 'playing', health=True)
             out_pos = self.last_pos = self.position()
             s = read_status()
             with self.lock:
@@ -630,6 +763,7 @@ class Player:
                 % (out_pos, s.get('eof'), self.p_ff.returncode, retries, RETRIES))
             self.offset = max(0.0, out_pos - 1.0)
             time.sleep(2 * retries)
+        self.health_summary()
         self.timeline('stopped')
         try: os.unlink(PLAYSTAT)
         except OSError: pass
@@ -670,7 +804,7 @@ def main():
     if len(sys.argv) > 2 and sys.argv[2].replace('.', '').isdigit():
         offset = float(sys.argv[2])
     else:
-        _, dur, offset, _ = item_info(rk)
+        _, dur, offset, _, _ = item_info(rk)
         if offset: log('resuming from saved position %.0f s' % offset)
     os.nice(-10)
     Player(rk, offset).run()
