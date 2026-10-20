@@ -45,7 +45,10 @@ Robustness:
     (speed, how far ahead of playback, hardware use) next to the frames the
     presenter missed, the server's CPU when the account may see it, and a
     summary at the end go into the log, so one report tells a server that
-    cannot keep up from a board that cannot.
+    cannot keep up from a board that cannot;
+  - next to each server line, how fast the stream arrived here since the last
+    ping (average and busiest second, from ffmpeg's /proc io counter) and how
+    much CPU ffmpeg used, so bitrate peaks and a maxed-out decoder show up.
 """
 import os, sys, uuid, subprocess, signal, threading, time, errno, socket, stat as st_
 import urllib.request, urllib.parse, urllib.error
@@ -225,6 +228,54 @@ def read_status():
         return {}
 
 
+class Intake:
+    """ffmpeg's bytes read and CPU ticks, sampled once a second, summed per
+    timeline ping"""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.last = None
+        self.window = (0, 0.0, 0.0, 0)        # bytes, seconds, peak bytes/s, ticks
+
+    def feed(self, rchar, ticks, t):
+        with self.lock:
+            if self.last and t > self.last[2] and rchar >= self.last[0]:
+                db, dt = rchar - self.last[0], t - self.last[2]
+                b, s, pk, tk = self.window
+                self.window = (b + db, s + dt, max(pk, db / dt), tk + ticks - self.last[1])
+            self.last = (rchar, ticks, t)
+
+    def take(self, hz, cores):
+        """(avg Mbps, peak-second Mbps, cpu %, cores*100) since the last take, or None"""
+        with self.lock:
+            (b, s, pk, tk), self.window = self.window, (0, 0.0, 0.0, 0)
+        if s <= 0: return None
+        return b * 8 / 1e6 / s, pk * 8 / 1e6, tk / hz / s * 100, cores * 100
+
+def intake_text(m):
+    if m is None: return 'stream in: not measured'
+    return 'stream in: avg %.1f Mbps, peak second %.1f Mbps; decoder cpu %.0f%% of %d%%' % m
+
+def read_proc(pid):
+    """(bytes read, utime+stime ticks) of a process, or None"""
+    try:
+        with open('/proc/%d/io' % pid) as f:
+            rchar = int(next(l for l in f if l.startswith('rchar')).split()[1])
+        with open('/proc/%d/stat' % pid) as f:
+            w = f.read().rsplit(')', 1)[1].split()
+        return rchar, int(w[11]) + int(w[12])
+    except (OSError, ValueError, IndexError, StopIteration):
+        return None
+
+def sample_intake(p, intake):
+    """once a second until ffmpeg exits; never logs, never raises"""
+    while p.poll() is None:
+        try:
+            r = read_proc(p.pid)
+            if r: intake.feed(r[0], r[1], time.time())
+        except Exception: return
+        time.sleep(1)
+
+
 class StreamError(Exception):
     """the stream could not be fetched this time; worth another try"""
 
@@ -249,8 +300,10 @@ class Player:
         self.title, self.duration, _, self.src_fps, self.source = item_info(rk)
         # what the server says about its transcode, gathered from timeline replies
         self.health = {'first': None, 'logged': 0.0, 'starved': 0, 'missed': 0, 'reports': 0,
-                       'throttled': 0, 'speeds': [], 'closest': None, 'hardware': [], 'silent': False}
+                       'throttled': 0, 'speeds': [], 'closest': None, 'hardware': [], 'silent': False,
+                       'peak_mbps': None, 'cpu_peak': None}
         self.cpu = None               # None | 'asking' | 'refused'
+        self.intake = None            # Intake of the running ffmpeg
 
     # ---- position ----
     def position(self):
@@ -341,6 +394,8 @@ class Player:
         self.p_ff = subprocess.Popen(ff, stdin=subprocess.PIPE if self.pump else None,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
         threading.Thread(target=drain_stderr, args=(self.p_ff.stderr,), daemon=True).start()
+        self.intake = Intake()
+        threading.Thread(target=sample_intake, args=(self.p_ff, self.intake), daemon=True).start()
         if self.pump:
             threading.Thread(target=pump, args=(self.resp, self.p_ff.stdin), daemon=True).start()
         self.p_fb = subprocess.Popen(fb, stdin=self.p_ff.stdout, env=env)
@@ -558,13 +613,24 @@ class Player:
         if ahead is not None and (h['closest'] is None or ahead < h['closest']): h['closest'] = ahead
         hw = hardware_text(ts)
         if hw not in h['hardware']: h['hardware'].append(hw)
+        m = self.intake_take()
+        if m:
+            h['peak_mbps'] = max(h['peak_mbps'] or 0, m[1])
+            h['cpu_peak'] = max(h['cpu_peak'] or 0, m[2])
         now = time.time()
         h['first'] = h['first'] or now
         if (now - h['first'] < 120 or now - h['logged'] >= 60 or missed
                 or (not throttled and ahead is not None and ahead < 10)):
             log(health_text(ts, pos, missed))
+            log(intake_text(m))
             h['logged'] = now
             self.server_cpu()
+
+    def intake_take(self):
+        if not self.intake: return None
+        try: hz = os.sysconf('SC_CLK_TCK')
+        except (AttributeError, ValueError, OSError): hz = 100
+        return self.intake.take(hz, os.cpu_count() or 2)
 
     def server_cpu(self):
         """The server's own CPU figures, in the background. Plex shows them to
@@ -594,10 +660,12 @@ class Player:
         sp = sorted(h['speeds'])
         speed = ('lowest %.1fx, median %.1fx' % (sp[0], sp[len(sp) // 2])) if sp else 'not measured'
         log('server summary: %d reports; converting speed %s; throttled in %d of %d; closest to playback %s; '
-            'hardware %s; frames missed here %d'
+            'hardware %s; frames missed here %d; stream in peak second %s; decoder cpu highest %s'
             % (h['reports'], speed, h['throttled'], h['reports'],
                '%.0f s ahead' % h['closest'] if h['closest'] is not None else 'unknown',
-               ' / '.join(h['hardware']), h['missed']))
+               ' / '.join(h['hardware']), h['missed'],
+               '%.1f Mbps' % h['peak_mbps'] if h['peak_mbps'] is not None else 'not measured',
+               '%.0f%%' % h['cpu_peak'] if h['cpu_peak'] is not None else 'not measured'))
 
     # ---- control ----
     def command(self, line):

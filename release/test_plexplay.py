@@ -140,8 +140,10 @@ class ServerHealthTests(unittest.TestCase):
     def player(self, starved=0, pos=610.0):
         player = plexplay.Player.__new__(plexplay.Player)
         player.health = {'first': None, 'logged': 0.0, 'starved': 0, 'missed': 0, 'reports': 0,
-                         'throttled': 0, 'speeds': [], 'closest': None, 'hardware': [], 'silent': False}
+                         'throttled': 0, 'speeds': [], 'closest': None, 'hardware': [], 'silent': False,
+                         'peak_mbps': None, 'cpu_peak': None}
         player.cpu = 'refused'
+        player.intake = None
         player.position = lambda: pos
         return player
 
@@ -175,17 +177,18 @@ class ServerHealthTests(unittest.TestCase):
         with patch.object(plexplay, 'read_status', return_value={'starved': 12.0}), \
              patch.object(plexplay, 'log') as log:
             player.note_health(TIMELINE_REPLY)
-        self.assertIn('frames missed here: 12', log.call_args.args[0])
+        self.assertIn('frames missed here: 12', log.call_args_list[0].args[0])
         # a restarted presenter counts from zero again
         with patch.object(plexplay, 'read_status', return_value={'starved': 3.0}), \
              patch.object(plexplay, 'log') as log:
             player.note_health(TIMELINE_REPLY.replace(b'0.80000001', b'0.9'))
-        self.assertIn('frames missed here: 3', log.call_args.args[0])
+        self.assertIn('frames missed here: 3', log.call_args_list[0].args[0])
         with patch.object(plexplay, 'log') as log:
             player.health_summary()
         self.assertEqual(log.call_args.args[0],
                          'server summary: 2 reports; converting speed lowest 0.8x, median 0.9x; throttled in 0 of 2; '
-                         'closest to playback 2 s ahead; hardware off; frames missed here 15')
+                         'closest to playback 2 s ahead; hardware off; frames missed here 15; '
+                         'stream in peak second not measured; decoder cpu highest not measured')
 
     def test_quiet_healthy_minutes_are_not_logged_every_ping(self):
         player = self.player(pos=500.0)
@@ -196,8 +199,53 @@ class ServerHealthTests(unittest.TestCase):
             for _ in range(5):
                 player.note_health(healthy)
         # the first two minutes, then once a minute
-        self.assertEqual(log.call_count, 3)
+        self.assertEqual(log.call_count, 6)   # each with its stream line
         self.assertEqual(player.health['reports'], 5)
+
+    def fed(self, rates, ticks_per_s=150):
+        intake = plexplay.Intake()
+        b = 0
+        intake.feed(b, 0, 0.0)
+        for i, r in enumerate(rates, 1):
+            b += r
+            intake.feed(b, ticks_per_s * i, float(i))
+        return intake
+
+    def test_intake_averages_peaks_and_cpu(self):
+        # 10 s: nine at 250 kB/s, one at 800 kB/s; 1.5 s of CPU per second at 100 Hz
+        m = self.fed([250000] * 9 + [800000]).take(100, 2)
+        self.assertAlmostEqual(m[0], 2.44)
+        self.assertAlmostEqual(m[1], 6.4)
+        self.assertAlmostEqual(m[2], 150.0)
+        self.assertEqual(plexplay.intake_text(m),
+                         'stream in: avg 2.4 Mbps, peak second 6.4 Mbps; decoder cpu 150% of 200%')
+        self.assertEqual(plexplay.intake_text(None), 'stream in: not measured')
+
+    def test_intake_window_resets_each_ping(self):
+        intake = self.fed([800000, 250000])
+        self.assertAlmostEqual(intake.take(100, 2)[1], 6.4)
+        self.assertIsNone(intake.take(100, 2))
+        intake.feed(1050000 + 250000, 450, 3.0)
+        m = intake.take(100, 2)
+        self.assertAlmostEqual(m[0], 2.0)
+        self.assertAlmostEqual(m[1], 2.0)
+
+    def test_stream_line_follows_the_server_line_and_feeds_the_summary(self):
+        player = self.player()
+        player.intake = self.fed([250000] * 9 + [800000])
+        with patch.object(plexplay, 'read_status', return_value={}), \
+             patch.object(plexplay.os, 'cpu_count', return_value=2), \
+             patch.object(plexplay, 'log') as log:
+            player.note_health(TIMELINE_REPLY)
+            player.note_health(TIMELINE_REPLY)
+        lines = [c.args[0] for c in log.call_args_list]
+        self.assertTrue(lines[0].startswith('server: '))
+        self.assertRegex(lines[1], r'^stream in: avg 2\.4 Mbps, peak second 6\.4 Mbps; decoder cpu \d+% of 200%$')
+        self.assertEqual(lines[3], 'stream in: not measured')
+        self.assertAlmostEqual(player.health['peak_mbps'], 6.4)
+        with patch.object(plexplay, 'log') as log:
+            player.health_summary()
+        self.assertRegex(log.call_args.args[0], r'; stream in peak second 6\.4 Mbps; decoder cpu highest \d+%$')
 
     def test_source_names_what_the_server_decodes(self):
         video = plexplay.ET.fromstring(
