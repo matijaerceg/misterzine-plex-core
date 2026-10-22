@@ -314,25 +314,58 @@ func (p *Playing) drawListVCR(c *gfx.Canvas, base int) {
 		if f.Width(title) > OsdListW-x-OsdListPad {
 			f = vcrSmall
 		}
-		c.PixelText(x, 10, f, vcrText, vcrShadow, f.Fit(title, OsdListW-x-OsdListPad))
+		c.PixelText(x, 18, f, vcrText, vcrShadow, f.Fit(title, OsdListW-x-OsdListPad))
 	}
 	for i, item := range l.items {
 		y := OsdListTop + i*OsdListRowH - base
 		if y+OsdListRowH <= 0 || y >= c.H {
 			continue
 		}
-		v, valW := "", 0
+		left, right := p.listArrows(l, i)
+		arrowsW := 0
+		if left != arrowNone || right != arrowNone {
+			arrowsW = vcrArrowsW
+		}
+		v := ""
 		if i < len(l.vals) {
 			v = strings.ToUpper(l.vals[i])
-			v = vcrSmall.Fit(v, listValW(x, vcrSmall.Width(item)))
-			valW = vcrSmall.Width(v)
 		}
-		c.PixelText(x, y+2, vcrSmall, vcrText, vcrShadow, vcrSmall.Fit(item, listItemW(x, valW)))
+		item, v = listRowText(vcrSmall, x, item, v, arrowsW)
+		c.PixelText(x, y+2, vcrSmall, vcrText, vcrShadow, item)
 		if i == l.set {
 			c.PixelText(OsdListW-34, y+2, vcrSmall, vcrText, vcrShadow, string(gfx.PixelTick))
 		}
-		if i < len(l.vals) {
-			c.PixelText(OsdListW-OsdListPad-vcrSmall.Width(v), y+2, vcrSmall, vcrLo, vcrShadow, v)
+		vr := OsdListW - OsdListPad // the value's right edge
+		if arrowsW > 0 {
+			aw := vcrSmall.Width("<")
+			vr -= aw + listArrowGap
+			if col, ok := vcrArrowColour(left, i == l.cur); ok {
+				c.PixelText(vr-vcrSmall.Width(v)-listArrowGap-aw, y+2, vcrSmall, col, vcrShadow, "<")
+			}
+			if col, ok := vcrArrowColour(right, i == l.cur); ok {
+				c.PixelText(OsdListW-OsdListPad-aw, y+2, vcrSmall, col, vcrShadow, ">")
+			}
+		}
+		if v != "" {
+			c.PixelText(vr-vcrSmall.Width(v), y+2, vcrSmall, vcrLo, vcrShadow, v)
 		}
 	}
+}
+
+// vcrArrowsW is the room the VCR look's < and > take beside a value.
+var vcrArrowsW = 2 * (vcrSmall.Width("<") + listArrowGap)
+
+// vcrArrowColour is arrowColour in the VCR look, which has no greys: the
+// highlight green on the cursor row, white as the value on the others,
+// and at an end the blue of a key with nothing to do.
+func vcrArrowColour(s arrowState, cursor bool) (gfx.Color, bool) {
+	switch {
+	case s == arrowNone:
+		return 0, false
+	case s == arrowEnd:
+		return vcrOff, true
+	case cursor:
+		return vcrText, true
+	}
+	return vcrLo, true
 }

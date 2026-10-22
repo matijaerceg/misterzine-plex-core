@@ -16,10 +16,13 @@ specifies (round caps and joins) with strokes 2 output pixels wide at the size
 listed in `main.go`, samples every pixel 8x8, crops the result to its ink and
 writes an 8-bit greyscale PNG. The same sources always give identical bytes.
 
-Sizes: the bar glyphs are 21 pixels to the 24-unit grid, the Body font's height
-(25) less 4. The jump arrows (`rotate-ccw`, `rotate-cw`) are 12, so the arrow
-and a Body-font "10" fit the narrow `-10` cell. `TestIconMasksFitTheBar` checks
-both against the fonts.
+Sizes: the bar glyphs are 26 pixels to the 24-unit grid, about the Body font's
+height (25); the app widens a button's cell where a glyph is wider than its
+word. The jump arrows (`undo-2`, `redo-2`) are 16, beside a Body-font "10".
+Play, pause, skip-back and skip-forward are drawn filled (the closed shapes'
+insides painted, nonzero rule, with the outline kept round); skip's bar and
+the other icons stay strokes. `TestIconMasksFitTheBar` checks the masks
+against the fonts.
 
 To add or update an icon, fetch it from a tagged release, for example
 

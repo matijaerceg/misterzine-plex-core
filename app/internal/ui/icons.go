@@ -13,23 +13,24 @@ import (
 
 // The Icons look of the playback controls (Options > Playback UI theme) is
 // the standard look with the bar's buttons drawn as small monochrome
-// glyphs instead of words. Each glyph sits centred in the cell the word
-// would take, so the cells, the focus bar and the colours are the
-// standard look's own; only the drawing inside a cell differs.
+// glyphs instead of words. Each glyph sits centred in its cell, the
+// width the word would take or the glyph's own where that is wider
+// (iconCellW), and the row stays centred; the focus bar follows the cell
+// and the colours are the standard look's.
 //
 // The glyphs are Lucide icons (ISC licence, icons/LICENSE), rasterised
 // ahead of time to anti-aliased coverage masks by tools/icons and tinted
-// here with the button's colour. The bar glyphs are 21 pixels to Lucide's
-// 24-unit grid, the Body font's height less 4; the jump arrows are
-// smaller, to leave room for the "10" in the -10 and +10 cells.
+// here with the button's colour. The bar glyphs are 26 pixels to Lucide's
+// 24-unit grid, the transport ones (play, pause, skip) filled; the jump
+// arrows (undo-2, redo-2) are 16, with a "10" beside them.
 
 //go:embed icons/*.png
 var iconFS embed.FS
 
 // iconFiles maps a button label to its mask.
 var iconFiles = map[string]string{
-	"-10":   "rotate-ccw",
-	"+10":   "rotate-cw",
+	"-10":   "undo-2",
+	"+10":   "redo-2",
 	"Pause": "pause",
 	"Play":  "play",
 	"Prev":  "skip-back",
@@ -68,9 +69,24 @@ func iconMask(b string) *image.Gray {
 	return iconMasks[b]
 }
 
+// iconCellW is the width of button label b's cell in the Icons look: the
+// word's, or the glyph's (with its "10" for a jump) where that is wider.
+func iconCellW(f Fonts, b string) int {
+	w := f.Body.Width(b)
+	m := iconMask(b)
+	if m == nil {
+		return w
+	}
+	g := m.Rect.Dx()
+	if b == "-10" || b == "+10" {
+		g += iconJumpGap + tenWidth(f.Body)
+	}
+	return max(w, g)
+}
+
 // iconJumpGap is the space between a jump arrow and its "10", and
 // between the 1 and the 0, set closer than the font's own spacing so the
-// pair fits the narrow -10 cell beside the arrow.
+// pair sits tight beside the arrow.
 const iconJumpGap = 1
 
 // osdIcon draws the glyph for button label b (osdButtons' words, with

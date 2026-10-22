@@ -98,7 +98,8 @@ server. If the stream ends normally, the app treats it as completed and can
 continue to the next episode. Worker errors are shown as a short playback
 notice.
 
-The playback **More > Crop** setting offers **Off**, **14:9**, and **Fill** for
+The playback **More > Crop** row steps with Left and Right through **Off**,
+**14:9**, and **Fill** for
 applicable wide-screen content. Off asks the core to letterbox; 14:9 zooms
 wide pictures toward a 14:9 window, trimming less of the sides than Fill and
 leaving small bars; pictures at or narrower than 14:9 stay whole. Fill crops

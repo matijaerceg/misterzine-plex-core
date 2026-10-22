@@ -162,15 +162,14 @@ func TestDownMovesInAList(t *testing.T) {
 	}
 }
 
-func TestDownMovesInCropList(t *testing.T) {
+func TestDownMovesPastMoreValueRows(t *testing.T) {
 	p := waitPlaying(t)
 	p.item.Aspect = 1.78
 	p.openMore()
-	p.openCrop()
-	p.list.cur = 0
+	p.list.loaded = true
 	p.Key(input.Event{Key: input.Down}, time.Now())
-	if p.list == nil || p.list.cur != 1 {
-		t.Fatalf("Down in crop list did not move its cursor: %+v", p.list)
+	if p.list == nil || p.list.kind != "More" || p.list.cur != 1 || p.list.loaded {
+		t.Fatalf("Down from Crop did not move to the next row and redraw its arrows: %+v", p.list)
 	}
 }
 

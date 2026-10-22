@@ -112,7 +112,14 @@ func TestCropPreview(t *testing.T) {
 		"bar":        bar(1.78, false),
 		"bar-dimmed": bar(1.33, false),
 		"more":       list(func(p *Playing) { p.openMore() }),
-		"crop":       list(func(p *Playing) { p.openCrop() }),
+		"more-bitrate": list(func(p *Playing) {
+			p.openMore()
+			for i, item := range p.list.items {
+				if item == moreBitrate {
+					p.list.cur = i
+				}
+			}
+		}),
 		"info": list(func(p *Playing) {
 			_, f := infoFixture(t)
 			p.item, p.direct, p.pos, p.dur, p.statusVals = f.item, f.direct, f.pos, f.dur, f.statusVals

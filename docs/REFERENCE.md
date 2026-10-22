@@ -137,8 +137,12 @@ primary account. Automatic sign-in uses the saved server connection at startup.
   or show. Another audio track, or a subtitle track the server burns in,
   restarts the stream at the same position; a subtitle track the app draws
   changes without a restart (see Subtitles).
-- **More** holds **Crop**, for any picture, **Surround downmix boost** and
-  **Subtitle size** (see Display setup, Sound and Subtitles), and after them:
+- **More** is one list with no pages behind it: Left and Right change the
+  value of the row under the cursor in place, shown by the small arrows
+  either side of it, and stop at the first and last choice. It holds
+  **Crop**, for any picture, **Downmix boost** and **Subtitle size** (see
+  Display setup, Sound and Subtitles), each applied as soon as it changes,
+  and after them:
   - **Autoplay next** (episodes): On or Off by Left, Right or OK; the Options
     setting, saved at once, and the end of this playback follows it.
   - **Video bitrate**: Left and Right choose a step of the Options ladder and
@@ -262,8 +266,8 @@ The app waits up to 30 seconds for an answer, then gives up and shows none;
 turning subtitles off and on again asks once more.
 
 **Options > Subtitle size** chooses Normal, Large (150%) or Extra large (200%)
-and is saved for future playback. During playback, **More > Subtitle size**
-changes the same setting at once.
+and is saved for future playback. During playback, Left and Right on
+**More > Subtitle size** change the same setting at once.
 
 Picture subtitles (PGS, VobSub, DVB) are burned into the picture by the Plex
 server, which therefore transcodes the video. A text track in a script the
@@ -303,8 +307,8 @@ Sound is folded to stereo: on the MiSTer for a file streamed as stored, by the
 server in a transcode. A plain fold of a surround track comes out noticeably
 quieter than a stereo track, so **Surround downmix boost** raises the level of
 surround sources: Off, Small or Large (the default). Stereo tracks are passed
-through unchanged. The MiSTer applies the boost in both cases, so **More >
-Downmix boost** in the playback controls changes it at once, without
+through unchanged. The MiSTer applies the boost in both cases, so Left and
+Right on **More > Downmix boost** in the playback controls change it at once, without
 restarting the video.
 
 Theme music and navigation sounds can be turned off in Options.
@@ -465,8 +469,8 @@ widescreen on 4:3 sets: thin bars remain and little is lost. **Fill** cuts
 whatever overhangs the screen, so there are no bars: a 16:9 picture on a 4:3
 screen loses a quarter of its width. A crop can cut the ends of long subtitle
 lines burned in by the server, but not subtitles the app draws. Each playback
-starts with this setting; **More > Crop** in the playback controls changes it
-for that playback, including the episodes that follow it, and the change shows
+starts with this setting; Left and Right on **More > Crop** in the playback
+controls change it for that playback, including the episodes that follow it, and the change shows
 at once.
 
 For HDMI scaling, MiSTer INI sections and refresh rates, see

@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -9,6 +11,7 @@ import (
 
 	"plexcrt/internal/input"
 	"plexcrt/internal/plex"
+	"plexcrt/internal/ring"
 )
 
 func moreRow(t *testing.T, p *Playing, row string) {
@@ -212,5 +215,179 @@ func TestPlaybackInfoDirectPlayHasNoCap(t *testing.T) {
 		if item == "Source" && p.list.vals[i] != "Direct play" || item == "Bitrate" && p.list.vals[i] != "4.2 Mbps" || item == "Bitrate cap" {
 			t.Errorf("%s = %q", item, p.list.vals[i])
 		}
+	}
+}
+
+// Downmix boost steps in place with Left and Right, saved and sent to the
+// worker at once, and stops at its ends; OK on it leaves More as it is.
+func TestMoreBoostStepsInPlace(t *testing.T) {
+	a := cropApp(t)
+	var sent []string
+	p := playingCrop(a, 1.78)
+	p.send = func(line string) { sent = append(sent, line) }
+	moreRow(t, p, "Downmix boost")
+	if v := p.list.vals[p.list.cur]; v != "Large" {
+		t.Fatalf("boost = %q", v)
+	}
+	pressPlay(p, input.Right) // at the end already
+	if len(sent) != 0 || p.list == nil {
+		t.Fatalf("Right past the end: %q, list %+v", sent, p.list)
+	}
+	pressPlay(p, input.Left)
+	if p.list == nil || p.list.kind != "More" || p.list.vals[p.list.cur] != "Small" ||
+		LoadConfig(a.Cfg.path).AudioBoostValue() != 175 || strings.Join(sent, ",") != "boost 175" {
+		t.Fatalf("Left: list %+v, commands %q", p.list, sent)
+	}
+	pressPlay(p, input.Left, input.Left, input.Enter)
+	if p.list == nil || p.list.kind != "More" || p.list.vals[p.list.cur] != "Off" || strings.Join(sent, ",") != "boost 175,boost 100" {
+		t.Fatalf("Left to Off, then OK: list %+v, commands %q", p.list, sent)
+	}
+}
+
+// A setting More cannot save is put back, sent nowhere, and the title
+// says so.
+func TestMoreValueSaveFailureRestores(t *testing.T) {
+	for _, row := range []string{"Downmix boost", "Subtitle size", moreAutoplay} {
+		a := cropApp(t)
+		blocker := filepath.Join(t.TempDir(), "file")
+		if err := os.WriteFile(blocker, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		a.Cfg.path = filepath.Join(blocker, "settings.json") // a file as its folder: Save fails
+		var sent []string
+		p := playingCrop(a, 1.78)
+		p.item.Type = "episode"
+		p.send = func(line string) { sent = append(sent, line) }
+		moreRow(t, p, row)
+		before := p.list.vals[p.list.cur]
+		boost, size, noAuto := a.Cfg.AudioBoostValue(), a.Cfg.SubtitleSizeValue(), a.Cfg.NoAutoplay
+		pressPlay(p, input.Left)
+		pressPlay(p, input.Right)
+		if p.list == nil || p.list.hint != "Save failed" || p.list.vals[p.list.cur] != before || len(sent) != 0 ||
+			a.Cfg.AudioBoostValue() != boost || a.Cfg.SubtitleSizeValue() != size || a.Cfg.NoAutoplay != noAuto {
+			t.Fatalf("%s: list %+v, commands %q", row, p.list, sent)
+		}
+	}
+}
+
+// Subtitle size steps in place and stops at both ends.
+func TestMoreSubtitleSizeStopsAtItsEnds(t *testing.T) {
+	a := cropApp(t)
+	p := playingCrop(a, 1.78)
+	moreRow(t, p, "Subtitle size")
+	pressPlay(p, input.Left) // at Normal already
+	if a.Cfg.SubtitleSizeValue() != 100 || p.list.vals[p.list.cur] != "Normal" {
+		t.Fatalf("Left past the end: %d", a.Cfg.SubtitleSizeValue())
+	}
+	pressPlay(p, input.Right, input.Right, input.Right, input.Enter)
+	if p.list == nil || p.list.kind != "More" || a.Cfg.SubtitleSizeValue() != 200 ||
+		LoadConfig(a.Cfg.path).SubtitleSizeValue() != 200 || p.list.vals[p.list.cur] != "Extra large" {
+		t.Fatalf("Right to Extra large: %d, list %+v", a.Cfg.SubtitleSizeValue(), p.list)
+	}
+}
+
+// Every row Left and Right step shows the arrows; Playback info and the
+// track lists show none. At an end, the cursor row draws that arrow dim
+// and the other rows leave it out.
+func TestMoreArrowsShowWhereValuesStep(t *testing.T) {
+	a := cropApp(t)
+	a.Cfg.SubtitleSize = 200 // at its right end
+	p := playingCrop(a, 1.78)
+	p.item.Type = "episode"
+	p.openMore()
+	l := p.list
+	l.cur = 0 // Crop, Off: at its left end
+	for i, item := range l.items {
+		left, right := p.listArrows(l, i)
+		switch {
+		case item == moreInfo:
+			if left != arrowNone || right != arrowNone {
+				t.Errorf("%s has arrows", item)
+			}
+		case item == "Crop":
+			if left != arrowEnd || right != arrowOn {
+				t.Errorf("Crop under the cursor at Off: %v %v", left, right)
+			}
+		case item == "Subtitle size":
+			if left != arrowOn || right != arrowNone {
+				t.Errorf("Subtitle size off the cursor at its end: %v %v", left, right)
+			}
+		default:
+			if left == arrowNone && right == arrowNone {
+				t.Errorf("%s has no arrows", item)
+			}
+		}
+	}
+	p.item.Audio = []plex.Stream{{ID: "1", Title: "One"}, {ID: "2", Title: "Two"}}
+	p.openList("Audio")
+	if left, right := p.listArrows(p.list, 0); left != arrowNone || right != arrowNone {
+		t.Error("a track list has arrows")
+	}
+}
+
+// Every More row is drawn whole, item and value with its arrows, with the
+// longest values, from the list's margin on a 4:3 and a 16:9 raster, in
+// both looks' fonts.
+func TestMoreRowsAreNotCutShort(t *testing.T) {
+	a := betaTestApp(t)
+	longest := func(labels []string) string {
+		l := ""
+		for _, s := range labels {
+			if len(s) > len(l) {
+				l = s
+			}
+		}
+		return l
+	}
+	var boosts, sizes []string
+	for _, b := range AudioBoosts {
+		boosts = append(boosts, b.Label)
+	}
+	for _, s := range SubtitleSizes {
+		sizes = append(sizes, s.Label)
+	}
+	rows := map[string][]string{
+		"Crop":          {"Off", "14:9", "Fill"},
+		"Downmix boost": {longest(boosts)},
+		"Subtitle size": {longest(sizes)},
+		moreAutoplay:    {"On", "Off"},
+		moreBitrate:     {Bitrates[0].Label, "8 Mbps (max)", Bitrates[0].Label + ", direct"},
+	}
+	for _, aspect := range []float64{1.33, 1.78} {
+		p := playingCrop(a, aspect)
+		p.item.Type = "episode"
+		p.openMore()
+		x := p.menuX()
+		for i, item := range p.list.items {
+			if _, _, ok := p.moreRange(p.list, i); !ok {
+				continue
+			}
+			for _, v := range rows[item] {
+				if gi, gv := listRowText(a.F.Body, x, item, v, listArrowsW); gi != item || gv != v {
+					t.Errorf("%v: %q %q drawn as %q %q", aspect, item, v, gi, gv)
+				}
+				if strings.HasSuffix(v, ", direct") {
+					continue // the block capitals are too wide for it: VCR cuts it
+				}
+				u := strings.ToUpper(v)
+				if gi, gv := listRowText(vcrSmall, x, item, u, vcrArrowsW); gi != item || gv != u {
+					t.Errorf("VCR %v: %q %q drawn as %q %q", aspect, item, u, gi, gv)
+				}
+			}
+		}
+	}
+}
+
+// The wider column still uploads More and Playback info whole, in rows
+// the core can address.
+func TestListColumnFitsTheRegion(t *testing.T) {
+	_, p := infoFixture(t)
+	p.openInfo(time.Now())
+	maxRows := (ring.RegionSize / (OsdListW * 4)) &^ 1
+	if h := p.list.height(); h >= maxRows || OsdListH >= maxRows {
+		t.Fatalf("Playback info is %d rows, the region holds %d", h, maxRows)
+	}
+	if (OsdListW*4)&7 != 0 {
+		t.Fatalf("a %d-byte row is not a multiple of 8", OsdListW*4)
 	}
 }

@@ -45,7 +45,7 @@ type Playing struct {
 	peekScrub              bool          // the strip is in its scrub layout: the hold has passed the tap threshold
 	static                 *gfx.Canvas   // the panel without the running time, for a cheap repaint each field
 	staticFor              string        // what static shows
-	alphaDone              bool          // the alpha plane is drawn once: it never changes
+	alphaDone              bool          // the panel's alpha is drawn: kept until the skip button reuses the plane
 	timeY                  int           // where the running time goes on the static panel
 	scrubTick              int           // fields into a run: the time is repainted every other one
 	focus                  int
@@ -172,9 +172,9 @@ func (p *Playing) closePainter(osd OSD) <-chan struct{} {
 
 // The list column.
 const (
-	OsdListW    = 360                // column width; 1440-byte rows
+	OsdListW    = 512                // column width; 2048-byte rows: the VCR look's longest More row whole
 	OsdListH    = SafeBottom - SafeY // the window: from the safe top down
-	OsdListTop  = 56                 // the first row, below the title
+	OsdListTop  = 64                 // the first row, below the title
 	OsdListRowH = MenuRowH
 	OsdListPad  = 16
 )
@@ -518,99 +518,34 @@ func (p *Playing) showList(l *listMode) {
 	p.dirty = true
 }
 
+// openMore puts up More: every row but Playback info changes its value in
+// place with Left and Right (stepMore).
 func (p *Playing) openMore() {
 	items, vals := []string{}, []string{}
 	// every picture: Fill zooms a 4:3 one on a 16:9 raster too
-	items = append(items, "Crop")
-	vals = append(vals, p.app.crop.Label())
-	items = append(items, "Downmix boost")
-	boost := p.app.Cfg.AudioBoostValue()
-	label := itoa(boost) + "%"
-	for _, b := range AudioBoosts {
-		if b.Value == boost {
-			label = b.Label
-		}
-	}
-	vals = append(vals, label)
-	items = append(items, "Subtitle size")
-	vals = append(vals, SubtitleSizes[p.app.Cfg.subtitleSizeIndex()].Label)
+	items = append(items, "Crop", "Downmix boost", "Subtitle size")
+	vals = append(vals, p.app.crop.Label(), p.boostLabel(), SubtitleSizes[p.app.Cfg.subtitleSizeIndex()].Label)
 	items, vals = p.moreRows(items, vals, -1)
 	p.showList(&listMode{kind: "More", items: items, vals: vals, set: -1, step: -1})
 }
 
-func (p *Playing) openSubtitleSize() {
-	l := &listMode{kind: "Subtitle size", set: p.app.Cfg.subtitleSizeIndex()}
-	for _, s := range SubtitleSizes {
-		l.items = append(l.items, s.Label)
-	}
-	l.cur = l.set
-	p.showList(l)
-}
-
-func (p *Playing) openBoost() {
-	l := &listMode{kind: "Downmix boost", set: p.app.Cfg.audioBoostIndex()}
-	for _, b := range AudioBoosts {
-		l.items = append(l.items, b.Label)
-	}
-	l.cur = max(0, l.set)
-	p.showList(l)
-}
-
-func (p *Playing) openCrop() {
-	l := &listMode{kind: "Crop", set: p.app.crop.index()}
-	for _, c := range Crops {
-		l.items = append(l.items, c.Label)
-	}
-	l.cur = l.set
-	p.showList(l)
-}
-
-// choose applies an audio or subtitle track and restarts at the same position.
+// choose acts on OK in a list: an audio or subtitle track is applied and
+// the stream restarted at the same position; in More, Autoplay next
+// toggles, Video bitrate applies its step and Playback info opens (the
+// other rows change with Left and Right, so OK leaves them be).
 func (p *Playing) choose(l *listMode) {
 	switch l.kind {
 	case "More":
 		switch l.items[l.cur] {
-		case "Crop":
-			p.openCrop()
-		case "Subtitle size":
-			p.openSubtitleSize()
 		case moreAutoplay:
 			p.toggleAutoplay(l)
 		case moreBitrate:
 			p.applyBitrate(l)
 		case moreInfo:
 			p.openInfo(time.Now())
-		default:
-			p.openBoost()
 		}
-	case "Downmix boost":
-		p.app.Cfg.AudioBoost = AudioBoosts[l.cur].Value
-		p.app.Cfg.Save()
-		p.send("boost " + itoa(p.app.Cfg.AudioBoostValue()))
-		p.list = nil
 	case moreInfo:
 		p.closeList() // read only: OK goes back as Back does
-	case "Crop":
-		crop := Crops[l.cur].Mode
-		p.app.setCrop(crop)
-		p.send("aspect " + itoa(crop.analogAspect()))
-		p.list = nil
-	case "Subtitle size":
-		// the drawn subtitles take the size at their next paint and the
-		// stream goes on as it is; one the server burns in takes it when
-		// the transcode starts over from here
-		old := p.app.Cfg.snapshot()
-		p.app.Cfg.SubtitleSize = SubtitleSizes[l.cur].Value
-		if err := p.app.Cfg.Save(); err != nil {
-			*p.app.Cfg = old
-			l.hint = "Save failed"
-			l.loaded = false
-			return
-		}
-		p.list = nil
-		if p.app.Cfg.SubtitleSizeValue() != old.SubtitleSizeValue() && p.burnsSubtitle() {
-			p.seekTo_(p.pos)
-		}
 	default:
 		p.app.selectStream(p.item, l.kind, l.cur-l.off)
 		p.list = nil
@@ -637,10 +572,6 @@ func (p *Playing) restartTracks() {
 func (p *Playing) closeList() {
 	if p.list.kind == moreInfo {
 		p.reopenMore(moreInfo)
-		return
-	}
-	if p.list.kind == "Crop" || p.list.kind == "Downmix boost" || p.list.kind == "Subtitle size" {
-		p.openMore()
 		return
 	}
 	p.list = nil
@@ -721,16 +652,17 @@ func (p *Playing) Key(ev input.Event, now time.Time) bool {
 	}
 	if l := p.list; l != nil {
 		switch ev.Key {
-		case input.Up:
-			if l.cur > 0 {
+		case input.Up, input.Down:
+			from := l.cur
+			if ev.Key == input.Up && l.cur > 0 {
 				l.cur--
-			}
-			l.window()
-		case input.Down:
-			if l.cur < len(l.items)-1 {
+			} else if ev.Key == input.Down && l.cur < len(l.items)-1 {
 				l.cur++
 			}
 			l.window()
+			if p.arrowsMove(l, from) {
+				l.loaded = false // the cursor row's arrows are brighter
+			}
 		case input.Left, input.Right:
 			if p.stepMore(l, ev.Key == input.Right) {
 				break // a value row of More: the value steps
@@ -1344,7 +1276,7 @@ func (p *Playing) composeStatic(c *gfx.Canvas, peek, timed bool) {
 			b = "Play"
 		}
 		labels[i] = b
-		total += f.Body.Width(b)
+		total += p.btnCellW(b)
 	}
 	total += OsdBtnGap * (len(labels) - 1)
 	x := (c.W - total) / 2
@@ -1358,20 +1290,32 @@ func (p *Playing) composeStatic(c *gfx.Canvas, peek, timed bool) {
 				col = gfx.White
 			}
 		}
-		p.btnX[i], p.btnW[i], p.btnY = x, f.Body.Width(b), y+f.Body.Height()+3
+		w := p.btnCellW(b)
+		p.btnX[i], p.btnW[i], p.btnY = x, w, y+f.Body.Height()+3
 		if p.dimmed(i) {
 			col = ChevronOff
 		}
 		if p.app.Cfg.icons() {
-			osdIcon(c, f, b, x, y, f.Body.Width(b), f.Body.Height(), col)
+			osdIcon(c, f, b, x, y, w, f.Body.Height(), col)
 		} else {
 			c.Text(x, y, f.Body, col, b) // a colour change on focus would miss the cache for a frame
 		}
-		x += f.Body.Width(b) + OsdBtnGap
+		x += w + OsdBtnGap
 	}
 }
 
+// btnCellW is the width of button label b's cell: its word's, or in the
+// Icons look its glyph's where that is wider.
+func (p *Playing) btnCellW(b string) int {
+	if p.app.Cfg.icons() {
+		return iconCellW(p.app.F, b)
+	}
+	return p.app.F.Body.Width(b)
+}
+
 // composeSkip paints the small skip button (240x40) at the canvas origin.
+// It shares the alpha plane's first rows with the panel, so the panel's
+// eased top edge is drawn again the next time the panel goes up.
 func (p *Playing) composeSkip() {
 	c := &gfx.Canvas{W: 240, H: 40, Pix: p.canvas.Pix[:240*40*4]}
 	f := p.app.F
@@ -1379,6 +1323,7 @@ func (p *Playing) composeSkip() {
 	for i := range p.alpha[:240*40] {
 		p.alpha[i] = OsdAlpha
 	}
+	p.alphaDone = false
 	label := "Skip intro"
 	if p.skip != nil && strings.Contains(p.skip.Type, "credit") {
 		label = "Skip credits"
@@ -1421,23 +1366,40 @@ func (p *Playing) uploadList(osd OSD) {
 		if l.hint != "" {
 			title += " (" + l.hint + ")"
 		}
-		c.Text(p.menuX(), 8, f.Title, gfx.Grey, title)
+		c.Text(p.menuX(), 16, f.Title, gfx.Grey, title)
 	}
 	for i, item := range l.items {
 		y := OsdListTop + i*OsdListRowH - base
 		if y+OsdListRowH <= 0 || y >= rows {
 			continue
 		}
-		valW := 0
-		if i < len(l.vals) {
-			valW = min(f.Body.Width(l.vals[i]), listValW(p.menuX(), f.Body.Width(item)))
+		left, right := p.listArrows(l, i)
+		arrowsW := 0
+		if left != arrowNone || right != arrowNone {
+			arrowsW = listArrowsW
 		}
-		c.Text(p.menuX(), y, f.Body, gfx.GreyHi, f.Body.Fit(item, listItemW(p.menuX(), valW)))
+		val := ""
+		if i < len(l.vals) {
+			val = l.vals[i]
+		}
+		item, val = listRowText(f.Body, p.menuX(), item, val, arrowsW)
+		c.Text(p.menuX(), y, f.Body, gfx.GreyHi, item)
 		if i == l.set {
 			tick(c, OsdListW-30, y+f.Body.Height()/2, gfx.GreyHi)
 		}
-		if i < len(l.vals) {
-			c.TextRight(OsdListW-OsdListPad, y, f.Body, gfx.GreyLo, f.Body.Fit(l.vals[i], listValW(p.menuX(), f.Body.Width(item))))
+		vr := OsdListW - OsdListPad // the value's right edge
+		if arrowsW > 0 {
+			vr -= listArrowW + listArrowGap
+			cy := y + f.Body.Height()/2
+			if col, ok := arrowColour(left, i == l.cur); ok {
+				listArrow(c, vr-f.Body.Width(val)-listArrowGap-listArrowW, cy, true, col)
+			}
+			if col, ok := arrowColour(right, i == l.cur); ok {
+				listArrow(c, OsdListW-OsdListPad-listArrowW, cy, false, col)
+			}
+		}
+		if val != "" {
+			c.TextRight(vr, y, f.Body, gfx.GreyLo, val)
 		}
 	}
 	l.base, l.uploaded, l.loaded = base, rows, true

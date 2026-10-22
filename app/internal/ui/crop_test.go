@@ -86,24 +86,24 @@ func TestPlaybackMenuChangesCoreAspectForThisPlayback(t *testing.T) {
 	if p.list == nil || p.list.kind != "More" || p.list.vals[0] != "Off" {
 		t.Fatalf("More did not show crop: %+v", p.list)
 	}
-	pressPlay(p, input.Enter, input.Down, input.Enter)
-	if a.crop != Crop14x9 || strings.Join(sent, ",") != "aspect 4" {
-		t.Fatalf("14:9 crop %q, commands %q", a.crop, sent)
+	pressPlay(p, input.Right)
+	if p.list == nil || p.list.kind != "More" || p.list.vals[0] != "14:9" || a.crop != Crop14x9 || strings.Join(sent, ",") != "aspect 4" {
+		t.Fatalf("Right to 14:9: crop %q, commands %q, list %+v", a.crop, sent, p.list)
 	}
-	pressPlay(p, input.Enter, input.Enter, input.Down, input.Enter)
-	if p.list != nil || a.crop != CropFill || strings.Join(sent, ",") != "aspect 4,aspect 3" {
-		t.Fatalf("crop %q, commands %q, list %+v", a.crop, sent, p.list)
+	pressPlay(p, input.Right, input.Right) // the second stops at Fill
+	if p.list == nil || p.list.vals[0] != "Fill" || a.crop != CropFill || strings.Join(sent, ",") != "aspect 4,aspect 3" {
+		t.Fatalf("Right to Fill: crop %q, commands %q, list %+v", a.crop, sent, p.list)
 	}
 	if a.Cfg.Crop != CropOff {
 		t.Fatalf("playback menu changed saved default to %q", a.Cfg.Crop)
 	}
-	pressPlay(p, input.Enter, input.Enter)
-	if p.list == nil || p.list.kind != "Crop" || p.list.set != 2 {
-		t.Fatalf("reopened crop choices: %+v", p.list)
+	pressPlay(p, input.Enter) // OK leaves a value row be: More stays
+	if p.list == nil || p.list.kind != "More" || p.list.cur != 0 || len(sent) != 2 {
+		t.Fatalf("OK on Crop: list %+v, commands %q", p.list, sent)
 	}
-	pressPlay(p, input.Back)
-	if p.list == nil || p.list.kind != "More" || p.list.vals[0] != "Fill" {
-		t.Fatalf("Back did not return to More: %+v", p.list)
+	pressPlay(p, input.Left, input.Left, input.Left)
+	if a.crop != CropOff || strings.Join(sent, ",") != "aspect 4,aspect 3,aspect 4,aspect 2" || p.list.vals[0] != "Off" {
+		t.Fatalf("Left to Off: crop %q, commands %q", a.crop, sent)
 	}
 }
 

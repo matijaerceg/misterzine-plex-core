@@ -18,7 +18,7 @@ func TestSurroundBoostMenuPersistsAndDoesNotRestart(t *testing.T) {
 	p := playingCrop(a, 4.0/3.0)
 	var commands []string
 	p.send = func(s string) { commands = append(commands, s) }
-	pressPlay(p, input.Enter, input.Down, input.Enter, input.Down, input.Enter) // More, below Crop: Downmix boost, Small
+	pressPlay(p, input.Enter, input.Down, input.Right) // More, below Crop: Downmix boost, Off to Small in place
 	if strings.Join(commands, ",") != "boost 175" {
 		t.Fatalf("commands = %q, want only a live boost", commands)
 	}

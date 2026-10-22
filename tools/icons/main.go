@@ -7,8 +7,11 @@
 // draws them as the union of round-ended segments of a fixed width in
 // output pixels (strokeW), so a small icon keeps strokes as heavy as a big
 // one, with 8x8 samples a pixel. It handles the SVG subset Lucide uses
-// (path, rect, circle, line, polyline, polygon; fill="none"). Standard
-// library only, and the same input always gives the same bytes.
+// (path, rect, circle, line, polyline, polygon; fill="none"). An icon
+// marked filled also has the inside of each closed subpath painted (the
+// nonzero rule), unioned with its strokes so the rounded outline stays; an
+// open subpath (skip-back's bar) stays a stroke. Standard library only, and
+// the same input always gives the same bytes.
 package main
 
 import (
@@ -24,22 +27,25 @@ import (
 	"strings"
 )
 
-// The icons and the pixel size of their 24-unit grid. The bar's glyphs are
-// the Body font's height less 4 (25 - 4 = 21); the jump arrows are smaller,
-// to leave room for the "10" in the narrow -10 / +10 cells.
+// The icons, the pixel size of their 24-unit grid, and whether their closed
+// shapes are filled. The bar's glyphs are 26 pixels, about the Body font's
+// height (25): the app widens a cell that a glyph would overrun. The jump
+// arrows are 16, beside a Body-font "10" in their cells. The transport
+// glyphs (play, pause, skip) are solid; the rest stay outlines.
 var icons = []struct {
 	name string
 	size float64
+	fill bool
 }{
-	{"rotate-ccw", 12},
-	{"rotate-cw", 12},
-	{"pause", 21},
-	{"play", 21},
-	{"skip-back", 21},
-	{"skip-forward", 21},
-	{"volume-2", 21},
-	{"captions", 21},
-	{"ellipsis", 21},
+	{"undo-2", 16, false},
+	{"redo-2", 16, false},
+	{"pause", 26, true},
+	{"play", 26, true},
+	{"skip-back", 26, true},
+	{"skip-forward", 26, true},
+	{"volume-2", 26, false},
+	{"captions", 26, false},
+	{"ellipsis", 26, false},
 }
 
 const (
@@ -62,7 +68,7 @@ func main() {
 			fail(fmt.Errorf("%s: %v", ic.name, err))
 		}
 		var buf bytes.Buffer
-		if err := png.Encode(&buf, raster(lines, ic.size)); err != nil {
+		if err := png.Encode(&buf, raster(lines, ic.size, ic.fill)); err != nil {
 			fail(err)
 		}
 		if err := os.WriteFile(filepath.Join(dir, ic.name+".png"), buf.Bytes(), 0o644); err != nil {
@@ -81,8 +87,9 @@ type pt struct{ x, y float64 }
 // polyline is one flattened subpath in grid units.
 type polyline []pt
 
-// raster draws the strokes at size pixels to the grid and crops to the ink.
-func raster(lines []polyline, size float64) *image.Gray {
+// raster draws the strokes at size pixels to the grid, with fill the
+// insides of the closed subpaths too, and crops to the ink.
+func raster(lines []polyline, size float64, fill bool) *image.Gray {
 	const pad = 3
 	n := int(math.Ceil(size)) + 2*pad
 	s := size / 24
@@ -100,6 +107,17 @@ func raster(lines []polyline, size float64) *image.Gray {
 			segs = append(segs, seg{a, b})
 		}
 	}
+	// the closed subpaths, in output pixels, for the fill
+	var shapes []polyline
+	for _, l := range lines {
+		if fill && len(l) > 2 && l[0] == l[len(l)-1] {
+			sh := make(polyline, len(l))
+			for i, q := range l {
+				sh[i] = pt{q.x*s + pad, q.y*s + pad}
+			}
+			shapes = append(shapes, sh)
+		}
+	}
 	hw := strokeW / 2
 	img := image.NewGray(image.Rect(0, 0, n, n))
 	for py := range n {
@@ -108,11 +126,15 @@ func raster(lines []polyline, size float64) *image.Gray {
 			for sy := range samples {
 				for sx := range samples {
 					p := pt{float64(px) + (float64(sx)+0.5)/samples, float64(py) + (float64(sy)+0.5)/samples}
+					in := winding(p, shapes) != 0
 					for _, g := range segs {
-						if dist(p, g.a, g.b) <= hw {
-							hit++
+						if in {
 							break
 						}
+						in = dist(p, g.a, g.b) <= hw
+					}
+					if in {
+						hit++
 					}
 				}
 			}
@@ -133,6 +155,29 @@ func raster(lines []polyline, size float64) *image.Gray {
 		copy(out.Pix[(y-y0)*out.Stride:], img.Pix[y*img.Stride+x0:y*img.Stride+x1+1])
 	}
 	return out
+}
+
+// winding is the winding number of the closed polylines around p: the
+// crossings of p's row to its right, counted up for an edge going down and
+// down for one going up. Nonzero is inside.
+func winding(p pt, shapes []polyline) int {
+	w := 0
+	for _, sh := range shapes {
+		for i := 0; i+1 < len(sh); i++ {
+			a, b := sh[i], sh[i+1]
+			if (a.y <= p.y) == (b.y <= p.y) {
+				continue // the edge does not cross p's row
+			}
+			if x := a.x + (p.y-a.y)*(b.x-a.x)/(b.y-a.y); x > p.x {
+				if b.y > a.y {
+					w++
+				} else {
+					w--
+				}
+			}
+		}
+	}
+	return w
 }
 
 // dist is p's distance from the segment a-b.
