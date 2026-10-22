@@ -15,9 +15,9 @@ There is no sound: the viewer shows the picture only.
 
 ## Installing
 
-MisterZine Jellyfin releases do not include the viewer: build it and copy its
+MisterZine Plex releases do not include the viewer: build it and copy its
 `Scripts/h264cam.sh` and `h264cam/` folder to the root of the SD card (`/media/fat/`), with
-the core in `_Other/` ([The other programs](../getting-started/install.md#the-other-programs)).
+an `H264` core in `_Other/` ([The other programs](../getting-started/install.md#the-other-programs)).
 
 ## Showing a camera
 

@@ -7,9 +7,9 @@
 - **Moonlight** (moonlight-embedded, moonlight-common-c; Iwan Timmer, Cameron Gutman and
   contributors): the game-streaming client the core's Moonlight support is built on, and
   **Sunshine** (LizardByte), the open host it streams from.
-- **Jellyfin** and its clients: the server the core's Jellyfin support plays from;
-  **jellyfin-mpv-shim**, the cast-only client whose flow the cast client in `clients/jellyfin`
-  follows; and **MiSTerFin**
+- **Jellyfin** and its clients: the server owenb321's upstream cast client in `clients/jellyfin`
+  plays from (it is not part of MisterZine Plex);
+  **jellyfin-mpv-shim**, the cast-only client whose flow that cast client follows; and **MiSTerFin**
   (Pudding Studio), the first Jellyfin client for MiSTer, read for ideas (its Quick Connect flow,
   its transcode request) -- none of its code is used.
 - **FFmpeg**: its libraries (LGPL) read the containers and decode the sound in the Jellyfin

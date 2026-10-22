@@ -121,7 +121,7 @@ nav:
       - Controls: using/controls.md
       - On-screen messages: using/on-screen-messages.md
       - Streaming from a PC (Moonlight): using/moonlight.md
-      - Watching from a Jellyfin server: using/jellyfin.md
+      - Watching from a Plex server: using/plex.md
       - Playing video files: using/player.md
       - Showing a USB camera: using/camera.md
   - Video:

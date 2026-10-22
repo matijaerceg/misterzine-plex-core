@@ -2,7 +2,7 @@
 
 The core does nothing with your controls itself. It **passes them on** to the program that feeds
 it, such as the [Moonlight client](moonlight.md), which sends them to your PC, or the
-[MisterZine Jellyfin](jellyfin.md) and the [video player](player.md), which use them to pause, seek
+[MisterZine Plex](plex.md) and the [video player](player.md), which use them to pause, seek
 and choose what to play, and the [camera viewer](camera.md), which uses them to pause and choose a mode. MiSTer's menu keeps
 working as usual: the menu button, or F12 on a keyboard, opens the core's OSD.
 

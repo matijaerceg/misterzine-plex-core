@@ -9,7 +9,7 @@ Requires **Quartus 17.0.2 exactly**. The pinned Docker image `raetro/quartus:mis
 that version:
 
 ```bash
-USE_DOCKER=1 ./build_release.sh --compile   # -> releases/H264_<version>_<date>_<time>.rbf
+USE_DOCKER=1 ./build_release.sh --compile   # -> releases/PlexH264_<version>_<date>_<time>.rbf
 ```
 
 `build_release.sh` also runs the build gates (implicit nets, undriven signals, the
@@ -25,8 +25,9 @@ MisterZine Plex (the app and its player) is built by the MisterZine Plex reposit
 this copy of the fork lives in ([its build guide](https://github.com/matijaerceg/misterzine-plex-core/blob/main/docs/BUILD.md));
 nothing below is part of it. The programs in `clients/` and the client library are ARM programs,
 cross-compiled in their own Docker images. Each client's build writes the SD card's layout
-to its `build/dist/`: copy its contents to the card's root, and put the core you built in
-`_Other/`, where these programs load it from.
+to its `build/dist/`: copy its contents to the card's root. These programs load an `H264`
+core from `_Other/`; the core built here names itself MisterZine Plex Core, and they do not
+use it ([The other programs](../getting-started/install.md#the-other-programs)).
 
 ```bash
 USE_DOCKER=1 hps/build_arm.sh               # the library, h264play, h264stat, cavlc2cabac -> hps/build/arm/
@@ -37,7 +38,7 @@ USE_DOCKER=1 clients/jellyfin/build.sh      # Scripts/jellyfin.sh, jellyfin/ (se
 ```
 
 `clients/jellyfin` is the upstream core's cast-only Jellyfin client, kept as source. It is
-not part of MisterZine Jellyfin releases, and this manual does not describe it; its own
+not part of MisterZine Plex releases, and this manual does not describe it; its own
 `clients/jellyfin/README.md` does.
 
 The images build on one another (the compiler, then Moonlight's libraries, then FFmpeg for

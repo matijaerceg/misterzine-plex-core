@@ -3,10 +3,10 @@
 | Symptom | What to check |
 |---|---|
 | Nothing on screen after loading the core | Try another HDMI mode or display; check that the rest of the MiSTer's video works. If the analog output also shows nothing, [report it](reporting-a-bug.md) with the core version. |
-| The screen stays black before the app menu appears | The core has no startup image. If the menu does not appear, check the app launcher log and launch the installed MisterZine Jellyfin menu entry again. |
-| A program cannot reach the core (its log says "Protocol not supported") | The program was built for a newer core than the one on the SD card: a program accepts a core of its own interface version or later. Build the core and the programs from the same source ([Install the core](../getting-started/install.md#the-other-programs)). "Device or resource busy" means another program is using the core: quit it first. |
+| The screen stays black before the app menu appears | The core has no startup image. If the menu does not appear, open **MisterZine Plex** from the main menu again; **Scripts** → **MisterZine-Plex-Diagnostics** writes a report with the app's and the launcher's logs. |
+| A program cannot reach the core (its log says "Protocol not supported") | The program was built for a newer core than the one on the SD card: a program accepts a core of its own interface version or later. Use an `H264` core at least as new as the programs ([Install the core](../getting-started/install.md#the-other-programs)). "Device or resource busy" means another program is using the core: quit it first. |
 | The screen stays black after a video played | The program stopped sending video after a stream switch or a seek. Restart the program; its log says what happened. |
-| A stream does not play and the status block shows a refusal | The stream uses something the core does not decode: CAVLC, MBAFF interlacing, monochrome, 4:2:2 / 4:4:4, 10-bit or lossless coding ([Compatibility](compatibility.md)). The program's log names it. A program can rewrite CAVLC into CABAC with the client library ([CAVLC streams](../integrating/library.md#cavlc-streams)); the Moonlight client and the video player do; MisterZine Jellyfin does not (it checks the stream first and asks the server for a transcode instead). |
+| A stream does not play and the status block shows a refusal | The stream uses something the core does not decode: CAVLC, MBAFF interlacing, monochrome, 4:2:2 / 4:4:4, 10-bit or lossless coding ([Compatibility](compatibility.md)). The program's log names it. A program can rewrite CAVLC into CABAC with the client library ([CAVLC streams](../integrating/library.md#cavlc-streams)); the Moonlight client and the video player do; MisterZine Plex does not (it checks the stream first and asks the server for a transcode instead). |
 | A CAVLC stream plays with late or dropped pictures | The program rewrites it into CABAC on the ARM, which keeps up to about 4-5 Mbit/s at 480p60; ask the source for a lower bitrate, or for CABAC ([CAVLC streams](../integrating/library.md#cavlc-streams)). |
 | A 60 frames/s stream plays with dropped frames | The core decodes up to 854x480 at 60 (or 1280x720 at 30) frames/s in real time; a larger picture or a higher rate falls behind, and the late pictures are counted in the status block ([Compatibility](compatibility.md)). |
 | A 720p film or transcode at 30 frames/s plays a little jerky | A very dense 720p30 encode (well above 8 Mbit/s: a high-bitrate file or transcode) can be more than the decoder keeps up with; up to about 8 Mbit/s, 24 and 30 frames/s films, transcodes and game streams play in real time. Choose a lower bitrate or 854x480 for the transcode, or convert the file ([Compatibility](compatibility.md)). |
@@ -30,21 +30,21 @@ The client's log is `/media/fat/moonlight/moonlight.log`
 | A gamepad's buttons are mixed up on the PC (A and B swapped, X and Y swapped) | Remap them with **Define H264 buttons**: A is the bottom face button, B the right, X the left, Y the top. |
 | A gamepad does not rumble | Press one of its buttons once after connecting it (MiSTer drives the motors of a pad it has given a player number). Check `RUMBLE=1` in `MiSTer.ini` (the default) and that the game rumbles on the PC. Some gamepads have no motors, or none MiSTer can drive. The log's last line counts the rumble changes the client passed on. |
 
-## Jellyfin
+## Plex
 
-MisterZine Jellyfin has its own help
-([Watching from a Jellyfin server](../using/jellyfin.md)). Its
-[troubleshooting](https://github.com/matijaerceg/misterzine-jellyfin/blob/main/release/README.md#troubleshooting)
-covers installing, signing in, stutter, updates and reports. In the app, **Options** →
-**Send a report** saves the app's and the player's logs to
-`/media/fat/misterzine-jellyfin/report.txt`; **Scripts** →
-**MisterZine-Jellyfin-Diagnostics** writes the same file when the app does not start.
+MisterZine Plex has its own help
+([Watching from a Plex server](../using/plex.md)). Its
+[help page](https://github.com/matijaerceg/misterzine-plex-core/blob/main/release/README.md)
+covers installing, signing in, the picture, stutter, subtitles, updates and reports. In the
+app, **Options** → **Send a report** sends a report with the app's, the launcher's and the
+player's logs and saves a copy as `/media/fat/misterzine-plex/report.txt`; **Scripts** →
+**MisterZine-Plex-Diagnostics** writes the same report when the app does not start.
 These rows are about the picture the core receives:
 
 | Symptom | What to check |
 |---|---|
-| A film stutters or falls behind | The server's conversion is not keeping up: its dashboard shows the transcode's speed. A lower **Video bitrate** in the app's Options also helps. |
-| Faint blocky lines across the picture during fades and dark scenes, on a film the server converts | Artifacts of the server's conversion (common with HEVC or HDR films): dark fades are hard to encode, and the MiSTer shows what it receives. In the server's dashboard (**Playback** → **Transcoding**), choose a slower encoder preset or a higher quality for hardware encoding, and turn on tone mapping for HDR films. A film already in H.264 at 1280x720 or less is played as it is, with no conversion ([What plays](../using/jellyfin.md#what-plays)). |
+| A film stutters or falls behind | Check that your Plex server can transcode the video in real time. A lower **Video bitrate** in the app's Options also helps. |
+| Rectangular patches of earlier pictures linger on screen, on a film the server converts (most often older XviD or DivX `.avi` files) | The server's conversion is damaging the picture; the MiSTer shows what it receives. Play the same film in Plex Web at a lower quality, such as 2 Mbps: if the patches appear there too, turn off **Use hardware acceleration when available** under **Settings** → **Transcoder** on the Plex server. A file within the core's limits is played as it is, with no conversion ([What plays](../using/plex.md#what-plays)). |
 
 ## Video files
 
@@ -90,6 +90,6 @@ The [video player](../using/player.md#the-screensaver) and the
 nothing plays, and turn it black after 30, against burn-in. Press any button to bring it back.
 The player's times are in its `.ini` (`screensaver_dim=`, `screensaver_black=`).
 
-[MisterZine Jellyfin](../using/jellyfin.md#the-screensaver) dims the screen to a quarter of
-its brightness after 3 minutes without a press in the menus or on a paused video, and does
-not turn it black. The next press only brings it back.
+[MisterZine Plex](../using/plex.md#the-screensaver) dims the screen to a quarter of
+its brightness after 3 minutes without a press in the menus or on a paused video. The next
+press only brings it back.

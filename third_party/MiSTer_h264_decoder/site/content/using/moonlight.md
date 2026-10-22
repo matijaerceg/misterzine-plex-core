@@ -13,9 +13,9 @@ Your keyboard, mouse and gamepads on the MiSTer control the PC ([Controls](contr
 
 ## Installing
 
-MisterZine Jellyfin releases do not include the client: build it and copy its
+MisterZine Plex releases do not include the client: build it and copy its
 `Scripts/moonlight.sh` and `moonlight/` folder to the root of the SD card (`/media/fat/`), with
-the core in `_Other/` ([The other programs](../getting-started/install.md#the-other-programs)).
+an `H264` core in `_Other/` ([The other programs](../getting-started/install.md#the-other-programs)).
 
 On the PC, install Sunshine and open its web page (`https://localhost:47990` on the PC).
 

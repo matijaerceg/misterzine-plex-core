@@ -26,7 +26,6 @@ come in through the same interface.
 `PlexH264.rbf` and released only inside
 [MisterZine Plex](https://github.com/matijaerceg/misterzine-plex-core), whose installer puts
 the app and this core on the SD card together ([user guide](https://github.com/matijaerceg/misterzine-plex-core/blob/main/release/README.md)).
-MisterZine Jellyfin builds the same fork as its own core, under another name.
 
 ## Programs in this repository
 
@@ -106,9 +105,11 @@ USE_DOCKER=1 hps/build_arm.sh                  # the library, h264play, h264stat
 USE_DOCKER=1 clients/moonlight/build.sh        # likewise clients/player, clients/uvc (and clients/jellyfin)
 ```
 
-Copy the `.rbf` to `_Other/` on the SD card and each client's `build/dist/*` to the card's root.
-MisterZine Plex builds and installs its own copy of the core, `_Other/PlexH264.rbf`
-(`release/build_package.py` in that repository).
+Copy each client's `build/dist/*` to the card's root. The clients load an `H264` core from
+`_Other/` and accept only a core that names itself `H264`, as owenb321's upstream core does;
+the core built here names itself MisterZine Plex Core. MisterZine Plex packages its own copy
+of the core as `PlexH264.rbf` (the app's `release/build_package.py`) and installs it in each
+release's folder, `misterzine-plex/releases/<id>/`.
 [Building from source](site/content/about/building.md) has the details.
 
 ## Documentation

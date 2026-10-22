@@ -10,6 +10,6 @@ The core draws no other messages. Programs feeding it can read its state (playin
 errors) from its status block, and draw their own screens over the picture: the
 [video player](player.md)'s list and its **Cannot play** messages (see
 [Troubleshooting](../reference/troubleshooting.md#video-files)), the
-menus and playback controls of [MisterZine Jellyfin](jellyfin.md), the
+menus and playback controls of [MisterZine Plex](plex.md), the
 [camera viewer](camera.md)'s **Plug in a USB camera** screen, its list of modes and its
 **cannot be shown** messages (see [Troubleshooting](../reference/troubleshooting.md#usb-cameras)).
