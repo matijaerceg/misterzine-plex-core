@@ -162,7 +162,12 @@ func (p *Preplay) Key(ev input.Event, now time.Time) {
 
 func (p *Preplay) play(offset int) {
 	p.app.PlayAt(p.item, offset)
-	p.refresh()
+	// The item already holds where the playback stopped (notePlayed), and
+	// the server's record follows its stopped report (refreshPlayedItem): a
+	// fetch now could still have the old resume point.
+	p.periodic.reset()
+	p.rebuild()
+	p.app.afterReports(func() { p.cw.refetch(p.app) })
 }
 
 func (p *Preplay) refresh() {

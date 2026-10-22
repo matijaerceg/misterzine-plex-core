@@ -478,8 +478,15 @@ func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 	defer func() {
 		for _, screen := range a.stack {
 			if h, ok := screen.(*Home); ok && h.home {
+				// rows asked for before the stopped report is in would bring
+				// back the old resume point: hold them until it is
 				h.refreshResult = nil
-				h.refreshAt = time.Time{}
+				h.refreshAt = time.Now().Add(viewRefreshInterval)
+				a.afterReports(func() {
+					h.refreshResult = nil
+					h.refreshAt = time.Time{}
+					a.dirty = true
+				})
 			}
 		}
 	}()
@@ -519,8 +526,9 @@ func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 		ctl.starting, ctl.waitSpec = a.osd != nil, os.Getenv("PLEXCRT_WAIT_DOT")
 		next, ended := a.playLoop(sess, ctl)
 		a.playReports = sess.ReportsDone()
-		a.refreshPlayedItem(it, a.playReports)
 		finished = ctl.finished()
+		a.notePlayed(it, sess, finished) // at once: the server has it only after the report
+		a.refreshPlayedItem(it, a.playReports)
 		if msg := readPlayerStatus(a.Player.Status)["error"]; msg != "" {
 			a.Notice = plex.Fold(strings.TrimSpace(msg))
 			a.NoticeAt = time.Now()
@@ -1131,10 +1139,16 @@ func (a *App) applyStreams(it *plex.Item) {
 }
 
 // takeFresh replaces an item with its fresh record, which marks the
-// server's default tracks, and marks the chosen ones again.
+// server's default tracks, and marks the chosen ones again. Every other
+// copy of the item (forEachItem) takes its watch state.
 func (a *App) takeFresh(it, fresh *plex.Item) {
 	*it = *fresh
 	a.applyStreams(it)
+	a.forEachItem(it.RatingKey, func(c *plex.Item) {
+		if c != it {
+			copyWatchState(c, it)
+		}
+	})
 }
 
 // selectStream makes stream i of an item's audio or subtitle tracks the
