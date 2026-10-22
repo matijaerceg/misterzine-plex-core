@@ -858,7 +858,9 @@ func (w *Wall) marker(n int) string {
 		if it := w.pager.Get(w.cur); it != nil && it.SortLabel() != "" {
 			return strings.ToUpper(it.SortLabel()[:1])
 		}
-		return ""
+		// not loaded yet (a run of letter jumps lands ahead of the pager):
+		// the letter index already knows which letter the place is in
+		return w.letterAt(w.cur)
 	}
 	if w.app.Showcase {
 		return ""
@@ -868,6 +870,19 @@ func (w *Wall) marker(n int) string {
 		s += "+"
 	}
 	return s
+}
+
+// letterAt is the letter of the index whose run holds position i, or ""
+// without an index.
+func (w *Wall) letterAt(i int) string {
+	off := 0
+	for _, l := range w.letters {
+		if i < off+l.Size {
+			return l.Key
+		}
+		off += l.Size
+	}
+	return ""
 }
 
 // composeBand paints the info band: the posters under it dimmed further,
