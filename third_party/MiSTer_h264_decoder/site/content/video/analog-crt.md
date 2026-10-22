@@ -25,7 +25,8 @@ serration pulses, so a TV interlaces the two fields correctly.
   programs' own screens (menus, subtitles) and leaves films unfiltered; **On** filters
   everything, **Off** nothing.
 - **Refresh Rate**: 59.94 Hz and 60 Hz are NTSC-rate signals (480 lines); 50 Hz is the PAL
-  rate with 576 lines -- your TV must accept 50 Hz. On Auto the rate follows the video.
+  rate with 576 lines -- your TV must accept 50 Hz. **Output Mode** sets the rate; with
+  **Refresh Rate Match** at 50/60 it follows the video while it plays.
 - A 60p stream at 480i shows each field from its own picture (the broadcast conversion:
   full motion); 24p and 30p pictures span two or more fields and keep their full
   vertical detail.

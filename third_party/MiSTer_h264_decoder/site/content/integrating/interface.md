@@ -35,7 +35,7 @@ writes the other's words.
 | 6 | the header of the record that caused an error |
 | 7 | the presentation clock (90 kHz) |
 | 8-29 | counters: records, pictures decoded and shown, errors, refusals, skips, lateness; and (word 27) **every menu setting's value** (`osd_*` in `h264ring_layout.h`: Aspect Ratio, Deinterlace, Video Output, HDMI Deinterlace, Analog Aspect, Refresh Rate, Anti-Twitter) and `gfx_mismatch`; (word 27) `disp_lone` -- see [Time stamps](#time-stamps) |
-| 30 | how the shown picture is fitted to the screen: its rectangle's width and height on the raster (720x480, or 720x576 at 50 Hz), whether it is shown 1:1 (snapped), whether its crop was invalid (ignored) or its rectangle clamped, and the lines the display could not fetch in time (0 in normal use); and the signal the core is generating: its rate (`raster_std`: 59.94 Hz, 60.00 Hz, 50 Hz with 576 lines, with value 3 reserved), whether it is interlaced, whether the user's Refresh Rate is Auto (the rate then follows your stream's VUI rate, chosen at its first picture), and whether anti-twitter filters the shown picture. `fit_valid` (bit 45): a picture is shown; while it is 0 (no picture yet, or after a flush) the fit's fields here and word 80's `pic_x0` / `pic_y0` read 0 |
+| 30 | how the shown picture is fitted to the screen: its rectangle's width and height on the raster (720x480, or 720x576 at 50 Hz), whether it is shown 1:1 (snapped), whether its crop was invalid (ignored) or its rectangle clamped, and the lines the display could not fetch in time (0 in normal use); and the signal the core is generating: its rate (`raster_std`: 59.94 Hz, 60.00 Hz, 50 Hz with 576 lines, with value 3 reserved), whether it is interlaced, whether the legacy Refresh Rate field reads Auto (the rate itself now comes from Output Mode and Refresh Rate Match; with matching at 50/60 it follows your stream's rate while it plays), and whether anti-twitter filters the shown picture. `fit_valid` (bit 45): a picture is shown; while it is 0 (no picture yet, or after a flush) the fit's fields here and word 80's `pic_x0` / `pic_y0` read 0 |
 | 31 | the sequence number again; 1.2 geometry acknowledgement sequence and result in bits 32-41 |
 | 32 | **your write index** |
 | 33 | **your session nonce** |
@@ -243,8 +243,9 @@ aspect=2,refresh_rate=2` from the command line).
 - **The result:** `set_seq` (word 30) is the last request the core read, `set_err` (word 27)
   its result -- 0 applied, 1 a value past its option's last, 2 a reserved bit set, 3 no
   option selected. A refused request changes nothing.
-- Changing **Video Output** or **Refresh Rate** switches the signal the core generates, as
-  the menu does: the display resyncs.
+- The signal the core generates is chosen by **Output Mode** and **Refresh Rate Match** in
+  the menu; the legacy Video Output and Refresh Rate fields no longer choose it. Changing
+  Output Mode in the menu switches the signal: the display resyncs.
 - At the start of a new session the core applies the word's current request once, so a
   program re-asserts its settings simply by leaving its last request in place. **The other
   side of that:** a request left in word 35 is applied again at every later session start --

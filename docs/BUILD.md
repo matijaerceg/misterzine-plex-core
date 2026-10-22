@@ -167,20 +167,27 @@ Publishing is described in [distribution](../release/DISTRIBUTION.md).
 
 ## Development install
 
-Use a separate directory on the MiSTer's SD card. Copy `plexcrt`, `jfplay`, and
-`ffmpeg` into it and make them executable. `ffmpeg` decodes show theme music, so
-the preflight requires it alongside the app.
+An installed release keeps its own core: `release/manager.py` installs a
+package into `misterzine-plex/releases/<id>/`, beside `plexcrt`, `jfplay` and
+`ffmpeg`, as `PlexH264.rbf`, and loads that file itself before starting the
+app (`ensure_selected_core`). Nothing goes in `_Other`.
 
-Copy a core built as above to the SD card's `_Other` folder as
-`PlexH264.rbf`. See its [launch instructions](../third_party/MiSTer_h264_decoder/site/content/integrating/launch.md).
-By default the app loads the `_Other/PlexH264` core through an MGL. An optional
-`MISTERZINE_H264_RBF` override is an MGL core name such as `_Other/PlexH264`,
-relative to the SD root and without the `.rbf` extension.
+To try a build the way users get it, package it as in [Package](#package)
+(`build_package.py` accepts only a qualified, committed `plex-` core with its
+Quartus manifest), extract the ZIP to the SD card root and run
+`python3 /media/fat/misterzine-plex-beta/manager.py install`. The release
+becomes current, the previous one stays for Rollback, and the main-menu entry
+starts it.
 
-Run `./plexcrt -check` on the device to check the application files, then
-`./plexcrt` to load the core and link the device with plex.tv on screen.
-Configuration and cached artwork are stored alongside the executable. Keep
-account files private.
+To try a freshly built core or app without packaging, use a separate directory
+on the SD card. Copy `plexcrt`, `jfplay` and `ffmpeg` into it and make them
+executable (`ffmpeg` decodes show theme music, so the preflight requires it),
+and copy the core anywhere on the card. Set `MISTERZINE_H264_RBF` to the core's
+path relative to the SD root without `.rbf` (for example `dev/PlexH264` for
+`/media/fat/dev/PlexH264.rbf`); without it the app loads `_Other/PlexH264`.
+Run `./plexcrt -check` to check the application files, then `./plexcrt` to
+load the core and link the device with plex.tv on screen. Configuration and
+cached artwork are stored alongside the executable. Keep account files private.
 
 Switching to another core stops the app and playback worker. Their shared-memory
 mappings outlive FPGA reconfiguration, so they check MiSTer's core name and the

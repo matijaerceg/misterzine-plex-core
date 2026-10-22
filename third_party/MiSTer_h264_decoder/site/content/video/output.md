@@ -15,10 +15,12 @@ when it sets up a 31 kHz VGA monitor on the core's own signal (`forced_scandoubl
 `vga_scaler=0`), and otherwise **Native (HDMI)** -- on a MiSTer used with HDMI only, that is
 what you get. Auto decides while no video plays, so the signal never switches under a stream.
 
-**Refresh Rate** on Auto follows the video: a stream at exactly 60, 30, 24 or 120 frames a
-second gets 60 Hz (a Moonlight game stream is exactly 60), one at 50, 25 or 100 gets 50 Hz,
-anything else 59.94 Hz. The choice is made when a stream starts and kept until the next
-one, so a display may resync once at the start of a stream, never during it.
+**Refresh Rate Match** (Off or 50/60) decides whether the rate follows the video. Off keeps
+the Output Mode's rate. At 50/60 a stream at 50, 25 or 100 frames a second plays at 50 Hz and
+any other in the 59.94 Hz family. On **Native HDMI** a stream at exactly 60, 30, 24 or 120
+frames a second plays at exactly 60 Hz (a Moonlight game stream is exactly 60). The rate is
+read before the first picture, so a display may resync once at the start of a stream, and
+the Output Mode's rate returns when playback ends.
 
 **On Interlaced and Progressive, every picture is fitted to the screen** at its true shape --
 its cropping and its pixel shape as the stream declares them -- centred, with black bars where

@@ -65,7 +65,7 @@ The player's log is `/media/fat/h264player/h264player.log`
 | "Cannot play: MPEG-4 Part 2 (DivX / Xvid) at 59.94 frames/s is too fast for the ARM (30 at most)" | Likewise: at most 30 frames per second. Convert it to H.264. |
 | "Cannot play: MPEG-2 in yuv444p: only 8-bit 4:2:0 and 4:2:2 are shown" | A picture format the core does not show. Convert the file. |
 | A file plays with no sound | Its track is one the player cannot decode (Dolby TrueHD): press Y for another track, or convert the sound with `-c:a aac`. |
-| A PAL (25 frames/s) file judders | Set **Refresh Rate** to **Auto** ([Settings](../using/settings.md)): the player then switches to 50 Hz for it. On HDMI, 50 Hz needs `vsync_adjust` in `MiSTer.ini` to be smooth. |
+| A PAL (25 frames/s) file judders | Pick a 576-line **Output Mode** (**576i50** or **576p50**), or set **Refresh Rate Match** to **50/60** so the core switches to 50 Hz while it plays ([Settings](../using/settings.md)). On HDMI, 50 Hz needs `vsync_adjust` in `MiSTer.ini` to be smooth. |
 | Subtitles do not show | Press X: the file may have them off by default. Picture subtitles (DVD / Blu-ray) are not shown. An `.srt` must have the video's name: `Film.srt` or `Film.en.srt` beside `Film.mkv`. |
 
 ## USB cameras
