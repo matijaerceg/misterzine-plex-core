@@ -118,13 +118,16 @@ def main():
     app.add_argument('--version', required=True)
     app.add_argument('--id', required=True)
     app.add_argument('--tags', default='', help='Go build tags; the official build adds the supporter extras with "premium"')
+    app.add_argument('--private', type=Path, default=PRIVATE,
+                     help='folder holding the batch code or key (default release/private-beta); '
+                          'a git worktree can name the main checkout\'s instead of copying it')
     args = parser.parse_args()
     if args.command == 'create-key':
         print('Patron-only ZIP:', create_key(args.batch))
     elif args.command == 'create-code':
         print('Private code file:', create_code(args.batch))
     else:
-        build(args.channel, args.batch, args.go, args.version, args.id, tags=args.tags)
+        build(args.channel, args.batch, args.go, args.version, args.id, private=args.private, tags=args.tags)
         print('Built app/dist/plexcrt:', args.channel, args.batch)
 
 

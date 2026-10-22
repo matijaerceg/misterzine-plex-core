@@ -1,0 +1,217 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: MiSTer H264 core <noreply@example.invalid>
+Date: Tue, 29 Sep 2026 20:59:20 -0400
+Subject: [PATCH 2/3] MiSTer: the mister platform -- video and audio to the
+ MiSTer H264 core
+
+-platform mister (auto on a MiSTer): src/mister/mister.c (kept in the MiSTer H264 core's
+repository, clients/moonlight/src/) writes each decode unit and each decoded Opus packet
+into the core's ring through libh264ring. The core loads before the host starts the app;
+H.264 and stereo only.
+---
+ CMakeLists.txt | 15 +++++++++++++--
+ src/main.c     | 21 +++++++++++++++++++--
+ src/platform.c | 30 ++++++++++++++++++++++++++++++
+ src/platform.h |  2 +-
+ 4 files changed, 63 insertions(+), 5 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 9bb8cc9..c248de6 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -28,6 +28,9 @@ option(ENABLE_FFMPEG "Compile FFMPEG support" ON)
+ option(ENABLE_X11 "Compile X11 support (requires ENABLE_FFMPEG)" ON)
+ option(ENABLE_CEC "Compile CEC support" ON)
+ option(ENABLE_PULSE "Compile PulseAudio support" ON)
++option(ENABLE_MISTER "Compile the MiSTer H264 core platform (needs H264RING_DIR, H264RING_LIBRARY)" OFF)
++set(H264RING_DIR "" CACHE PATH "The MiSTer H264 core's hps/ directory (include/h264ring.h)")
++set(H264RING_LIBRARY "" CACHE FILEPATH "libh264ring.a, built for the target (hps/build_arm.sh)")
+ 
+ pkg_check_modules(EVDEV REQUIRED libevdev)
+ if (ENABLE_SDL)
+@@ -194,6 +197,14 @@ if (SOFTWARE_FOUND)
+   endif()
+ endif()
+ 
++if (ENABLE_MISTER)
++  list(APPEND MOONLIGHT_DEFINITIONS HAVE_MISTER)
++  list(APPEND MOONLIGHT_OPTIONS MISTER)
++  target_sources(moonlight PRIVATE ./src/mister/mister.c)
++  target_include_directories(moonlight PRIVATE ./src/mister ${H264RING_DIR}/include)
++  target_link_libraries(moonlight ${H264RING_LIBRARY})
++endif()
++
+ if (ALSA_FOUND)
+   list(APPEND MOONLIGHT_DEFINITIONS HAVE_ALSA)
+   list(APPEND MOONLIGHT_OPTIONS ALSA)
+@@ -210,12 +221,12 @@ if (PULSE_FOUND)
+   target_link_libraries(moonlight ${PULSE_LIBRARIES})
+ endif()
+ 
+-if (AMLOGIC_FOUND OR BROADCOM-OMX_FOUND OR MMAL_FOUND OR FREESCALE_FOUND OR ROCKCHIP_FOUND OR X11_FOUND)
++if (AMLOGIC_FOUND OR BROADCOM-OMX_FOUND OR MMAL_FOUND OR FREESCALE_FOUND OR ROCKCHIP_FOUND OR X11_FOUND OR ENABLE_MISTER)
+   list(APPEND MOONLIGHT_DEFINITIONS HAVE_EMBEDDED)
+   list(APPEND MOONLIGHT_OPTIONS EMBEDDED)
+ endif()
+ 
+-if(NOT AMLOGIC_FOUND AND NOT BROADCOM-OMX_FOUND AND NOT MMAL_FOUND AND NOT FREESCALE_FOUND AND NOT ROCKCHIP_FOUND AND NOT SOFTWARE_FOUND)
++if(NOT AMLOGIC_FOUND AND NOT BROADCOM-OMX_FOUND AND NOT MMAL_FOUND AND NOT FREESCALE_FOUND AND NOT ROCKCHIP_FOUND AND NOT SOFTWARE_FOUND AND NOT ENABLE_MISTER)
+   message(FATAL_ERROR "No video output available")
+ endif()
+ 
+diff --git a/src/main.c b/src/main.c
+index 8e9570d..08f2564 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -21,6 +21,9 @@
+ #include "connection.h"
+ #include "configuration.h"
+ #include "platform.h"
++#ifdef HAVE_MISTER
++#include "mister/mister.h"
++#endif
+ #include "config.h"
+ #include "sdl.h"
+ 
+@@ -99,6 +102,13 @@ static void stream(PSERVER_DATA server, PCONFIGURATION config, enum platform sys
+   for (int i = 0; i < gamepads; i++)
+     gamepad_mask = (gamepad_mask << 1) + 1;
+ 
++  #ifdef HAVE_MISTER
++  if (system == MISTER) {
++    platform_start(system);   /* the core loads before the host starts the app */
++    if (config->stream.width <= 0 || config->stream.height <= 0)   /* -width 0: the screen's shape */
++      mister_preferred_size(&config->stream.width, &config->stream.height);
++  }
++  #endif
+   int ret = gs_start_app(server, &config->stream, appId, config->sops, config->localaudio, gamepad_mask);
+   if (ret < 0) {
+     if (ret == GS_NOT_SUPPORTED_4K)
+@@ -142,7 +152,8 @@ static void stream(PSERVER_DATA server, PCONFIGURATION config, enum platform sys
+   if (IS_EMBEDDED(system))
+     loop_init();
+ 
+-  platform_start(system);
++  if (system != MISTER)
++    platform_start(system);
+   LiStartConnection(&server->serverInfo, &config->stream, &connection_callbacks, platform_get_video(system), platform_get_audio(system, config->audio_device), NULL, drFlags, config->audio_device, 0);
+ 
+   if (IS_EMBEDDED(system)) {
+@@ -210,7 +221,7 @@ static void help() {
+   printf("\t-surround <5.1/7.1>\t\tStream 5.1 or 7.1 surround sound\n");
+   printf("\t-keydir <directory>\tLoad encryption keys from directory\n");
+   printf("\t-mapping <file>\t\tUse <file> as gamepad mappings configuration file\n");
+-  printf("\t-platform <system>\tSpecify system used for audio, video and input: pi/imx/aml/rk/x11/x11_vdpau/sdl/fake (default auto)\n");
++  printf("\t-platform <system>\tSpecify system used for audio, video and input: mister/pi/imx/aml/rk/x11/x11_vdpau/sdl/fake (default auto)\n");
+   printf("\t-nounsupported\t\tDon't stream if resolution is not officially supported by the server\n");
+   printf("\t-quitappafter\t\tSend quit app request to remote after quitting session\n");
+   printf("\t-viewonly\t\tDisable all input processing (view-only mode)\n");
+@@ -331,6 +342,12 @@ int main(int argc, char* argv[]) {
+         config.stream.supportedVideoFormats |= VIDEO_FORMAT_AV1_MAIN10;
+     }
+ 
++    if (system == MISTER) {
++      /* the core decodes H.264 and presents 48 kHz stereo (docs/moonlight.md) */
++      config.stream.supportedVideoFormats = VIDEO_FORMAT_H264;
++      config.stream.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
++      config.hdr = false;
++    }
+     if (config.hdr && !(config.stream.supportedVideoFormats & VIDEO_FORMAT_MASK_10BIT)) {
+       fprintf(stderr, "HDR streaming requires HEVC or AV1 codec\n");
+       exit(-1);
+diff --git a/src/platform.c b/src/platform.c
+index 112da0a..b846b7d 100644
+--- a/src/platform.c
++++ b/src/platform.c
+@@ -26,6 +26,10 @@
+ #include "audio/audio.h"
+ #include "video/video.h"
+ 
++#ifdef HAVE_MISTER
++#include "mister/mister.h"
++#endif
++
+ #include <stdlib.h>
+ #include <string.h>
+ #include <unistd.h>
+@@ -35,6 +39,10 @@ typedef bool(*ImxInit)();
+ 
+ enum platform platform_check(char* name) {
+   bool std = strcmp(name, "auto") == 0;
++  #ifdef HAVE_MISTER
++  if ((std || strcmp(name, "mister") == 0) && mister_detect())
++    return MISTER;
++  #endif
+   #ifdef HAVE_IMX
+   if (std || strcmp(name, "imx") == 0) {
+     void *handle = dlopen("libmoonlight-imx.so", RTLD_NOW | RTLD_GLOBAL);
+@@ -107,6 +115,13 @@ enum platform platform_check(char* name) {
+ 
+ void platform_start(enum platform system) {
+   switch (system) {
++  #ifdef HAVE_MISTER
++  case MISTER:
++    /* load the core and start a session before the host starts the app */
++    if (mister_start() != 0)
++      exit(-1);
++    break;
++  #endif
+   #ifdef HAVE_AML
+   case AML:
+     write_bool("/sys/class/graphics/fb0/blank", true);
+@@ -124,6 +139,11 @@ void platform_start(enum platform system) {
+ 
+ void platform_stop(enum platform system) {
+   switch (system) {
++  #ifdef HAVE_MISTER
++  case MISTER:
++    mister_stop();
++    break;
++  #endif
+   #ifdef HAVE_AML
+   case AML:
+     write_bool("/sys/class/graphics/fb0/blank", false);
+@@ -140,6 +160,10 @@ void platform_stop(enum platform system) {
+ 
+ DECODER_RENDERER_CALLBACKS* platform_get_video(enum platform system) {
+   switch (system) {
++  #ifdef HAVE_MISTER
++  case MISTER:
++    return &decoder_callbacks_mister;
++  #endif
+   #ifdef HAVE_X11
+   case X11:
+     return &decoder_callbacks_x11;
+@@ -184,6 +208,10 @@ AUDIO_RENDERER_CALLBACKS* platform_get_audio(enum platform system, char* audio_d
+   switch (system) {
+   case FAKE:
+       return NULL;
++  #ifdef HAVE_MISTER
++  case MISTER:
++    return &audio_callbacks_mister;
++  #endif
+   #ifdef HAVE_SDL
+   case SDL:
+     return &audio_callbacks_sdl;
+@@ -252,6 +280,8 @@ char* platform_name(enum platform system) {
+     return "SDL2 (software decoding)";
+   case FAKE:
+     return "Fake (no a/v output)";
++  case MISTER:
++    return "MiSTer H264 core";
+   default:
+     return "Unknown";
+   }
+diff --git a/src/platform.h b/src/platform.h
+index 67c5cc7..ef5cd17 100644
+--- a/src/platform.h
++++ b/src/platform.h
+@@ -26,7 +26,7 @@
+ 
+ #define IS_EMBEDDED(SYSTEM) SYSTEM != SDL
+ 
+-enum platform { NONE, SDL, X11, X11_VDPAU, X11_VAAPI, PI, MMAL, IMX, AML, RK, FAKE };
++enum platform { NONE, SDL, X11, X11_VDPAU, X11_VAAPI, PI, MMAL, IMX, AML, RK, FAKE, MISTER };
+ enum codecs { CODEC_UNSPECIFIED, CODEC_H264, CODEC_HEVC, CODEC_AV1 };
+ 
+ enum platform platform_check(char*);

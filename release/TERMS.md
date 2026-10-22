@@ -43,7 +43,7 @@ law gives you and does not allow to be excluded.
 
 These terms apply only to original application material not separately
 licensed. They do not restrict any rights granted by the licenses for the FPGA
-core, presenter, FFmpeg, fonts, Go runtime or other third-party material. See
-the third-party notices and supplied license texts. In particular, covered GPL
-material retains its modification, redistribution and corresponding-source
-rights.
+core, playback worker, FFmpeg, OpenSSL, fonts, Go runtime or other
+third-party material. See the third-party notices and supplied license texts.
+In particular, covered GPL material retains its modification, redistribution
+and corresponding-source rights.

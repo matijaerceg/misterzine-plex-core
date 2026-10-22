@@ -1,6 +1,6 @@
 // Package gfx is the software renderer for the 720x480 CRT frame: a BGRx
-// canvas in the exact byte order the PlexCRT core scans out (xRGB8888 little
-// endian), so presenting is one copy; fills, blits, alpha-blended glyphs from
+// canvas in the exact byte order of the H.264 core's overlay pages (xRGB8888
+// little endian), so presenting is one copy; fills, blits, alpha-blended glyphs from
 // the prerendered Roboto atlases, and images converted to the same layout.
 package gfx
 
@@ -17,7 +17,7 @@ const (
 	GreyLo Color = 0xC0C0C0 // dimmest readable grey through composite
 	Bg     Color = 0x0B0E14 // near black with a hint of blue
 	Bar    Color = 0x1C2230 // dark surface: placeholders, dim panels
-	Amber  Color = 0xE5A00D
+	Amber  Color = 0xE5A00D // Plex's amber
 	Purple Color = 0xA98BFF // the MisterZine mark: kept light so it holds through composite
 )
 
@@ -35,14 +35,12 @@ type Canvas struct {
 // NewCanvas allocates a canvas.
 func NewCanvas(w, h int) *Canvas { return &Canvas{W: w, H: h, Pix: make([]byte, w*h*4)} }
 
-// Image is a picture in canvas layout (BGRx), ready to blit. Dim, if set,
-// is the same picture darkened, made off-thread so drawing it is a copy.
-// Alpha marks a picture with a real alpha channel (premultiplied): it is
-// drawn with BlitOver, on ordinary canvases only.
+// Image is a picture in canvas layout (BGRx), ready to blit. Alpha marks a
+// picture with a real alpha channel (premultiplied): it is drawn with
+// BlitOver, on ordinary canvases only.
 type Image struct {
 	W, H  int
 	Pix   []byte
-	Dim   *Image
 	Alpha bool
 }
 

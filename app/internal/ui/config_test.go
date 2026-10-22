@@ -7,9 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"plexcrt/internal/plex"
+	"strconv"
 	"syscall"
 	"testing"
+	"time"
+
+	"plexcrt/internal/input"
+	"plexcrt/internal/plex"
 )
 
 func TestConfigRecoveryAndSignOut(t *testing.T) {
@@ -19,8 +23,7 @@ func TestConfigRecoveryAndSignOut(t *testing.T) {
 		t.Fatal(c.LoadError)
 	}
 	id := c.ClientID
-	c.Token = "test-account"
-	c.AccountName = "Alice"
+	c.Token, c.AccountName = "test-account", "Alice"
 	c.ServerToken = "test-server"
 	c.ServerURL = "http://test"
 	c.Bitrate = 1000
@@ -71,6 +74,20 @@ func TestSubtitleSizeDefaultChoicesAndPersistence(t *testing.T) {
 		t.Fatal("unknown setting did not safely fall back to Normal")
 	}
 }
+
+func TestDeFlickerPreferencePersists(t *testing.T) {
+	c := LoadConfig(filepath.Join(t.TempDir(), "settings.json"))
+	if c.DeFlicker {
+		t.Fatal("de-flicker should default off")
+	}
+	c.DeFlicker = true
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if loaded := LoadConfig(c.path); !loaded.DeFlicker {
+		t.Fatal("saved de-flicker choice was not restored")
+	}
+}
 func TestConfigFailedSavePreservesPrimary(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	c := LoadConfig(path)
@@ -85,11 +102,126 @@ func TestConfigFailedSavePreservesPrimary(t *testing.T) {
 		t.Fatal("failed save changed primary")
 	}
 }
+
+// savedBitrate is the bitrate in the settings file at path, 0 for none.
+func savedBitrate(path string) int {
+	var s Config
+	b, err := os.ReadFile(path)
+	if err != nil || json.Unmarshal(b, &s) != nil {
+		return 0
+	}
+	return s.Bitrate
+}
+
+// shortSaveDelay makes SaveLater wait d for the length of the test.
+func shortSaveDelay(t *testing.T, d time.Duration) {
+	was := saveDelay
+	t.Cleanup(func() { saveDelay = was })
+	saveDelay = d
+}
+
+// SaveLater writes once the changes stop, and only the last settings;
+// Flush writes what is held at once and leaves the timer nothing.
+func TestSaveLaterWaitsForTheChangesToStop(t *testing.T) {
+	shortSaveDelay(t, 300*time.Millisecond)
+	path := filepath.Join(t.TempDir(), "settings.json")
+	c := &Config{path: path}
+	failed := func(err error) { t.Error("deferred save:", err) }
+	for _, kbps := range []int{1000, 2000, 3000, 4000} {
+		c.Bitrate = kbps
+		c.SaveLater(failed)
+		time.Sleep(30 * time.Millisecond)
+	}
+	if got := savedBitrate(path); got != 0 {
+		t.Fatalf("written while the steps came: %d", got)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for savedBitrate(path) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := savedBitrate(path); got != 4000 {
+		t.Fatalf("after the steps stopped: %d, want the last, 4000", got)
+	}
+	c.Bitrate = 6000
+	c.SaveLater(failed)
+	if err := c.Flush(); err != nil || savedBitrate(path) != 6000 {
+		t.Fatalf("flush: %v, saved %d", err, savedBitrate(path))
+	}
+	os.Remove(path)
+	time.Sleep(saveDelay + 100*time.Millisecond)
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("the timer wrote again after the flush")
+	}
+	if err := c.Flush(); err != nil {
+		t.Fatal("flush with nothing held:", err)
+	}
+}
+
+// Save writes the newest settings: what SaveLater held, older, never lands
+// after it.
+func TestSaveTakesWhatSaveLaterHolds(t *testing.T) {
+	shortSaveDelay(t, 100*time.Millisecond)
+	path := filepath.Join(t.TempDir(), "settings.json")
+	c := &Config{path: path, Bitrate: 1000}
+	c.SaveLater(func(err error) { t.Error("deferred save:", err) })
+	c.Bitrate = 2000
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(saveDelay + 100*time.Millisecond)
+	if got := savedBitrate(path); got != 2000 {
+		t.Fatalf("saved %d, want 2000", got)
+	}
+}
+
+// A deferred write that fails is reported, and its settings stay held for
+// the next flush.
+func TestSaveLaterFailureIsReportedAndKept(t *testing.T) {
+	shortSaveDelay(t, 50*time.Millisecond)
+	path := filepath.Join(t.TempDir(), "settings.json")
+	c := &Config{path: path, Bitrate: 1000}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	os.Mkdir(path+".bak", 0700) // the backup cannot be replaced
+	failures := make(chan error, 4)
+	c.Bitrate = 2000
+	c.SaveLater(func(err error) { failures <- err })
+	select {
+	case <-failures:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the failed write was not reported")
+	}
+	if got := savedBitrate(path); got != 1000 {
+		t.Fatalf("a failed save changed the file: %d", got)
+	}
+	os.Remove(path + ".bak")
+	if err := c.Flush(); err != nil || savedBitrate(path) != 2000 {
+		t.Fatalf("flush after the failure: %v, saved %d", err, savedBitrate(path))
+	}
+}
+
+// Options saves its steps in the background; leaving it writes them at once.
+func TestLeavingOptionsWritesItsChanges(t *testing.T) {
+	a := betaTestApp(t)
+	o := NewOptions(a)
+	a.Push(o)
+	pressOption(t, o, "Video bitrate", input.Left)
+	want := a.Cfg.Bitrate
+	if want == 0 || savedBitrate(a.Cfg.path) != 0 {
+		t.Fatalf("the step: bitrate %d, written %d before leaving", want, savedBitrate(a.Cfg.path))
+	}
+	a.Pop()
+	if got := savedBitrate(a.Cfg.path); got != want {
+		t.Fatalf("after leaving Options: saved %d, want %d", got, want)
+	}
+}
+
 func TestConfigMalformedWithoutBackup(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
-	os.WriteFile(path, []byte(`{"token":"partial",`), 0600)
+	os.WriteFile(path, []byte(`{"server_token":"partial",`), 0600)
 	c := LoadConfig(path)
-	if c.LoadError != nil || c.Token != "" || c.LoadWarning == "" {
+	if c.LoadError != nil || c.ServerToken != "" || c.LoadWarning == "" {
 		t.Fatal("partial account survived damaged JSON")
 	}
 	matches, _ := filepath.Glob(path + ".corrupt-*")
@@ -130,6 +262,64 @@ func TestReapLeavesUnrelatedProcessRunning(t *testing.T) {
 	unrelated.Wait()
 }
 
+func TestBitrateClampsSavedValuesToOfferedSteps(t *testing.T) {
+	for _, tc := range []struct{ saved, want int }{{0, 8000}, {100, 400}, {400, 400}, {500, 400}, {1000, 1000}, {1500, 1000}, {2000, 2000}, {2500, 2000}, {3000, 3000}, {4000, 4000}, {5000, 4000}, {6000, 6000}, {7000, 6000}, {8000, 8000}, {20000, 8000}} {
+		c := Config{Bitrate: tc.saved}
+		if c.BitrateKbps() != tc.want {
+			t.Fatalf("saved %d: got %d, want %d", tc.saved, c.BitrateKbps(), tc.want)
+		}
+	}
+}
+
+func TestBitrateOptionShowsAndStepsOfferedCaps(t *testing.T) {
+	for _, tc := range []struct {
+		saved int
+		label string
+	}{{0, "8 Mbps (max)"}, {12000, "8 Mbps (max)"}, {5000, "4 Mbps"}, {4000, "4 Mbps"}, {3000, "3 Mbps"}, {2000, "2 Mbps"}, {1000, "1 Mbps"}, {400, "0.4 Mbps, low res"}, {50, "0.4 Mbps, low res"}} {
+		c := Config{Bitrate: tc.saved}
+		if got := Bitrates[c.bitrateIndex()].Label; got != tc.label {
+			t.Fatalf("saved %d: shows %q, want %q", tc.saved, got, tc.label)
+		}
+	}
+	a := &App{Cfg: &Config{}}
+	o := &Options{app: a}
+	var row option
+	for _, it := range o.items() {
+		if it.label == "Video bitrate" {
+			row = it
+		}
+	}
+	row.step(+1)
+	if a.Cfg.Bitrate != 8000 || row.val() != "8 Mbps (max)" {
+		t.Fatalf("stepping up from the default: %d %q", a.Cfg.Bitrate, row.val())
+	}
+	row.step(-1)
+	if a.Cfg.Bitrate != 6000 || row.val() != "6 Mbps" {
+		t.Fatalf("stepping down from the default: %d %q", a.Cfg.Bitrate, row.val())
+	}
+	for i := 0; i < len(Bitrates)+1; i++ {
+		row.step(-1)
+	}
+	if a.Cfg.Bitrate != 400 || row.val() != "0.4 Mbps, low res" {
+		t.Fatalf("stepping down to the end: %d %q", a.Cfg.Bitrate, row.val())
+	}
+}
+
+// A choice saved by an older build, which offered 3 Mbps at the lowest,
+// loads as the same step.
+func TestBitrateSavedByOlderBuildLoads(t *testing.T) {
+	for _, kbps := range []int{3000, 4000, 6000, 8000} {
+		path := filepath.Join(t.TempDir(), "settings.json")
+		os.WriteFile(path, []byte(`{"client_id":"misterzine-test","bitrate":`+strconv.Itoa(kbps)+`}`), 0600)
+		c := LoadConfig(path)
+		if c.LoadError != nil || c.LoadWarning != "" || c.BitrateKbps() != kbps {
+			t.Fatalf("saved %d: loaded %d (%v %q)", kbps, c.BitrateKbps(), c.LoadError, c.LoadWarning)
+		}
+	}
+}
+
+// Plex sign-in: a connection the user cancelled, or one whose save failed,
+// never leaves the account half signed in.
 func TestCancelledConnectionCannotSaveAccount(t *testing.T) {
 	c := LoadConfig(filepath.Join(t.TempDir(), "settings.json"))
 	l := &Login{app: &App{Cfg: c}, gen: 2, tok: "test-account"}
@@ -148,44 +338,5 @@ func TestConnectionSaveFailureDoesNotSignIn(t *testing.T) {
 	l.finishConnect(1, plex.Server{AccessToken: "test-server"}, "http://test")
 	if c.SignedIn() || c.Token != "" || l.err == "" || len(a.Connected) != 0 {
 		t.Fatal("failed save reported successful sign-in")
-	}
-}
-
-func TestBitrateClampsOlderSavedHighValues(t *testing.T) {
-	for _, tc := range []struct{ saved, want int }{{0, 3000}, {500, 1000}, {1000, 1000}, {1500, 1500}, {2000, 2000}, {2500, 2000}, {3000, 3000}, {4500, 3000}, {6000, 3000}, {20000, 3000}} {
-		c := Config{Bitrate: tc.saved}
-		if c.BitrateKbps() != tc.want {
-			t.Fatalf("saved %d: got %d, want %d", tc.saved, c.BitrateKbps(), tc.want)
-		}
-	}
-}
-
-func TestBitrateOptionShowsAndStepsOfferedCaps(t *testing.T) {
-	for _, tc := range []struct {
-		saved int
-		label string
-	}{{0, "Max (2 Mbps)"}, {6000, "Max (2 Mbps)"}, {2500, "1.2 Mbps"}, {1500, "1 Mbps"}, {1000, "0.4 Mbps, low res"}} {
-		c := Config{Bitrate: tc.saved}
-		if got := Bitrates[c.bitrateIndex()].Label; got != tc.label {
-			t.Fatalf("saved %d: shows %q, want %q", tc.saved, got, tc.label)
-		}
-	}
-	a := &App{Cfg: &Config{}}
-	o := &Options{app: a}
-	var row option
-	for _, it := range o.items() {
-		if it.label == "Video bitrate" {
-			row = it
-		}
-	}
-	row.step(+1)
-	if a.Cfg.Bitrate != 3000 || row.val() != "Max (2 Mbps)" {
-		t.Fatalf("stepping up from the default: %d %q", a.Cfg.Bitrate, row.val())
-	}
-	for i := 0; i < 5; i++ {
-		row.step(-1)
-	}
-	if a.Cfg.Bitrate != 1000 || row.val() != "0.4 Mbps, low res" {
-		t.Fatalf("stepping down to the end: %d %q", a.Cfg.Bitrate, row.val())
 	}
 }

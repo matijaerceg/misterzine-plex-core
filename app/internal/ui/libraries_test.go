@@ -316,6 +316,7 @@ func TestOptionsLibraryToggle(t *testing.T) {
 	now := time.Now()
 	o.cur = optionRow(o, "Show Shows")
 	o.Key(input.Event{Key: input.Enter}, now)
+	a.Cfg.Flush()
 	if !slices.Equal(a.Cfg.HiddenLibraries, []string{"2"}) || !LoadConfig(a.Cfg.path).LibraryHidden("2") {
 		t.Fatalf("hidden %q, not saved", a.Cfg.HiddenLibraries)
 	}

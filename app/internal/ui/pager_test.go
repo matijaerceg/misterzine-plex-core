@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -34,7 +33,7 @@ func TestPagerWaitsAfterAFailedPage(t *testing.T) {
 			return asked
 		}
 		a := pagedTestApp(t, s)
-		p := a.pager("/library/sections/1/all", url.Values{"sort": {"titleSort"}}, keep)
+		p := a.pager(filmsPath, filmsQuery, keep)
 		idle := func() bool {
 			p.mu.Lock()
 			defer p.mu.Unlock()
@@ -107,7 +106,7 @@ func TestPagerFailureOutlastsANeighbourLanding(t *testing.T) {
 		}
 	}
 	a := pagedTestApp(t, s)
-	q := a.pager("/library/sections/1/all", url.Values{"sort": {"titleSort"}}, nil) // asks for pages 0 and 1
+	q := a.pager(filmsPath, filmsQuery, nil) // asks for pages 0 and 1
 	mu.Lock()
 	p = q
 	mu.Unlock()

@@ -22,6 +22,7 @@ import update_service as service
 import publish
 
 stop_real_manager = service.stop_manager
+real_decoder = manager.decoder
 
 
 class ProcessTests(unittest.TestCase):
@@ -143,11 +144,17 @@ class UpdateTests(unittest.TestCase):
         files = {}
         package = self.fixture / ident / 'misterzine-plex-beta'
         (package / 'payload').mkdir(parents=True)
+        source_archive = self.fixture / (ident + '-source.zip')
+        with zipfile.ZipFile(source_archive, 'w') as source_zip:
+            source_zip.writestr('BUILD.md', 'synthetic corresponding source')
+        source = {'filename': source_archive.name, 'size': source_archive.stat().st_size,
+                  'sha256': manager.digest(source_archive), 'url': 'https://example.org/' + source_archive.name}
         for name in manager.PAYLOAD:
             data = (ident + name).encode()
             (package / 'payload' / name).write_bytes(data)
             files[name] = hashlib.sha256(data).hexdigest()
-        manifest = {'id': ident, 'version': version, 'channel': channel, 'access': access, 'files': files}
+        manifest = {'id': ident, 'version': version, 'channel': channel, 'access': access, 'files': files,
+                    'source': {k: source[k] for k in ('filename', 'size', 'sha256')}}
         (package / 'manifest.json').write_text(json.dumps(manifest))
         for name in service.HELPERS:
             (package / name).write_text((helpers or {}).get(name, '# synthetic helper ' + ident))
@@ -158,7 +165,8 @@ class UpdateTests(unittest.TestCase):
                     z.write(path, path.relative_to(package.parent).as_posix())
         release = dict(id=ident, version=version, channel=channel, access=access, notes='Synthetic test release',
                        url='https://example.org/' + archive.name, db_url='https://example.org/' + channel + '.json.zip',
-                       size=archive.stat().st_size, sha256=manager.digest(archive))
+                       size=archive.stat().st_size, sha256=manager.digest(archive),
+                       source=source)
         return release, archive, package
 
     def deliver(self, archive):
@@ -192,13 +200,53 @@ class UpdateTests(unittest.TestCase):
         service.prepare(self.card, release, self.deliver(archive))
         manager.install(self.card, package)
         launched = []
-        with self.assertRaises(ValueError):
-            service.activate(self.card, lambda root: launched.append(root) or True)
-        self.assertEqual(launched, [])
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            service.activate(self.card, lambda root: launched.append(manager.read_state(root)['current']) or True)
+        # Nothing is selected again, but the app restarts as after an install.
+        self.assertEqual(launched, ['new'])
         self.assertEqual(manager.read_state(self.root), {'current': 'new', 'previous': 'old'})
+        self.assertFalse((self.root / 'updates/ready.json').exists())
         status = json.loads((self.root / 'updates/status.json').read_text())
-        self.assertEqual(status['stage'], 'failed')
-        self.assertIn('already installed', status['message'])
+        self.assertEqual(status['stage'], 'complete')
+        self.assertIn('already installed and up to date', status['message'])
+        self.assertIn('already installed and up to date', out.getvalue())
+
+    def test_installer_rerun_for_the_installed_release_succeeds(self):
+        # The install script run again for the release it already installed.
+        release, archive, package = self.release('same', 'beta')
+        manager.install(self.card, package)
+        # `manager.py remove` says the installer restores the entries it switched off.
+        with contextlib.redirect_stdout(io.StringIO()):
+            manager.remove(self.card)
+        dropin = self.card / 'downloader_misterzine_plex.ini'
+        dropin.unlink()
+        scripts = self.card / 'Scripts'
+        self.assertFalse((scripts / 'MisterZine-Plex-Rollback.sh').exists())
+        self.assertFalse((self.card / 'MisterZine Plex.mgl').exists())
+        request = self.fixture / 'request.json'
+        request.write_text(json.dumps(release))
+        self.deliver(archive)(self.card, self.root, release)
+        launched = []
+        with patch('sys.argv', ['worker', 'install', '--card', str(self.card), '--request', str(request), '--yes']), \
+             patch.object(service.platform, 'system', return_value='Linux'), \
+             patch.object(service.platform, 'machine', return_value='armv7l'), \
+             patch.object(service.activate, '__defaults__', (lambda root: launched.append(root) or True,)), \
+             contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err, \
+             patch.object(Path, 'exists', autospec=True,
+                          side_effect=lambda p, real=Path.exists: str(p) == '/dev/MiSTer_cmd' or real(p)):
+            service.cli()
+        self.assertEqual(launched, [self.root])
+        self.assertEqual(err.getvalue(), '')
+        self.assertIn('already installed and up to date', out.getvalue())
+        self.assertEqual(manager.read_state(self.root)['current'], 'same')
+        status = json.loads((self.root / 'updates/status.json').read_text())
+        self.assertEqual(status['stage'], 'complete')
+        for label in manager.SCRIPTS:
+            self.assertTrue((scripts / ('MisterZine-Plex-' + label + '.sh')).is_file())
+        self.assertEqual(list(scripts.glob('*.disabled')), [])
+        self.assertIn(release['db_url'], dropin.read_text())
+        self.assertTrue((self.card / 'MisterZine Plex.mgl').is_file())
+        self.assertIn(manager.BOOT_START, (self.card / 'linux/user-startup.sh').read_text())
 
     def test_failed_launch_restores_runtime_registration_and_selection(self):
         _, _, package = self.release('old')
@@ -218,7 +266,7 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(drop.read_text(), 'original registration')
         self.assertEqual((self.root / 'manager.py').read_text(), '# synthetic helper old')
         # The restored helpers predate the direct-launch entry, so the entry follows them.
-        self.assertEqual((self.card / 'MisterZine Plex Core.mgl').read_bytes(), manager.LEGACY_ENTRY)
+        self.assertEqual((self.card / 'MisterZine Plex.mgl').read_bytes(), manager.LEGACY_ENTRY)
 
     def test_corrupt_download_and_interruption_preserve_current(self):
         _, _, old = self.release('old')
@@ -399,42 +447,19 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(caught.exception.detail, 'Downloader setup could not resolve the download host; '
                          'direct download could not resolve the download host')
 
-    def test_decoder_site_failure_names_whose_problem_it_is(self):
-        # The FFmpeg decoder comes from its own site once the release is
-        # staged. A failure there used to reach the screen as the bare library
-        # error ("Update could not be prepared: URLError").
+    def test_update_activates_bundled_ffmpeg_without_a_secondary_download(self):
         _, _, old = self.release('old')
         manager.install(self.card, old)
-        r, z, _ = self.release('new')
-        e = service.urllib.error
-        def fails_with(cause):
-            def decoder(*a):
-                try:
-                    raise cause
-                except (OSError, service.http.client.HTTPException) as exc:
-                    raise manager.DecoderFetchError('Could not fetch the FFmpeg decoder') from exc
-            return decoder
-        manager.decoder.side_effect = fails_with(e.URLError(service.socket.gaierror(-2, 'no https://secret.example.org/')))
-        board = 'your MiSTer cannot look up GitHub. Check its network connection and DNS'
-        with patch.object(service, 'verdict', lambda: board), self.assertRaises(RuntimeError) as caught:
+        r, z, _ = self.release('new', 'beta')
+        manager.decoder.side_effect = real_decoder
+        with patch.object(manager.urllib.request, 'urlopen', side_effect=AssertionError('unexpected FFmpeg fetch')):
             service.prepare(self.card, r, self.deliver(z))
-        self.assertEqual(str(caught.exception), 'Download failed: ' + board + '.')
-        status = json.loads((self.root / 'updates/status.json').read_text())
-        self.assertEqual(status['message'], 'Update could not be prepared: Download failed: ' + board + '. Your current version will keep working.')
-        self.assertEqual(status['detail'], 'decoder download could not resolve the download host')
-        self.assertNotIn('example.org', status['message'] + (self.root / service.ERROR_LOG).read_text())
-        self.assertEqual(manager.read_state(self.root)['current'], 'old')
-        self.assertFalse((self.root / 'updates/ready.json').exists())
-        # With GitHub answering, the decoder's own site is blamed.
-        manager.decoder.side_effect = fails_with(e.URLError(service.socket.timeout('timed out')))
-        with patch.object(service, 'verdict', lambda: None), self.assertRaises(RuntimeError) as caught:
-            service.prepare(self.card, r, self.deliver(z))
-        self.assertEqual(str(caught.exception), 'Download failed: GitHub is reachable, but the FFmpeg decoder '
-                         'could not be fetched from its own site. Try again later or report this.')
-        self.assertEqual(caught.exception.detail, 'decoder download timed out')
-        # A full card is the card's problem, found without a probe.
-        error = service.decoder_error(OSError(service.errno.ENOSPC, 'No space left on device'), probe=self.fail)
-        self.assertEqual(str(error), 'Download failed: your SD card has no free space.')
+            service.activate(self.card, lambda root: True)
+        ffmpeg = self.root / 'releases/new/ffmpeg'
+        self.assertEqual(ffmpeg.read_bytes(), b'newffmpeg')
+        self.assertTrue(ffmpeg.stat().st_mode & 0o111)
+        manager.rollback(self.root)
+        self.assertTrue((self.root / 'releases/old/ffmpeg').is_file())
 
     def test_library_errors_and_broken_responses_stay_in_fixed_words(self):
         r, z, _ = self.release()
@@ -717,11 +742,11 @@ class UpdateTests(unittest.TestCase):
         text = startup.read_text()
         self.assertEqual(text.count(manager.BOOT_START), 1)
         self.assertLess(text.index(manager.BOOT_START), text.index('exit 0'))
-        self.assertTrue((self.card/'MisterZine Plex Core.mgl').exists())
+        self.assertTrue((self.card/'MisterZine Plex.mgl').exists())
         self.assertFalse((self.card/'Scripts/MisterZine-Plex-Run.sh').exists())
         service.uninstall(self.card)
         self.assertEqual(startup.read_text(), '#!/bin/bash\necho other-app\nexit 0\n')
-        self.assertFalse((self.card/'MisterZine Plex Core.mgl').exists())
+        self.assertFalse((self.card/'MisterZine Plex.mgl').exists())
 
     def test_update_keeps_only_current_and_previous_release(self):
         for ident in ('one', 'two', 'three'):
@@ -759,13 +784,13 @@ class UpdateTests(unittest.TestCase):
             self.assertFalse(entry.exists())               # no Zaparoo, no entry
             (self.card / 'zaparoo').mkdir()
             manager.install(self.card, fresh('two'))
-            self.assertIn('load_path = "misterzine-plex/releases/two/MisterZine Plex Core"', entry.read_text())
+            self.assertIn('load_path = "misterzine-plex/releases/two/PlexH264"', entry.read_text())
             self.assertIn('category = "Other"', entry.read_text())
             count = len(reloads)
             manager.repair_menu_entry(self.card)            # unchanged: no rewrite, no reload
             self.assertEqual(len(reloads), count)
             manager.rollback(self.root)
-            self.assertIn('releases/one/MisterZine Plex Core"', entry.read_text())
+            self.assertIn('releases/one/PlexH264"', entry.read_text())
             self.assertEqual(len(reloads), count + 1)
             with contextlib.redirect_stdout(io.StringIO()):
                 service.uninstall(self.card)
@@ -815,7 +840,7 @@ class UpdateTests(unittest.TestCase):
             manager.rollback(self.root)
         # The restored manager would not remove it on uninstall, so it goes now.
         self.assertFalse(entry.exists())
-        self.assertTrue((self.card / 'MisterZine Plex Core.mgl').exists())
+        self.assertTrue((self.card / 'MisterZine Plex.mgl').exists())
 
     def test_pending_recovery_keeps_every_release(self):
         for ident in ('one', 'two', 'three'):
@@ -843,7 +868,7 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(seen, [True])              # listed while the new release was tried
         self.assertFalse((self.root / 'active.json').exists())
         self.assertFalse(entry.exists())
-        self.assertFalse((self.card / 'MisterZine Plex Core.mgl').exists())
+        self.assertFalse((self.card / 'MisterZine Plex.mgl').exists())
 
     def test_zaparoo_reload_runs_the_service_script(self):
         script = self.card / 'Scripts/zaparoo.sh'
@@ -875,12 +900,13 @@ class UpdateTests(unittest.TestCase):
         startup.parent.mkdir()
         startup.write_text('#!/bin/bash\necho other-app\n')
         entry = self.installed()
-        mgl = self.card / 'MisterZine Plex Core.mgl'
+        mgl = self.card / 'MisterZine Plex.mgl'
         script = self.card / 'Scripts/MisterZine-Plex-Rollback.sh'
         right = {path: path.read_bytes() for path in (entry, mgl, startup, script)}
         # What an older release's updater can leave behind.
         entry.unlink()
         mgl.write_bytes(manager.LEGACY_ENTRY)
+        (self.card / manager.OLD_MENU_ENTRY).write_bytes(right[mgl])     # its name before the H.264 core
         script.write_text('#!/bin/bash\necho retired\n')
         # The boot hook belongs to install and uninstall: other tools edit that file too.
         edited = '#!/bin/bash\necho other-app\n'
@@ -890,6 +916,7 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(startup.read_text(), edited)
         startup.write_bytes(right[startup])
         self.assertEqual({path: path.read_bytes() for path in right}, right)
+        self.assertFalse((self.card / manager.OLD_MENU_ENTRY).exists())
         record = json.loads((self.root / manager.MAINTENANCE).read_text())
         self.assertEqual(record['repaired'], ['menu entry', 'scripts', 'zaparoo entry'])
         self.assertEqual((record['release'], record['zaparoo_entry'], record['errors'], record['skipped']),

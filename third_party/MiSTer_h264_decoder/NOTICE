@@ -1,0 +1,107 @@
+MiSTer H264 core — licensing notice
+===================================
+
+The project as a whole is distributed under the **GNU General Public License,
+version 3 or later** (see LICENSE). That is what the combination resolves to:
+
+  sys/   The MiSTer framework, © MiSTer-devel and contributors. A mix of
+         "GPL version 2 or later" (alsa.sv, arcade_video.v, iir_filter.v,
+         ltc2308.sv, spdif.v, sys_top.v, video_freezer.sv, yc_out.sv) and
+         "GPL version 3 or later" (ddr_svc.sv, hps_io.sv, scandoubler.v,
+         sd_card.sv). The v2+ files can be taken to v3; the v3+ files cannot be
+         taken down, so the combined work is GPLv3-or-later. Local edits are
+         marked `UMD-FORK` (inherited from MiSTer_UMD_Video, and through it from
+         MiSTer_DVD) or `H264-FORK` (this project's own) and inherit the file's
+         licence.
+
+  h264/  Original RTL, GPL-3.0-or-later. Modules inherited from the sibling
+         projects MiSTer_UMD_Video and MiSTer_DVD (same author, same licence)
+         say so in their headers. One Intel primitive is instantiated by name
+         (altera_pll in h264/sys_pll.sv) under Intel's terms for use on Intel
+         devices; no generated IP directory is shipped.
+
+  hps/   The HPS-side client library, the reference feeder and h264stat: **MIT**
+         (hps/LICENSE; decided 2026-09-27), so a program of any licence can link
+         the library that encodes the core's published interface. The generated
+         header hps/include/h264ring_layout.h is MIT too (tools/ring_layout.py,
+         GPL, writes it; its output carries the hps/ licence). hps/docker/
+         only fetches a pinned third-party compiler; nothing of it is vendored.
+
+  clients/moonlight/
+         A Moonlight game-streaming client for the core: moonlight-embedded
+         (© Iwan Timmer and contributors, GPL-3.0-or-later) is NOT vendored --
+         build.sh fetches it at a pinned commit and applies this directory's
+         patches/ (GPL-3.0-or-later, as modifications of it); src/mister/ is
+         original, GPL-3.0-or-later. The static binary it builds links OpenSSL 3
+         (Apache-2.0, compatible with GPL-3.0), curl (curl licence), expat and
+         libevdev (MIT), opus (BSD-3-Clause) and libh264ring (MIT, hps/); each
+         is fetched at a pinned version by docker/deps.sh, none is vendored.
+
+  clients/jellyfin/
+         A Jellyfin client for the core: original, GPL-3.0-or-later (src/,
+         mister/, tests/). Vendored, unmodified (third_party/README.md): cJSON
+         1.7.19 (© Dave Gamble and contributors, MIT). The binary it builds links FFmpeg
+         8.0.3's libavformat, libavcodec, libswresample and libavutil (LGPL-2.1-or-
+         later; configured without --enable-gpl / --enable-nonfree: the exact
+         configure line and the pinned source tarball are in docker/deps.sh, which
+         is the source offer), with Moonlight's OpenSSL 3 and curl and libh264ring
+         (MIT, hps/); none of these is vendored. It ships beside the binary, as
+         separate files: Mozilla's CA certificate list as curl publishes it
+         (cacert.pem, MPL-2.0; source: https://curl.se/docs/caextract.html) and the
+         DejaVu Sans fonts (Bitstream Vera licence + public-domain changes, its
+         LICENSE file shipped as DejaVu-LICENSE). The MiSTerFin client (CC BY-NC
+         4.0) was read for ideas only; none of its code is used.
+
+  clients/common/
+         The modules the Jellyfin client, the file player and the camera viewer
+         share (the core's session, the overlay's UI, input, subtitles, the ARM
+         decode of other codecs): original, GPL-3.0-or-later. Vendored, unmodified
+         (third_party/README.md): stb_truetype v1.26 (© Sean Barrett, MIT or public
+         domain).
+
+  clients/player/
+         The video file player (h264player): original, GPL-3.0-or-later. The binary
+         it builds links, statically, the same FFmpeg 8.0.3 libraries as the
+         Jellyfin client (LGPL-2.1-or-later, configured without --enable-gpl /
+         --enable-nonfree), here with the decoders of the formats it decodes on the
+         ARM (MPEG-1/2, MPEG-4 Part 2, DivX 3, WMV7/8, Theora, MJPEG, H.263, and the
+         audio and subtitle formats it plays: clients/common/docker/deps.sh holds the
+         exact configure line and the pinned source, the source offer), with OpenSSL 3
+         and libh264ring (MIT, hps/); none is vendored. It ships beside the binary the
+         DejaVu Sans fonts and their DejaVu-LICENSE, as the Jellyfin client does.
+
+  clients/uvc/
+         The USB camera / capture viewer (h264cam): original, GPL-3.0-or-later. The
+         binary it builds links, statically, libusb 1.0.29 (LGPL-2.1-or-later;
+         clients/uvc/docker/deps.sh pins the source, the source offer), FFmpeg's
+         libavcodec / libavutil / libswresample from the file player's build
+         (LGPL-2.1-or-later, as above), OpenSSL 3's libcrypto and libh264ring (MIT,
+         hps/); none is vendored. The DejaVu fonts ship beside it as above.
+
+  The client binaries above link LGPL libraries statically; every one of those
+  programs is itself published here in full source under the GPL, with the
+  scripts that build it, so a user can rebuild it against a modified library
+  (LGPL-2.1 section 6).
+
+  bench/, tools/, docs/, site/
+         Original to this project or inherited as above, GPL-3.0-or-later. Test
+         streams are generated at run time or taken from a local reference set;
+         media is NOT committed (see .gitignore).
+         Exception: bench/h264/f2sdram_term_stock.sv is the MiSTer framework's
+         stock sys/f2sdram_safe_terminator.sv (© 2021 bellwood420, part of sys/
+         above and under its licence), kept unmodified below its header as the
+         reference a test must catch failing; it is not in the build.
+
+Reference software used as VERIFICATION ORACLES, never vendored or linked:
+ffmpeg (LGPL/GPL) for H.264 pixel references and header traces; the ITU-T
+H.264 JM reference software (its own licence) for syntax-element traces. No
+code from either is reproduced here.
+
+Patents. H.264/AVC is subject to a patent pool whose members' patents are
+partly still in force. This is a hobby implementation written from the public
+H.264 specification and from the behaviour of open-source reference decoders.
+The client programs also decode other formats on the ARM through FFmpeg
+(MPEG-2, MPEG-4 Part 2, WMV, AC-3, DTS and others), some of which are or were
+patent-encumbered in some countries. No patent licence is granted or implied by
+the copyright licence above, and nothing here should be read as a statement
+about the patent status of any format.

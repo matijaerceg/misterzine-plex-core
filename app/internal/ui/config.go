@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -19,12 +20,14 @@ type Config struct {
 	NoTaps             bool     `json:"no_taps"`
 	NoTheme            bool     `json:"no_theme"`
 	Progressive        bool     `json:"progressive"`             // confirmed HDMI 480p preference
+	DeFlicker          bool     `json:"de_flicker"`              // soften fine detail to reduce 480i flicker
 	FourThree          bool     `json:"only_4x3"`                // hide media wider than 4:3
 	NoAutoplay         bool     `json:"no_autoplay"`             // do not run on to the next episode
 	NoSkipButtons      bool     `json:"no_skip_buttons"`         // no Skip intro / Skip credits button over the markers
 	Bitrate            int      `json:"bitrate"`                 // transcode cap in kbit/s; 0 is the default
-	AudioBoost         int      `json:"audio_boost,omitempty"`   // gain when the server folds surround to stereo; 0 is the default
-	SubtitleSize       int      `json:"subtitle_size,omitempty"` // Plex burn-in size; 0 is the original size
+	AudioBoost         int      `json:"audio_boost,omitempty"`   // surround downmix gain; 0 is the default
+	SubtitleSize       int      `json:"subtitle_size,omitempty"` // drawn text subtitles, a percentage (SubtitleSizes); 0 is Normal
+	PlaybackLook       string   `json:"playback_look,omitempty"` // the playback controls' look (PlaybackLooks); "" is Standard
 	Geometry           Geometry `json:"geometry"`                // where video goes on the raster (menus ignore it)
 	Crop               Crop     `json:"crop,omitempty"`          // what each playback starts cropping; nothing saved is off
 	ShowBeta           bool     `json:"show_beta_features"`      // show (and run) the features still in beta
@@ -50,9 +53,21 @@ type Config struct {
 	ServerToken      string            `json:"server_token"` // the token for that server
 	ServerName       string            `json:"server_name"`
 	ServerID         string            `json:"server_id,omitempty"` // the chosen server's clientIdentifier
-	LoadWarning      string            `json:"-"`
-	LoadError        error             `json:"-"`
-	path             string
+	// Streams are the audio and subtitle tracks chosen, by movie or show
+	// rating key: the app keeps the choice and passes it with each play
+	// (streamChoiceKey), so every episode of a show starts on it.
+	Streams     map[string]StreamChoice `json:"streams,omitempty"`
+	LoadWarning string                  `json:"-"`
+	LoadError   error                   `json:"-"`
+	path        string
+	saver       *settingsWriter // shared by the copies (snapshot): one writer for the file
+}
+
+// StreamChoice is a chosen audio track and subtitle track, as Plex stream
+// ids; "" is the server's default, and Subtitle "-1" is off.
+type StreamChoice struct {
+	Audio    string `json:"audio,omitempty"`
+	Subtitle string `json:"subtitle,omitempty"`
 }
 
 // snapshot is a copy to put back when a save fails. The extras' settings
@@ -60,6 +75,7 @@ type Config struct {
 func (c *Config) snapshot() Config {
 	s := *c
 	s.Premium = maps.Clone(c.Premium)
+	s.Streams = maps.Clone(c.Streams)
 	return s
 }
 
@@ -107,21 +123,21 @@ func LoadConfig(path string) *Config {
 	return c
 }
 
-// At 480 lines a Plex server sends at most about 2 Mbps of video: every cap
-// from 2.5 Mbps up gets the same stream. Lower caps get less, as labelled
-// (measured on Plex Media Server 1.43, the video rate without the sound).
-const DefaultBitrate = 3000
+// DefaultBitrate is the core's own limit (MaxVideoKbps): the video cap a
+// wired connection needs nothing below.
+const DefaultBitrate = 8000
 
-// Bitrates are the caps offered, in kbit/s, with what each one delivers.
+// Bitrates are the video caps offered, in kbit/s. The steps below 3 Mbps are
+// for a weak Wi-Fi link to the server; their transcodes are also made
+// smaller (transcodeSize), and a direct stream above the cap is transcoded.
 var Bitrates = []struct {
 	Kbps  int
 	Label string
-}{{1000, "0.4 Mbps, low res"}, {1500, "1 Mbps"}, {2000, "1.2 Mbps"}, {3000, "Max (2 Mbps)"}}
+}{{400, "0.4 Mbps, low res"}, {1000, "1 Mbps"}, {2000, "2 Mbps"}, {3000, "3 Mbps"}, {4000, "4 Mbps"}, {6000, "6 Mbps"}, {8000, "8 Mbps (max)"}}
 
 // BitrateKbps is the cap in force: the offered one at or below the saved
-// value, so the request is always the step Options shows. Older builds
-// offered 4.5 and 6 Mbps; the server sent those the same stream as 3 Mbps,
-// so they read as the maximum.
+// value, so the request is always the step Options shows. Every step older
+// builds offered is still offered, so a saved choice loads unchanged.
 func (c *Config) BitrateKbps() int {
 	return Bitrates[c.bitrateIndex()].Kbps
 }
@@ -142,9 +158,8 @@ func (c *Config) bitrateIndex() int {
 	return i
 }
 
-// AudioBoosts are the downmix gains offered, as the Plex transcoder's
-// audioBoost value: 100 is unity. They apply only when the server folds a
-// surround track to stereo; stereo sources are copied untouched.
+// AudioBoosts are the surround downmix gains, expressed as percentages.
+// The playback worker limits boosted peaks; stereo sources stay unchanged.
 var AudioBoosts = []struct {
 	Label string
 	Value int
@@ -152,12 +167,15 @@ var AudioBoosts = []struct {
 
 const DefaultAudioBoost = 300
 
-// SubtitleSizes are Plex's percentage sizes for burned-in subtitles.
+// SubtitleSizes are the sizes of subtitles, as a percentage of Normal: the
+// text subtitles the app draws (subtitles.go) and those the server burns in.
 var SubtitleSizes = []struct {
 	Label string
 	Value int
 }{{"Normal", 100}, {"Large", 150}, {"Extra large", 200}}
 
+// SubtitleSizeValue is the size in force: Normal for nothing saved or a
+// size not offered.
 func (c *Config) SubtitleSizeValue() int {
 	if c.SubtitleSize <= 0 {
 		return 100
@@ -169,6 +187,29 @@ func (c *Config) SubtitleSizeValue() int {
 	}
 	return 100
 }
+
+// PlaybackLooks are the looks of the playback controls: the app's own,
+// and an old deck's blocky on-screen display that wavers like tape
+// (vcr.go), on its blue band or straight over the picture.
+var PlaybackLooks = []struct {
+	Label string
+	Value string
+}{{"Standard", ""}, {"VCR", "vcr"}, {"VCR, no band", "vcr-clear"}}
+
+func (c *Config) playbackLookIndex() int {
+	for i, l := range PlaybackLooks {
+		if l.Value == c.PlaybackLook {
+			return i
+		}
+	}
+	return 0
+}
+
+// vcr reports whether the playback controls take the VCR look.
+func (c *Config) vcr() bool { return c.PlaybackLook == "vcr" || c.vcrClear() }
+
+// vcrClear reports whether the VCR controls go without their band.
+func (c *Config) vcrClear() bool { return c.PlaybackLook == "vcr-clear" }
 
 func (c *Config) subtitleSizeIndex() int {
 	for i, s := range SubtitleSizes {
@@ -184,7 +225,7 @@ func (c *Config) AudioBoostValue() int {
 	if c.AudioBoost <= 0 {
 		return DefaultAudioBoost
 	}
-	return c.AudioBoost
+	return max(100, min(300, c.AudioBoost))
 }
 
 // audioBoostIndex is the place in AudioBoosts of the gain in force, -1 for
@@ -209,19 +250,23 @@ func (c *Config) ResumeWithoutPicker() bool {
 
 // SignOut forgets the account and the server.
 func (c *Config) SignOut() error {
-	next := *c
+	next := c.snapshot()
 	next.RecentSearches = nil
 	next.HiddenLibraries = nil // the keys belong to the server forgotten here
+	next.Streams = nil         // so do the rating keys
 	next.AccountName = ""
 	next.HomeUserID, next.HomeUserTitle, next.HomeToken = "", "", ""
 	next.HomeRestricted, next.AutoSignIn, next.HomeEnabled, next.HomePickerNeeded = false, false, false, false
 	next.Token, next.ServerURL, next.ServerToken, next.ServerName, next.ServerID = "", "", "", "", ""
 	data, _ := json.MarshalIndent(&next, "", "  ")
-	// Clear recovery credentials first so a later corrupt primary cannot undo sign-out.
-	if err := atomicConfig(c.path+".bak", data); err != nil {
-		return err
-	}
-	if err := atomicConfig(c.path, data); err != nil {
+	err := c.saves().now(func() error {
+		// Clear recovery credentials first so a later corrupt primary cannot undo sign-out.
+		if err := atomicConfig(c.path+".bak", data); err != nil {
+			return err
+		}
+		return atomicConfig(c.path, data)
+	})
+	if err != nil {
 		return err
 	}
 	*c = next
@@ -252,15 +297,154 @@ func atomicConfig(path string, data []byte) error {
 }
 
 // Save atomically replaces settings and retains the last valid configuration.
+// What SaveLater holds is written with it: these settings include it.
 func (c *Config) Save() error {
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	if old, e := os.ReadFile(c.path); e == nil && json.Valid(old) {
-		if e = atomicConfig(c.path+".bak", old); e != nil {
+	path := c.path
+	return c.saves().now(func() error { return writeConfig(path, data) })
+}
+
+func writeConfig(path string, data []byte) error {
+	if old, e := os.ReadFile(path); e == nil && json.Valid(old) {
+		if e = atomicConfig(path+".bak", old); e != nil {
 			return e
 		}
 	}
-	return atomicConfig(c.path, data)
+	return atomicConfig(path, data)
+}
+
+// saveDelay is how long SaveLater waits for the changes to stop: a held
+// left or right on Options steps every RepeatDur, and each write syncs
+// the SD card.
+var saveDelay = 500 * time.Millisecond
+
+// SaveLater saves the settings as they are now, in the background once
+// they have stopped changing for saveDelay, as Save would. Only the UI
+// thread calls it (it reads the settings here); failed hears of a failed
+// write from the writing goroutine. Flush writes what is held at once.
+func (c *Config) SaveLater(failed func(error)) {
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		failed(err)
+		return
+	}
+	s := c.saves()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data, s.path, s.failed = data, c.path, failed
+	if s.timer == nil {
+		s.timer = time.AfterFunc(saveDelay, s.deferred)
+	} else {
+		s.timer.Reset(saveDelay)
+	}
+}
+
+// Flush writes what SaveLater holds now, after any write under way: before
+// playback, on leaving Options and on the way out. When it fails the
+// settings stay held for the next save.
+func (c *Config) Flush() error {
+	return c.saves().flush()
+}
+
+const saveFailed = "Could not save settings. Check free space and retry."
+
+// saveSettings saves the settings the UI thread just changed without
+// waiting for the SD card (SaveLater); a failure shows on the notice line.
+func (a *App) saveSettings() {
+	a.Cfg.SaveLater(func(err error) {
+		a.Log.Printf("config: %v", err)
+		a.Later(func() { a.Notice, a.NoticeAt = saveFailed, time.Now() })
+	})
+}
+
+// flushSettings writes what saveSettings has yet to, at once.
+func (a *App) flushSettings() {
+	if a.Cfg == nil {
+		return
+	}
+	if err := a.Cfg.Flush(); err != nil {
+		a.Log.Printf("config: %v", err)
+		a.Notice, a.NoticeAt = saveFailed, time.Now()
+	}
+}
+
+// saves is the file's writer, made with the first save.
+func (c *Config) saves() *settingsWriter {
+	if c.saver == nil {
+		c.saver = &settingsWriter{}
+	}
+	return c.saver
+}
+
+// settingsWriter writes one settings file, one write at a time, and holds the
+// settings SaveLater has yet to write.
+type settingsWriter struct {
+	write  sync.Mutex // held through each write
+	mu     sync.Mutex // guards the rest
+	data   []byte     // held for writing; nil for nothing
+	path   string
+	timer  *time.Timer
+	failed func(error)
+}
+
+// take is what is held, no longer held.
+func (s *settingsWriter) take() (data []byte, path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, path, s.data = s.data, s.path, nil
+	if s.timer != nil {
+		s.timer.Stop()
+	}
+	return data, path
+}
+
+// hold puts back settings a write failed to keep, unless newer ones came.
+func (s *settingsWriter) hold(data []byte, path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data == nil {
+		s.data, s.path = data, path
+	}
+}
+
+// now runs write, which saves settings at least as new as those held, in
+// their place.
+func (s *settingsWriter) now(write func() error) error {
+	s.write.Lock()
+	defer s.write.Unlock()
+	data, path := s.take()
+	err := write()
+	if err != nil && data != nil {
+		s.hold(data, path)
+	}
+	return err
+}
+
+func (s *settingsWriter) flush() error {
+	s.write.Lock()
+	defer s.write.Unlock()
+	data, path := s.take()
+	if data == nil {
+		return nil
+	}
+	err := writeConfig(path, data)
+	if err != nil {
+		s.hold(data, path)
+	}
+	return err
+}
+
+// deferred is the timer's write.
+func (s *settingsWriter) deferred() {
+	if err := s.flush(); err != nil {
+		s.mu.Lock()
+		failed := s.failed
+		s.mu.Unlock()
+		if failed != nil {
+			failed(err)
+		}
+	}
 }

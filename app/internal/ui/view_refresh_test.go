@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"plexcrt/internal/plex"
+	"slices"
 	"testing"
 	"time"
 )
@@ -90,5 +91,30 @@ func TestPreplayRefreshPreservesAction(t *testing.T) {
 	p.pollRefresh(time.Now())
 	if p.cur != -1 {
 		t.Fatal("refresh lost synopsis focus")
+	}
+}
+
+// The periodic refresh brings the server's default tracks; the movie page
+// keeps showing, and playing, the ones chosen for it.
+func TestPreplayRefreshKeepsChosenTracks(t *testing.T) {
+	fresh := func() *plex.Item {
+		return &plex.Item{RatingKey: "movie", Type: "movie", PartID: "p",
+			Audio: []plex.Stream{{ID: "1", Title: "Main", Selected: true}, {ID: "2", Title: "Commentary"}},
+			Subs:  []plex.Stream{{ID: "3", Title: "Forced", Selected: true}}}
+	}
+	a := &App{Cfg: &Config{Streams: map[string]StreamChoice{"movie": {Audio: "2", Subtitle: "-1"}}}}
+	p := &Preplay{app: a, item: fresh()}
+	a.applyStreams(p.item)
+	p.rebuild()
+	p.periodic.pending = make(chan viewResult, 1)
+	p.periodic.pending <- viewResult{items: []*plex.Item{fresh()}}
+	p.pollRefresh(time.Now())
+	if !p.item.Audio[1].Selected || p.item.Audio[0].Selected || p.item.Subs[0].Selected {
+		t.Fatalf("refresh brought back the server's tracks: audio %+v, subs %+v", p.item.Audio, p.item.Subs)
+	}
+	for _, want := range []string{"Audio: Commentary", "Subtitles: Off"} {
+		if !slices.Contains(p.actions, want) {
+			t.Fatalf("actions %q lack %q", p.actions, want)
+		}
 	}
 }

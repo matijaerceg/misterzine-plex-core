@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"net/url"
 	"sync"
 	"testing"
 
@@ -33,7 +32,7 @@ func TestOrderedViewRewalkKeepsAnOldErrorAway(t *testing.T) {
 		}
 	}
 	a := pagedTestApp(t, s)
-	base := a.pager("/library/sections/1/all", url.Values{"sort": {"titleSort"}}, func(*plex.Item) bool { return true })
+	base := a.pager(filmsPath, filmsQuery, func(*plex.Item) bool { return true })
 	view := NewOrderedPager(base, func(items []*plex.Item) []int {
 		at := make([]int, len(items))
 		for i := range at {
@@ -115,7 +114,7 @@ func TestPagerRewalkSurvivesAFailedPage(t *testing.T) {
 		return false
 	}
 	a := pagedTestApp(t, s)
-	p := a.pager("/library/sections/1/all", url.Values{"sort": {"titleSort"}}, func(*plex.Item) bool { return true })
+	p := a.pager(filmsPath, filmsQuery, func(*plex.Item) bool { return true })
 	p.Want(0)
 	waitUntil(t, "the walk again's failed page", func() bool {
 		p.mu.Lock()

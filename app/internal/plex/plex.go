@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,7 +27,38 @@ type Client struct {
 	ClientID string
 	http     *http.Client
 	slow     *http.Client // for the hub endpoints, which a large library answers slowly
+	refused  atomic.Bool  // the server has answered this client 401 (Refused)
 }
+
+// ErrUnauthorized is a 401 from the server: it no longer accepts the
+// token. The UI returns to sign-in on it (errors.Is).
+var ErrUnauthorized = errors.New("plex: token refused")
+
+// httpError is a non-2xx answer from the server; the path only, never the
+// query or the token.
+type httpError struct {
+	path   string
+	status int
+}
+
+func (e *httpError) Error() string { return fmt.Sprintf("%s: HTTP %d", e.path, e.status) }
+
+// Is makes errors.Is(err, ErrUnauthorized) true for a 401.
+func (e *httpError) Is(target error) bool {
+	return target == ErrUnauthorized && e.status == http.StatusUnauthorized
+}
+
+// failed is the error for an answer with status, noting a refusal.
+func (c *Client) failed(path string, status int) error {
+	if status == http.StatusUnauthorized {
+		c.refused.Store(true)
+	}
+	return &httpError{path, status}
+}
+
+// Refused reports whether the server has answered any of this client's
+// requests 401: its token, not some other client's, has been refused.
+func (c *Client) Refused() bool { return c.refused.Load() }
 
 // New makes a client; the token is never logged.
 func New(host, token, cacheDir, clientID string) *Client {
@@ -76,7 +109,7 @@ func (c *Client) fetch(cl *http.Client, path string, q url.Values) ([]byte, erro
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%s: HTTP %d", path, resp.StatusCode)
+		return nil, c.failed(path, resp.StatusCode)
 	}
 	return io.ReadAll(resp.Body)
 }
@@ -130,11 +163,16 @@ type Stream struct {
 	ID       string
 	Title    string // "English (DTS 5.1)"
 	Selected bool
+	Channels int // source audio channels; zero for subtitle tracks or unknown
+	// Text marks a text subtitle track (SRT, ASS, WebVTT ...) the server
+	// hands over as a file (SubtitleText); picture subtitles, and tracks the
+	// server offers no file for, can only be burned into a transcode.
+	Text bool
 }
 
 // Fold maps text to the printable ASCII the glyph atlases hold: dashes,
-// quotes and ellipses to their plain forms, Latin letters to their base
-// letter, anything else to a space.
+// quotes and ellipses to their plain forms, Latin letters (Latin-1 and
+// Latin Extended-A) to their base letter, anything else to a space.
 func Fold(s string) string {
 	ascii := true
 	for i := 0; i < len(s); i++ {
@@ -169,24 +207,14 @@ func Fold(s string) string {
 			b.WriteString("OE")
 		case r == 0x153:
 			b.WriteString("oe")
-		case r == 0x160:
-			b.WriteByte('S')
-		case r == 0x161:
-			b.WriteByte('s')
-		case r == 0x17D:
-			b.WriteByte('Z')
-		case r == 0x17E:
-			b.WriteByte('z')
-		case r == 0x178:
-			b.WriteByte('Y')
-		case r == 0x10C || r == 0x106:
-			b.WriteByte('C')
-		case r == 0x10D || r == 0x107:
-			b.WriteByte('c')
-		case r == 0x110:
-			b.WriteByte('D')
-		case r == 0x111:
-			b.WriteByte('d')
+		case r == 0x132:
+			b.WriteString("IJ")
+		case r == 0x133:
+			b.WriteString("ij")
+		case r >= 0x100 && r <= 0x17F:
+			b.WriteByte(latinA[r-0x100])
+		case r >= 0x218 && r <= 0x21B: // Romanian S and T with a comma
+			b.WriteByte("SsTt"[r-0x218])
 		default:
 			b.WriteByte(' ')
 		}
@@ -196,6 +224,11 @@ func Fold(s string) string {
 
 // latin1 holds the base letters of U+00C0..U+00FF.
 var latin1 = []byte("AAAAAAACEEEEIIIIDNOOOOOxOUUUUYTsaaaaaaaceeeeiiiidnooooo/ouuuuyty")
+
+// latinA holds the base letters of U+0100..U+017F (Latin Extended-A: the
+// Central European, Baltic and Turkish letters), a row of 16 a line.
+var latinA = []byte("AaAaAaCcCcCcCcDd" + "DdEeEeEeEeEeGgGg" + "GgGgHhHhIiIiIiIi" + "IiIiJjKkkLlLlLlL" +
+	"lLlNnNnNnnNnOoOo" + "OoOoRrRrRrSsSsSs" + "SsTtTtTtUuUuUuUu" + "UuUuWwYyYZzZzZzs")
 
 // Playable reports whether Enter should play rather than browse.
 func (it *Item) Playable() bool { return it.Type == "movie" || it.Type == "episode" }
@@ -259,26 +292,11 @@ type xmlItem struct {
 		Type string `xml:"type,attr"`
 		URL  string `xml:"url,attr"`
 	} `xml:"Image"`
-	Medias []struct {
-		Aspect float64 `xml:"aspectRatio,attr"`
-		Parts  []struct {
-			ID      string `xml:"id,attr"`
-			Streams []struct {
-				ID       string `xml:"id,attr"`
-				Type     int    `xml:"streamType,attr"`
-				Title    string `xml:"displayTitle,attr"`
-				Ext      string `xml:"extendedDisplayTitle,attr"`
-				Lang     string `xml:"language,attr"`
-				Tag      string `xml:"languageTag,attr"`
-				Codec    string `xml:"codec,attr"`
-				Selected int    `xml:"selected,attr"`
-			} `xml:"Stream"`
-		} `xml:"Part"`
-	} `xml:"Media"`
-	Index       int     `xml:"index,attr"`
-	ParentIndex int     `xml:"parentIndex,attr"`
-	Rating      float64 `xml:"rating,attr"`
-	Tagline     string  `xml:"tagline,attr"`
+	Medias      []xmlMedia `xml:"Media"`
+	Index       int        `xml:"index,attr"`
+	ParentIndex int        `xml:"parentIndex,attr"`
+	Rating      float64    `xml:"rating,attr"`
+	Tagline     string     `xml:"tagline,attr"`
 	Genres      []struct {
 		Tag string `xml:"tag,attr"`
 	} `xml:"Genre"`
@@ -293,6 +311,57 @@ type xmlItem struct {
 		BR string `xml:"bottomRight,attr"`
 		BL string `xml:"bottomLeft,attr"`
 	} `xml:"UltraBlurColors"`
+}
+
+// xmlMedia is one version of an item's file(s), xmlPart one file of it and
+// xmlStream a stream of the part, with the details the server probed.
+type xmlMedia struct {
+	Aspect    float64   `xml:"aspectRatio,attr"`
+	Bitrate   int       `xml:"bitrate,attr"` // kbit/s
+	FrameRate string    `xml:"videoFrameRate,attr"`
+	Parts     []xmlPart `xml:"Part"`
+}
+
+type xmlPart struct {
+	ID        string      `xml:"id,attr"`
+	Key       string      `xml:"key,attr"`
+	Container string      `xml:"container,attr"`
+	Duration  int64       `xml:"duration,attr"` // ms
+	Streams   []xmlStream `xml:"Stream"`
+}
+
+type xmlStream struct {
+	ID        string  `xml:"id,attr"`
+	Type      int     `xml:"streamType,attr"`
+	Index     int     `xml:"index,attr"`
+	Title     string  `xml:"displayTitle,attr"`
+	Ext       string  `xml:"extendedDisplayTitle,attr"`
+	Lang      string  `xml:"language,attr"`
+	Tag       string  `xml:"languageTag,attr"`
+	Codec     string  `xml:"codec,attr"`
+	Selected  int     `xml:"selected,attr"`
+	Default   int     `xml:"default,attr"`
+	Channels  int     `xml:"channels,attr"`
+	Key       string  `xml:"key,attr"`
+	Profile   string  `xml:"profile,attr"`
+	Level     float64 `xml:"level,attr"`
+	BitDepth  int     `xml:"bitDepth,attr"`
+	Bitrate   int     `xml:"bitrate,attr"` // kbit/s
+	Width     int     `xml:"width,attr"`
+	Height    int     `xml:"height,attr"`
+	FrameRate float64 `xml:"frameRate,attr"`
+	ScanType  string  `xml:"scanType,attr"`
+	CABAC     string  `xml:"cabac,attr"`
+}
+
+// textCodecs are the subtitle formats that are text the app can draw.
+var textCodecs = map[string]bool{"srt": true, "subrip": true, "ass": true, "ssa": true, "vtt": true,
+	"webvtt": true, "ttml": true, "smi": true, "sami": true, "mov_text": true, "text": true}
+
+// textSubtitle reports whether a subtitle stream is a text track the
+// server hands over as a file: a text format with a key to fetch it by.
+func textSubtitle(st xmlStream) bool {
+	return st.Type == StreamSubtitle && st.Key != "" && textCodecs[strings.ToLower(st.Codec)]
 }
 
 func (x *xmlItem) item() *Item {
@@ -331,11 +400,11 @@ func (x *xmlItem) item() *Item {
 					}
 					title = strings.TrimSpace(lang + " " + strings.ToUpper(st.Codec))
 				}
-				s := Stream{ID: st.ID, Title: title, Selected: st.Selected == 1}
+				s := Stream{ID: st.ID, Title: title, Selected: st.Selected == 1, Channels: st.Channels, Text: textSubtitle(st)}
 				switch st.Type {
-				case 2:
+				case StreamAudio:
 					it.Audio = append(it.Audio, s)
-				case 3:
+				case StreamSubtitle:
 					it.Subs = append(it.Subs, s)
 				}
 			}
@@ -725,7 +794,7 @@ func (c *Client) Put(path string, q url.Values) error {
 	}
 	resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("%s: HTTP %d", path, resp.StatusCode)
+		return c.failed(path, resp.StatusCode)
 	}
 	return nil
 }

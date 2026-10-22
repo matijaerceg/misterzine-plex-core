@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"plexcrt/internal/plex"
 	"strings"
 	"testing"
 )
@@ -33,7 +32,7 @@ func TestHomeKeepsRowsThatAnswered(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client := plex.New(server.URL, "tok", t.TempDir(), "")
+	client := testClient(server.URL, "tok", t.TempDir())
 	hubs, secs, err := fetchHome(client, nil, log.New(io.Discard, "", 0))
 	if err != nil {
 		t.Fatalf("one failed library sank the home screen: %v", err)

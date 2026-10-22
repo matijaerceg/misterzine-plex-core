@@ -20,14 +20,31 @@ Build a beta application with an explicitly selected batch:
 
 ```sh
 python release/beta_release.py build --channel beta --batch example-beta --version 0.2.0-beta.1 --id beta-example-1
-python3 release/build_presenter.py     # on Linux, or inside WSL on Windows
-python release/build_package.py --core-tree core --version 0.2.0-beta.1 --id beta-example-1
 ```
 
+Then, on Linux or inside WSL on Windows, build the playback worker and its
+static FFmpeg ([build from source](BUILD.md)), the corresponding source, and
+the package with the same version and ID:
+
+```sh
+bash toolchain/build_hps.sh && bash toolchain/build_ffmpeg.sh && make -C arm jfplay
+python3 release/build_source.py --out "$SOURCE" --core-tree "$CORE_SNAPSHOT" \
+    --dependencies "$DEPENDENCY_SOURCES" --rbf-manifest "$RBF.json"
+python3 release/build_package.py --version 0.2.0-beta.1 --id beta-example-1 \
+    --worker arm/jfplay --ffmpeg build/arm/ffmpeg --rbf "$RBF" --source-archive "$SOURCE"
+```
+
+`$RBF` is the qualified core, `PlexH264_plex-<version>_<date>_<time>.rbf` with
+its `.json` manifest beside it, built with `USE_DOCKER=1 ./build_release.sh
+--compile --release` from a clean commit of `third_party/MiSTer_h264_decoder`
+after setting its `CORE_VERSION` to `plex-` plus the version; `$CORE_SNAPSHOT`
+is the core directory that build ran in. An app-only release reuses the last
+packaged core and its manifest ([distribution](../release/DISTRIBUTION.md)).
+
 Use the same version and unique release ID in the app and package commands. The
-package is refused unless the presenter was built from the current source
-([build from source](BUILD.md)). Match the version in
-the Patreon post title. Reuse the batch for as many releases as desired and repeat
+package is refused unless the app's build stamp matches its binary, and the core
+unless its manifest records a clean build that passed timing with a `plex-`
+version. Match the version in the Patreon post title. Reuse the batch for as many releases as desired and repeat
 its code in each post. To require a new code, generate and select a new batch.
 Version changes alone do not rotate access. The binary embeds the code's SHA-256
 verifier, batch and release channel; it does not embed the code itself.
@@ -53,8 +70,8 @@ a file key and a numeric code. Numeric builds do not convert or delete old keys.
 ## Verification and limitations
 
 Test incorrect codes, leading zeros, saved access, failed storage writes, Play,
-Resume, episode queues, updates, rollback and public builds. Verify both CRT and
-HDMI layouts on MiSTer before release. Packaging uses an explicit file list that
+Resume, episode queues, updates, rollback and public builds. Verify CRT and HDMI
+output in the core's Output Modes on MiSTer before release. Packaging uses an explicit file list that
 excludes private codes, keys and saved unlock receipts.
 
 This is an offline convenience gate. Shared codes can be passed on, a short code

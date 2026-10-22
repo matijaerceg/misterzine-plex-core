@@ -13,13 +13,15 @@ import (
 // line. OK picks, Back leaves things as they were.
 type Chooser struct {
 	app     *App
+	under   Screen
 	title   string
 	items   []string
 	lines   [][]string
 	cur     int
 	current int // the one in force now (-1: none)
 	pick    func(i int)
-	back    *gfx.Image
+	back    *gfx.Image  // the screen beneath, dimmed
+	snap    *gfx.Canvas // back's pixels; it and page are spares, given back on leaving
 	page    *gfx.Canvas
 	key     int
 	width   int
@@ -34,7 +36,7 @@ const (
 
 // NewChooser composes the list over a snapshot of the screen beneath.
 func NewChooser(app *App, under Screen, title string, items []string, current int, pick func(int)) *Chooser {
-	ch := &Chooser{app: app, title: title, items: items, cur: max(current, 0), current: current, pick: pick, key: -1}
+	ch := &Chooser{app: app, under: under, title: title, items: items, cur: max(current, 0), current: current, pick: pick, key: -1}
 	f := app.F.Body
 	ch.width = ChooserMinW
 	for _, s := range items {
@@ -48,11 +50,26 @@ func NewChooser(app *App, under Screen, title string, items []string, current in
 	for _, s := range items {
 		ch.lines = append(ch.lines, wrap(f, s, ch.width-MenuX-ChooserPad, 2))
 	}
-	snap := gfx.NewCanvas(720, 480)
-	under.Draw(snap, time.Now())
-	ch.back = (&gfx.Image{W: snap.W, H: snap.H, Pix: snap.Pix}).Dimmed(BackBright)
-	ch.page = gfx.NewCanvas(720, 480)
+	w, h := layoutCanvasSize(app)
+	ch.prepare(w, h, time.Now())
 	return ch
+}
+
+// prepare snapshots the screen beneath, dimmed as behind the menu, into
+// spare canvases.
+func (ch *Chooser) prepare(w, h int, now time.Time) {
+	ch.left()
+	ch.snap = dimmedSnapshot(ch.under, w, h, now)
+	ch.back = &gfx.Image{W: w, H: h, Pix: ch.snap.Pix}
+	ch.page = gfx.TakeCanvas(w, h)
+	ch.key = -1
+}
+
+// left gives the canvases back once the chooser is off the stack.
+func (ch *Chooser) left() {
+	gfx.GiveCanvas(ch.snap)
+	gfx.GiveCanvas(ch.page)
+	ch.snap, ch.page, ch.back = nil, nil, nil
 }
 
 // Key: Up/Down move, OK picks and closes, Left/Right close.
@@ -81,6 +98,9 @@ func (ch *Chooser) Key(ev input.Event, now time.Time) {
 
 // Draw copies the composed page in, recomposing it when the cursor moved.
 func (ch *Chooser) Draw(c *gfx.Canvas, now time.Time) bool {
+	if ch.page.W != c.W || ch.page.H != c.H {
+		ch.prepare(c.W, c.H, now)
+	}
 	if ch.key != ch.cur {
 		ch.compose()
 		ch.key = ch.cur

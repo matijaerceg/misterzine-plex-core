@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: MiSTer H264 core <noreply@example.invalid>
+Date: Wed, 30 Sep 2026 03:00:00 -0400
+Subject: [PATCH 4/4] MiSTer: input through the core -- Main's keyboard, mouse
+ and pads
+
+While a core runs Main holds an exclusive grab on every input device, so the evdev input
+never sees an event. The MiSTer H264 core mirrors what Main sends it (every key as PS/2 set 2,
+the mouse, six pads) into its control block (interface 0.6); src/mister/mister_input.c (kept
+in the MiSTer H264 core's repository, clients/moonlight/src/) reads it on a 1 ms timer and
+forwards it. No evdev, no udev, no mapping file on this platform.
+---
+ CMakeLists.txt |  2 +-
+ src/main.c     | 22 ++++++++++++++++++++--
+ 2 files changed, 21 insertions(+), 3 deletions(-)
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -200,7 +200,7 @@
+ if (ENABLE_MISTER)
+   list(APPEND MOONLIGHT_DEFINITIONS HAVE_MISTER)
+   list(APPEND MOONLIGHT_OPTIONS MISTER)
+-  target_sources(moonlight PRIVATE ./src/mister/mister.c)
++  target_sources(moonlight PRIVATE ./src/mister/mister.c ./src/mister/mister_input.c)
+   target_include_directories(moonlight PRIVATE ./src/mister ${H264RING_DIR}/include)
+   target_link_libraries(moonlight ${H264RING_LIBRARY})
+ endif()
+--- a/src/main.c
++++ b/src/main.c
+@@ -157,11 +157,23 @@
+   LiStartConnection(&server->serverInfo, &config->stream, &connection_callbacks, platform_get_video(system), platform_get_audio(system, config->audio_device), NULL, drFlags, config->audio_device, 0);
+ 
+   if (IS_EMBEDDED(system)) {
+-    if (!config->viewonly)
++    if (!config->viewonly) {
++      #ifdef HAVE_MISTER
++      if (system == MISTER)
++        mister_input_start();   /* Main's input, through the core (Main grabs every device) */
++      else
++      #endif
+       evdev_start();
++    }
+     loop_main();
+-    if (!config->viewonly)
++    if (!config->viewonly) {
++      #ifdef HAVE_MISTER
++      if (system == MISTER)
++        mister_input_stop();
++      else
++      #endif
+       evdev_stop();
++    }
+   }
+   #ifdef HAVE_SDL
+   else if (system == SDL)
+@@ -362,6 +374,12 @@
+       if (config.debug_level > 0)
+         printf("View-only mode enabled, no input will be sent to the host computer\n");
+     } else {
++      #ifdef HAVE_MISTER
++      if (system == MISTER) {
++        /* no evdev: while a core runs Main holds every input device (EVIOCGRAB), and the MiSTer
++         * H264 core hands this program Main's keyboard, mouse and pads (mister_input.c) */
++      } else
++      #endif
+       if (IS_EMBEDDED(system)) {
+         char* mapping_env = getenv("SDL_GAMECONTROLLERCONFIG");
+         if (config.mapping == NULL && mapping_env == NULL) {
+-- 
+2.43.0
+

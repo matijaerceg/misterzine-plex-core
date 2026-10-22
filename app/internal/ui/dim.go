@@ -9,9 +9,9 @@ import (
 
 // The screen goes down to a quarter once nothing has been pressed for
 // DimAfter while it only waits (a menu, or a paused playback), so a still
-// picture does not wear a CRT or an OLED. The core does the dimming, so
-// the picture, the overlay and the sprites all go down together, and it
-// cuts back at the first press.
+// picture is less bright while unattended. Menu pixels are dimmed in
+// software; during playback a black alpha overlay also dims the video.
+// The picture, panels and sprites return to full brightness on a press.
 const (
 	DimAfter = 3 * time.Minute
 	DimLevel = ring.Full / 4

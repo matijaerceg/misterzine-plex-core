@@ -51,6 +51,9 @@ const (
 	// the hero follows the focus only once it has rested this long, so a
 	// held key glides over the tiles without a fade (or a fetch) per item
 	HeroRest = 250 * time.Millisecond
+	// then it waits up to this long for the item's backdrop and logo, so
+	// the page changes once, with them, rather than again as each lands
+	HeroArtWait = 350 * time.Millisecond
 	// chevrons: lit when there is a row that way
 	ChevronOff = gfx.Color(0x4A5266)
 )
@@ -83,6 +86,7 @@ type Home struct {
 
 	page, pagePrev *gfx.Canvas // composed page, and the one before it for the cross-fade
 	pageKey        string      // item + row + which pictures were in
+	pageItem       string      // item + row alone
 	pageRow        int
 	fade           Fade
 	logo           logoLayer
@@ -100,6 +104,34 @@ func NewHome(app *App) *Home {
 	return h
 }
 
+func (h *Home) safeW() int {
+	w, _ := layoutCanvasSize(h.app)
+	if w > 720 {
+		return w - 2*SafeX
+	}
+	return SafeW
+}
+
+func (h *Home) matchCanvas(c *gfx.Canvas) {
+	if h.page == nil && h.pagePrev == nil {
+		return
+	}
+	if canvasSizeIs(h.page, c.W, c.H) && (h.pagePrev == nil || canvasSizeIs(h.pagePrev, c.W, c.H)) {
+		return
+	}
+	h.pageFade().Done()
+	h.page, h.pagePrev = nil, nil
+	h.pageKey = ""
+	h.pageRow = -1
+}
+
+func (h *Home) visible() int {
+	if h.safeW() > SafeW {
+		return 5
+	}
+	return Visible
+}
+
 // focusSeason puts the cursor on season i, scrolled into view.
 func (h *Home) focusSeason(i int) {
 	if len(h.hubs) == 0 || i < 0 || i >= len(h.hubs[0].Items) {
@@ -107,8 +139,8 @@ func (h *Home) focusSeason(i int) {
 	}
 	h.col[0] = i
 	first := 0
-	if i >= Visible {
-		first = i - Visible + 1
+	if i >= h.visible() {
+		first = i - h.visible() + 1
 	}
 	h.colX[0].Set(float64(first * PosterPitch))
 	h.focusAt = time.Time{}
@@ -140,6 +172,9 @@ func (h *Home) load(r homeResult, now time.Time) {
 // fail shows that the server gave no rows: quietly retried while nothing
 // answers within the grace period, otherwise as an error retried every 30 s.
 func (h *Home) fail(err error, now time.Time) {
+	if h.app.SessionEnded(err) {
+		return // back to sign-in
+	}
 	problem := classify(err, now)
 	connecting := unreachable(err) && !problem.settled() && now.Before(h.graceUntil)
 	// once per cause, not once per retry
@@ -338,9 +373,9 @@ func (h *Home) applyHome(hubs []*plex.Hub) {
 				}
 			}
 			first := round(oldScroll[j].Target()) / PosterPitch
-			first = max(0, min(first, len(hub.Items)-Visible))
+			first = max(0, min(first, len(hub.Items)-h.visible()))
 			first = min(first, h.col[i])
-			first = max(first, h.col[i]-Visible+1)
+			first = max(first, h.col[i]-h.visible()+1)
 			h.colX[i].Set(float64(first * PosterPitch))
 			break
 		}
@@ -407,7 +442,7 @@ func (h *Home) Key(ev input.Event, now time.Time) {
 	}
 	oldRow := h.row
 	hub := h.hubs[h.row]
-	pitch, vis := PosterPitch, Visible
+	pitch, vis := PosterPitch, h.visible()
 	switch ev.Key {
 	case input.Left:
 		if h.col[h.row] > 0 {
@@ -483,11 +518,12 @@ func (h *Home) Refresh(it *plex.Item) {
 	if err != nil {
 		return
 	}
-	*it = *fresh
+	h.app.takeFresh(it, fresh)
 }
 
 // Draw paints the screen; returns true while something is still animating.
 func (h *Home) Draw(c *gfx.Canvas, now time.Time) bool {
+	h.matchCanvas(c)
 	if h.err != nil {
 		c.Fill(0, 0, c.W, c.H, gfx.Bg)
 		if h.connecting {
@@ -495,7 +531,7 @@ func (h *Home) Draw(c *gfx.Canvas, now time.Time) bool {
 			if h.app.Cfg != nil && h.app.Cfg.ServerName != "" {
 				server = h.app.Cfg.ServerName
 			}
-			h.app.text(c, SafeX, SafeY+40, h.app.F.Body, gfx.GreyHi, h.app.F.Body.Fit("Connecting to "+server+"...", SafeW))
+			h.app.text(c, SafeX, SafeY+40, h.app.F.Body, gfx.GreyHi, h.app.F.Body.Fit("Connecting to "+server+"...", h.safeW()))
 			h.app.text(c, SafeX, SafeY+70, h.app.F.Small, gfx.GreyLo, h.problem.waiting())
 			return false
 		}
@@ -510,7 +546,7 @@ func (h *Home) Draw(c *gfx.Canvas, now time.Time) bool {
 		c.Fill(0, 0, c.W, c.H, gfx.Bg)
 		h.app.text(c, SafeX, SafeY+40, h.app.F.Body, gfx.GreyHi, "Nothing to show yet.")
 		if h.home && h.app.allLibrariesHidden() {
-			h.app.text(c, SafeX, SafeY+70, h.app.F.Small, gfx.GreyLo, h.app.F.Small.Fit("Every library is hidden. Back: menu, then Options to show them.", SafeW))
+			h.app.text(c, SafeX, SafeY+70, h.app.F.Small, gfx.GreyLo, h.app.F.Small.Fit("Every library is hidden. Back: menu, then Options to show them.", h.safeW()))
 		}
 		return false
 	}
@@ -582,26 +618,35 @@ func (h *Home) drawPage(c *gfx.Canvas, now time.Time) bool {
 		return false
 	}
 	art := heroArt(it)
-	key := it.RatingKey + "|" + art + "|" + itoa(h.row)
-	if h.page != nil && !strings.HasPrefix(h.pageKey, key) && h.pageRow == h.row && now.Sub(h.focusAt) < HeroRest {
+	item := it.RatingKey + "|" + art + "|" + itoa(h.row)
+	keep := h.page != nil && h.pageItem != item && h.pageRow == h.row
+	if keep && now.Sub(h.focusAt) < HeroRest {
 		// still moving along the row: keep the page, and keep drawing until it rests
 		c.BlitExcept(h.page, h.holes)
 		h.logoLayer().draw(c, h.page, now)
 		return true
 	}
-	img, _, _ := h.app.Art.get(h.backdropRequest(art, c.W, c.H))
-	if img != nil {
-		key += "|art"
-	}
+	img, _, artFailed := h.app.Art.get(h.backdropRequest(art, c.W, c.H))
 	var logo *gfx.Image
 	logoPending := false
 	if it.Logo != "" {
 		var failed bool
-		if logo, failed = h.app.Art.GetLogo(it.Logo, LogoW, LogoH); logo != nil {
-			key += "|logo"
-		} else {
-			logoPending = !failed
-		}
+		logo, failed = h.app.Art.GetLogo(it.Logo, LogoW, LogoH)
+		logoPending = logo == nil && !failed
+	}
+	if keep && (img == nil && !artFailed || logoPending) && now.Sub(h.focusAt) < HeroRest+HeroArtWait {
+		// rested, its pictures on their way: keep the page a moment longer,
+		// so the new one is composed once with them, not again as each lands
+		c.BlitExcept(h.page, h.holes)
+		h.logoLayer().draw(c, h.page, now)
+		return true
+	}
+	key := item
+	if img != nil {
+		key += "|art"
+	}
+	if logo == nil && !logoPending {
+		key += "|title" // the logo rides above the page; only its title is composed
 	}
 	if h.home && !h.app.premiumHomeLogo() {
 		key += "|nomark" // hidden in Options: compose again when it changes
@@ -614,7 +659,7 @@ func (h *Home) drawPage(c *gfx.Canvas, now time.Time) bool {
 			h.page = gfx.NewCanvas(c.W, c.H)
 		}
 		h.compose(h.page, it, img, logo, logoPending)
-		h.pageKey = key
+		h.pageKey, h.pageItem = key, item
 		h.pageRow = h.row
 		if h.pagePrev != nil {
 			h.pageFade().Start(h.pagePrev, h.page, now)
@@ -693,11 +738,11 @@ func (h *Home) compose(c *gfx.Canvas, it *plex.Item, img, logo *gfx.Image, logoP
 		fy -= f.SmallBold.Height() + 4 // room for a line of synopsis
 	}
 	if logo == nil && !logoPending {
-		c.Text(SafeX, fy-2-f.Big.Height(), f.Big, gfx.White, f.Big.Fit(title, SafeW))
+		c.Text(SafeX, fy-2-f.Big.Height(), f.Big, gfx.White, f.Big.Fit(title, h.safeW()))
 	}
-	dots(c, SafeX, fy, f.SmallBold, gfx.White, facts, SafeW)
+	dots(c, SafeX, fy, f.SmallBold, gfx.White, facts, h.safeW())
 	if h.fixed != nil && it.Summary != "" {
-		c.Text(SafeX, fy+f.SmallBold.Height()+4, f.SmallBold, gfx.White, f.SmallBold.Fit(it.Summary, SafeW))
+		c.Text(SafeX, fy+f.SmallBold.Height()+4, f.SmallBold, gfx.White, f.SmallBold.Fit(it.Summary, h.safeW()))
 	}
 	// the row label, chevrons before it (a show's page labels the row
 	// with the focused season per frame instead)
@@ -713,7 +758,7 @@ func (h *Home) compose(c *gfx.Canvas, it *plex.Item, img, logo *gfx.Image, logoP
 		chevronA(c, SafeX+6, ly+15, false, h.row+1 < len(h.hubs))
 		x += 22
 	}
-	c.Text(x, ly, f.Body, gfx.White, f.Body.Fit(label, SafeW-40))
+	c.Text(x, ly, f.Body, gfx.White, f.Body.Fit(label, h.safeW()-40))
 }
 
 // hamburger draws the three-bar menu glyph with its top-left at x,y.
@@ -844,9 +889,9 @@ func (h *Home) prefetchPosters() {
 				continue
 			}
 			first := round(h.colX[row].Target()) / PosterPitch
-			start, end := first, first+Visible
+			start, end := first, first+h.visible()
 			if row == h.row {
-				start, end = first-Visible, first+2*Visible
+				start, end = first-h.visible(), first+2*h.visible()
 			}
 			for j := max(0, start); j < min(len(h.hubs[row].Items), end); j++ {
 				it := h.hubs[row].Items[j]
@@ -860,7 +905,8 @@ func (h *Home) prefetchPosters() {
 
 // Keep just the nearest hero candidates warm: full-screen decoded art is
 // much larger than a poster. Art reuses both its bounded memory cache and
-// the Plex client's disk cache when these become visible.
+// the Plex client's disk cache when these become visible. Their logos
+// come with them, so a hero the cursor rests on has both (HeroArtWait).
 func (h *Home) prefetchBackdrops(w, height int) {
 	if h.app.Art == nil || !h.home {
 		return
@@ -876,6 +922,9 @@ func (h *Home) prefetchBackdrops(w, height int) {
 				req := h.backdropRequest(heroArt(it), w, height)
 				req.prefetch = true
 				h.app.Art.get(req)
+				if it.Logo != "" {
+					h.app.Art.get(artReq{thumb: it.Logo, w: LogoW, h: LogoH, logo: true, prefetch: true})
+				}
 			}
 		}
 	}
@@ -932,7 +981,7 @@ func (h *Home) drawStrip(c *gfx.Canvas, now time.Time) bool {
 // the poster and its frame are painted afterwards.
 func (h *Home) drawTile(c *gfx.Canvas, it *plex.Item, x, y int, focus bool, rowT int) bool {
 	w, ht := PosterW, PosterH
-	whole := x >= SafeX-FocusPad && x+w <= SafeX+SafeW
+	whole := x >= SafeX-FocusPad && x+w <= SafeX+h.safeW()
 	if it.Type == "more" {
 		// the end of the row: a plain tile that opens the library
 		c.Fill(x, y, w, ht, gfx.Bar)
@@ -982,7 +1031,7 @@ func (h *Home) drawTile(c *gfx.Canvas, it *plex.Item, x, y int, focus bool, rowT
 		c.Fill(x, y, w, ht, gfx.Bar)
 		if whole {
 			f := h.app.F.SmallBold
-			lines := wrap(f, it.Title, w-16, 4)
+			lines := wrapped(f, it.Title, w-16, 4)
 			ty := y + ht/2 - len(lines)*f.Height()/2
 			for _, l := range lines {
 				h.app.textCenterOn(c, x+w/2, ty, f, gfx.GreyLo, gfx.Bar, l)
@@ -1077,29 +1126,34 @@ func hm(sec int) string {
 	return fmt.Sprintf("%dm", sec/60)
 }
 
-// wrap breaks s into at most n lines that fit maxW, on spaces.
+// wrap breaks s into at most n lines that fit maxW, on spaces. A line is
+// built only once it is complete; until then it is words[i:j] and its
+// width, which adds up glyph by glyph.
 func wrap(f *gfx.Font, s string, maxW, n int) []string {
 	var out []string
-	line := ""
-	for _, w := range splitWords(s) {
-		t := w
-		if line != "" {
-			t = line + " " + w
+	words := splitWords(s)
+	sp := f.Width(" ")
+	i, lw := 0, 0
+	for j, w := range words {
+		ww := f.Width(w)
+		if j == i {
+			lw = ww // a line's first word goes in however wide it is
+			continue
 		}
-		if f.Width(t) <= maxW || line == "" {
-			line = t
+		if lw+sp+ww <= maxW {
+			lw += sp + ww
 			continue
 		}
 		if len(out) == n-1 {
 			// more follows than fits: the last line is cut with an ellipsis
-			out = append(out, f.Fit(t+" "+strings.Repeat(".", 3), maxW))
+			out = append(out, f.Fit(strings.Join(words[i:j+1], " ")+" ...", maxW))
 			return out
 		}
-		out = append(out, line)
-		line = w
+		out = append(out, strings.Join(words[i:j], " "))
+		i, lw = j, ww
 	}
-	if line != "" {
-		out = append(out, f.Fit(line, maxW))
+	if i < len(words) {
+		out = append(out, f.Fit(strings.Join(words[i:], " "), maxW))
 	}
 	return out
 }
@@ -1109,21 +1163,31 @@ func wrapAll(f *gfx.Font, s string, maxW int) []string {
 	return wrap(f, s, maxW, 1<<20)
 }
 
+// splitWords splits s on spaces (only spaces: Fold has already turned the
+// server's tabs and newlines into spaces). The words are slices of s.
 func splitWords(s string) []string {
-	var out []string
-	w := ""
+	n := 0
 	for i := 0; i < len(s); i++ {
-		if s[i] == ' ' {
-			if w != "" {
-				out = append(out, w)
-			}
-			w = ""
-			continue
+		if s[i] != ' ' && (i == 0 || s[i-1] == ' ') {
+			n++
 		}
-		w += string(s[i])
 	}
-	if w != "" {
-		out = append(out, w)
+	if n == 0 {
+		return nil
+	}
+	out := make([]string, 0, n)
+	start := -1
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] != ' ' && start < 0:
+			start = i
+		case s[i] == ' ' && start >= 0:
+			out = append(out, s[start:i])
+			start = -1
+		}
+	}
+	if start >= 0 {
+		out = append(out, s[start:])
 	}
 	return out
 }

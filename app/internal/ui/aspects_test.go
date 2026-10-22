@@ -127,3 +127,15 @@ func TestSeasonAspectProbeUsesParentShow(t *testing.T) {
 		t.Fatal("season probe did not populate the parent show's cache")
 	}
 }
+
+func TestSeasonAspectPreservesExistingValue(t *testing.T) {
+	a := &App{Cfg: &Config{FourThree: true}}
+	a.aspects.known = map[string]float64{"16": 1.78}
+	season := &plex.Item{RatingKey: "160", ParentKey: "16", Type: "season", Aspect: 1.33}
+	if unknown := a.aspects.apply([]*plex.Item{season}); len(unknown) != 0 {
+		t.Fatalf("existing season aspect was treated as unknown: %d", len(unknown))
+	}
+	if season.Aspect != 1.33 {
+		t.Fatalf("existing season aspect changed to %v", season.Aspect)
+	}
+}

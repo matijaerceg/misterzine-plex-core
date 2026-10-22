@@ -19,20 +19,32 @@ import (
 
 const CatalogueURL = "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/catalogue.json"
 
+// Access is what a beta release asks for: the patron batch and the hash of
+// its six-digit code, which the app verifies offline (internal/beta).
 type Access struct {
 	Batch  string `json:"batch"`
 	SHA256 string `json:"sha256"`
 }
 type Release struct {
-	ID      string  `json:"id"`
-	Version string  `json:"version"`
-	Channel string  `json:"channel"`
-	Notes   string  `json:"notes"`
-	URL     string  `json:"url"`
-	DBURL   string  `json:"db_url"`
-	Size    int64   `json:"size"`
-	SHA256  string  `json:"sha256"`
-	Access  *Access `json:"access"`
+	ID      string       `json:"id"`
+	Version string       `json:"version"`
+	Channel string       `json:"channel"`
+	Access  *Access      `json:"access,omitempty"`
+	Source  *SourceAsset `json:"source"`
+	Notes   string       `json:"notes"`
+	URL     string       `json:"url"`
+	DBURL   string       `json:"db_url"`
+	Size    int64        `json:"size"`
+	SHA256  string       `json:"sha256"`
+}
+
+// SourceAsset is the corresponding source bundle published beside a
+// release (the player links GPL components).
+type SourceAsset struct {
+	Filename string `json:"filename"`
+	Size     int64  `json:"size"`
+	SHA256   string `json:"sha256"`
+	URL      string `json:"url"`
 }
 type Catalogue struct {
 	Schema   int                `json:"schema"`
@@ -42,11 +54,16 @@ type Catalogue struct {
 var ident = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}$`)
 var hash = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var semver = regexp.MustCompile(`^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$`)
+var sourceFilename = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.zip$`)
 
 func validURL(s string) bool {
 	u, err := url.Parse(s)
 	return err == nil && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && u.Fragment == "" && len(s) <= 2048 && !strings.ContainsAny(s, " \r\n\t")
 }
+
+// Requirement is the access a prospective update asks for, in the beta
+// gate's terms: checked against the saved receipts without changing the
+// running build's own requirement.
 func (r Release) Requirement() beta.Requirement {
 	req := beta.Requirement{Channel: r.Channel}
 	if r.Access != nil {
@@ -64,6 +81,9 @@ func (r Release) Validate() error {
 	}
 	if r.Channel == "public" && (r.Access != nil || strings.Contains(r.Version, "-")) {
 		return fmt.Errorf("invalid public release")
+	}
+	if r.Source == nil || !sourceFilename.MatchString(r.Source.Filename) || r.Source.Size <= 0 || r.Source.Size > 1<<30 || !hash.MatchString(r.Source.SHA256) || !validURL(r.Source.URL) {
+		return fmt.Errorf("invalid corresponding-source metadata")
 	}
 	return r.Requirement().Validate()
 }

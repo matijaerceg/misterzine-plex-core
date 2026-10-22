@@ -1,0 +1,26 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Quartus: full compile (pinned Docker image)",
+      "type": "shell",
+      "command": "USE_DOCKER=1 ./build_release.sh --compile",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Bench: scaffold gate",
+      "type": "shell",
+      "command": "bench/h264/run_scaffold.sh",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Docs: parity + strict build",
+      "type": "shell",
+      "command": ".venv/bin/python3 tools/docs_check.py && .venv/bin/mkdocs build --strict",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

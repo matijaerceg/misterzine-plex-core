@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"plexcrt/internal/beta"
 	"plexcrt/internal/gfx"
 	"plexcrt/internal/input"
 	"plexcrt/internal/plex"
@@ -90,7 +89,7 @@ func TestUpdateMarkShowsOnHome(t *testing.T) {
 		t.Fatalf("an update behind Options: %q", got)
 	}
 	a.stack = a.stack[:1]
-	beta.Channel = "public" // betaTestApp puts it back
+	updates.Channel = "public" // betaTestApp puts it back
 	a.updates.catalogue.Releases = map[string]updates.Release{"public": {ID: "pub", Version: "0.3.0", Channel: "public"}}
 	if got := marks(); got != "UPDATE" {
 		t.Fatalf("a public build with an update: %q", got)
@@ -277,7 +276,7 @@ func TestBrandPreview(t *testing.T) {
 	render("home-beta")
 	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{"beta": {ID: "next", Version: "0.3.0-beta.1", Channel: "beta"}}}
 	render("home-beta-update")
-	beta.Channel = "public"
+	updates.Channel = "public"
 	a.updates.catalogue.Releases = map[string]updates.Release{"public": {ID: "pub", Version: "0.3.0", Channel: "public"}}
 	render("home-public-update")
 }

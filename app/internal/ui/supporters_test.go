@@ -17,6 +17,9 @@ import (
 
 func TestMain(m *testing.M) {
 	SupportersURL = "" // no test reaches the site; the ones that fetch serve their own
+	// no deferred save lands in a test's removed directory: the tests that
+	// look at the file flush it, the saver's own tests shorten the wait
+	saveDelay = time.Hour
 	os.Exit(m.Run())
 }
 
@@ -43,24 +46,6 @@ func TestDecodeSupporters(t *testing.T) {
 	}
 	if s, err := DecodeSupporters([]byte(`{"current":[]}`)); err != nil || len(s.Current) != 0 {
 		t.Fatalf("an empty list: %+v, %v", s, err)
-	}
-}
-
-func TestRunawaySupporterNameIsCapped(t *testing.T) {
-	long := strings.Repeat("W", 200<<10)
-	s, err := DecodeSupporters([]byte(`{"current":[{"name":"` + long + `"}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := len(s.Current[0].Name); n != maxSupporterName {
-		t.Fatalf("a %d-letter name kept %d", len(long), n)
-	}
-	a := betaTestApp(t)
-	a.supporters.list = s
-	start := time.Now()
-	NewSupportersPage(a).Draw(gfx.NewCanvas(720, 480), time.Now())
-	if d := time.Since(start); d > time.Second {
-		t.Fatalf("the page took %v to draw", d)
 	}
 }
 
@@ -171,6 +156,24 @@ func TestSupportersFetchedCachedAndKeptOffline(t *testing.T) {
 	}
 	if !b.supporters.nextCheck.Before(time.Now().Add(10 * time.Minute)) {
 		t.Fatal("a failed fetch waits hours before the next one")
+	}
+}
+
+func TestRunawaySupporterNameIsCapped(t *testing.T) {
+	long := strings.Repeat("W", 200<<10)
+	s, err := DecodeSupporters([]byte(`{"current":[{"name":"` + long + `"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(s.Current[0].Name); n != maxSupporterName {
+		t.Fatalf("a %d-letter name kept %d", len(long), n)
+	}
+	a := betaTestApp(t)
+	a.supporters.list = s
+	start := time.Now()
+	NewSupportersPage(a).Draw(gfx.NewCanvas(720, 480), time.Now())
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("the page took %v to draw", d)
 	}
 }
 

@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: MiSTer H264 core <noreply@example.invalid>
+Date: Tue, 29 Sep 2026 20:59:20 -0400
+Subject: [PATCH 3/3] MiSTer: -platform fake writes the video to
+ $MOONLIGHT_DUMP
+
+Every decode unit, as the host sent it (Annex-B), for measuring what a host sends
+(the MiSTer H264 core's tools/p1/, docs/p1_measurements.md) and the client's cost
+without a decoder (docs/moonlight.md R1).
+---
+ src/platform.c | 26 ++++++++++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/src/platform.c b/src/platform.c
+index b846b7d..e9714c5 100644
+--- a/src/platform.c
++++ b/src/platform.c
+@@ -30,6 +30,7 @@
+ #include "mister/mister.h"
+ #endif
+ 
++#include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <unistd.h>
+@@ -158,12 +159,37 @@ void platform_stop(enum platform system) {
+   }
+ }
+ 
++/* MiSTer H264 (its tools/p1/): "-platform fake" writes the video stream to $MOONLIGHT_DUMP
++ * (default moonlight_dump.h264), every buffer of every decode unit in arrival order:
++ * exactly the Annex-B bytes the host sent (SPS, PPS, slices; the depacketizer has
++ * already stripped a leading AUD / SEI and a stray PPS, moonlight-common-c
++ * VideoDepacketizer.c). No capability bits: 1 slice per frame requested, no RFI. */
++static FILE* dump_fp;
++static int dump_setup(int videoFormat, int width, int height, int redrawRate, void* context, int drFlags) {
++  const char* path = getenv("MOONLIGHT_DUMP");
++  dump_fp = fopen(path ? path : "moonlight_dump.h264", "wb");
++  fprintf(stderr, "dump: format 0x%x %dx%d@%d -> %s\n", videoFormat, width, height, redrawRate,
++          path ? path : "moonlight_dump.h264");
++  return dump_fp ? 0 : -1;
++}
++static void dump_cleanup(void) { if (dump_fp) fclose(dump_fp); dump_fp = NULL; }
++static int dump_submit(PDECODE_UNIT du) {
++  for (PLENTRY e = du->bufferList; e != NULL; e = e->next)
++    fwrite(e->data, 1, e->length, dump_fp);
++  return DR_OK;
++}
++static DECODER_RENDERER_CALLBACKS decoder_callbacks_dump = {
++  .setup = dump_setup, .cleanup = dump_cleanup, .submitDecodeUnit = dump_submit, .capabilities = 0,
++};
++
+ DECODER_RENDERER_CALLBACKS* platform_get_video(enum platform system) {
+   switch (system) {
+   #ifdef HAVE_MISTER
+   case MISTER:
+     return &decoder_callbacks_mister;
+   #endif
++  case FAKE:
++    return &decoder_callbacks_dump;
+   #ifdef HAVE_X11
+   case X11:
+     return &decoder_callbacks_x11;

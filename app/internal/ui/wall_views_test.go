@@ -791,3 +791,6 @@ func tabsRightEdge(w *Wall, tabs int) int {
 	}
 	return edge
 }
+
+// filmsPath and filmsQuery are library 1's A to Z listing.
+var filmsPath, filmsQuery = "/library/sections/1/all", url.Values{"sort": {"titleSort"}}

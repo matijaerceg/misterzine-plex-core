@@ -50,3 +50,26 @@ func TestPreplayFitsLongTrackLabels(t *testing.T) {
 		}
 	}
 }
+
+// A Display Shape change while the page is open: the 16:9 canvas (960 wide)
+// becomes the 4:3 one (720). The page must be drawn afresh at 720, not the
+// 960-wide page copied in row by row (found on the DE10 2026-10-19: the
+// detail page repeated three times across a 4:3 screen).
+func TestPreplayFollowsCanvasResize(t *testing.T) {
+	a := cropApp(t)
+	it := &plex.Item{RatingKey: "m1", Type: "movie", Title: "Fixture Film", Summary: "A short synopsis.", PartID: "p"}
+	now := time.Now()
+	p := &Preplay{app: a, item: it}
+	p.rebuild()
+	p.Draw(gfx.NewCanvas(960, 480), now)
+	got := gfx.NewCanvas(720, 480)
+	p.Draw(got, now)
+
+	fresh := &Preplay{app: a, item: it}
+	fresh.rebuild()
+	want := gfx.NewCanvas(720, 480)
+	fresh.Draw(want, now)
+	if !slices.Equal(got.Pix, want.Pix) {
+		t.Fatal("after a 960 -> 720 resize the page differs from one drawn at 720")
+	}
+}

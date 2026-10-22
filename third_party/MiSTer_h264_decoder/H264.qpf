@@ -1,0 +1,6 @@
+QUARTUS_VERSION = "17.0"
+DATE = "08:00:00  September 27, 2026"
+
+# Revisions
+
+PROJECT_REVISION = "H264"

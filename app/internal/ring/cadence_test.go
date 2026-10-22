@@ -1,6 +1,25 @@
 package ring
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestEndEveryBoundsAStalledHeartbeat(t *testing.T) {
+	f := newFake(t, false)
+	f.r.EndEvery(1) // establish cadence
+	f.r.pending = false
+
+	start := time.Now()
+	missed := f.r.EndEvery(1)
+	elapsed := time.Since(start)
+	if !missed {
+		t.Fatal("stalled heartbeat was not reported as missed")
+	}
+	if elapsed < cadenceWait || elapsed > 2*cadenceWait {
+		t.Fatalf("stalled heartbeat wait took %s, want about %s", elapsed, cadenceWait)
+	}
+}
 
 func TestCadenceTargetEveryField(t *testing.T) {
 	for _, tc := range []struct {

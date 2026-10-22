@@ -35,13 +35,23 @@ def entry(value):
         raise ValueError('Invalid release size')
     for key in ('url', 'db_url'):
         https(value.get(key))
+    source = value.get('source')
+    if (not isinstance(source, dict) or set(source) != {'filename', 'size', 'sha256', 'url'}
+            or not isinstance(source.get('filename'), str)
+            or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.zip', source['filename'])
+            or type(source.get('size')) is not int or not 0 < source['size'] <= 1024 * 1024 * 1024
+            or not isinstance(source.get('sha256'), str) or not HASH.fullmatch(source['sha256'])):
+        raise ValueError('Invalid corresponding-source metadata')
+    https(source['url'])
     if not isinstance(value.get('notes'), str) or len(value['notes']) > 16000:
         raise ValueError('Invalid release notes')
     access = value.get('access')
     if channel == 'public':
         if access is not None:
             raise ValueError('Public releases cannot require a code')
-    elif not isinstance(access, dict) or set(access) != {'batch', 'sha256'} or not BATCH.fullmatch(str(access['batch'])) or not HASH.fullmatch(str(access['sha256'])):
+    elif (not isinstance(access, dict) or set(access) != {'batch', 'sha256'}
+          or not isinstance(access['batch'], str) or not BATCH.fullmatch(access['batch'])
+          or not isinstance(access['sha256'], str) or not HASH.fullmatch(access['sha256'])):
         raise ValueError('Invalid beta access requirement')
     return value
 

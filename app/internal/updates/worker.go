@@ -84,7 +84,7 @@ func Start(root, action string, release *Release) (<-chan struct{}, error) {
 	for _, name := range []string{"manager.py", "update_service.py", "catalogue.py", "menu_launcher.py"} {
 		data, e := os.ReadFile(filepath.Join(root, name))
 		if e != nil {
-			return nil, fmt.Errorf("run MisterZine-Plex-Install to add update support")
+			return nil, fmt.Errorf("run %s from Scripts to add update support", Installer())
 		}
 		if e = os.WriteFile(filepath.Join(worker, name), data, 0600); e != nil {
 			return nil, e

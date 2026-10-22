@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"plexcrt/internal/beta"
 	"plexcrt/internal/gfx"
+	"plexcrt/internal/updates"
 )
 
 // drawBrand is applied to browsing frames only, never player overlays: the
@@ -42,7 +42,7 @@ type brandMark struct {
 // brandMarks is what drawBrand shows over the top screen, left to right.
 func (a *App) brandMarks() []brandMark {
 	var marks []brandMark
-	if beta.IsBeta() {
+	if updates.Channel == "beta" {
 		marks = append(marks, brandMark{"BETA", gfx.Amber})
 	}
 	if _, home := a.top().(*Home); home && a.updateAvailable() {

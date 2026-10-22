@@ -56,16 +56,16 @@ func TestOptionsGroups(t *testing.T) {
 	a := betaTestApp(t)
 	a.Plex = &plex.Client{}
 	a.Cfg.Token = "account-token"
-	a.Display = DisplayCheck{INI: "MiSTer.ini", VRR: "forced", VRRMode: 2}
+	a.Display = DisplayCheck{INI: "MiSTer.ini", VRR: "off", DVI: true}
 	o := &Options{app: a}
 	items := o.items()
 	groups := []string{"Playback", "Picture", "Sound", "Extras", "Account", "App"}
 	under := groupNames(t, items, groups...)
 	for label, want := range map[string]string{
 		"Only show 4:3 media": "Playback", "Autoplay next episode": "Playback", "Skip intro and credits buttons": "Playback",
-		"Video bitrate": "Playback", "Surround downmix boost": "Playback", "Subtitle size": "Playback",
-		"Video output": "Picture", "Video geometry": "Picture", "Video crop": "Picture", "HDMI VRR": "Picture",
-		"Theme music": "Sound", "Navigation sounds": "Sound",
+		"Video bitrate":                    "Playback",
+		"Video calibration (preview only)": "Picture", "Video crop": "Picture", "HDMI sound": "Picture",
+		"Surround downmix boost": "Sound", "Subtitle size": "Sound", "Theme music": "Sound", "Navigation sounds": "Sound",
 		"Show beta features":  "Extras",
 		"Choose server again": "Account", "Sign out": "Account",
 		"Updates": "App", "Send a report": "App", "Version": "App",
@@ -138,12 +138,12 @@ func TestOptionsCursorSkipsGaps(t *testing.T) {
 	}
 
 	// the list can change under the cursor: a gap is never the cursor
-	picture := slices.IndexFunc(items, func(it option) bool { return it.label == "Video output" }) - 1
+	picture := slices.IndexFunc(items, func(it option) bool { return it.label == "Video calibration (preview only)" }) - 1
 	if !items[picture].header {
 		t.Fatalf("no gap before the picture rows: %q", items[picture].label)
 	}
 	if got := onOption(items, picture); got != picture+1 {
-		t.Fatalf("cursor on the gap before Video output moved to %d, want the row below %d", got, picture+1)
+		t.Fatalf("cursor on the gap before picture settings moved to %d, want the row below %d", got, picture+1)
 	}
 	if got := onOption([]option{{label: "row"}, optionGap()}, 1); got != 0 {
 		t.Fatalf("a gap with nothing below moved the cursor to %d, want the row above", got)
@@ -152,11 +152,11 @@ func TestOptionsCursorSkipsGaps(t *testing.T) {
 		t.Fatalf("a cursor past the end landed on %d, want the last row", got)
 	}
 	// (the sound rows, not the extras: the official build has the extras' rows there)
-	sound := slices.IndexFunc(items, func(it option) bool { return it.label == "Theme music" }) - 1
+	sound := slices.IndexFunc(items, func(it option) bool { return it.label == "Surround downmix boost" }) - 1
 	o.cur = sound
-	o.Key(input.Event{Key: input.Enter}, now) // OK acts on the row below: Theme music
-	if !items[sound].header || o.cur != sound+1 || a.Cfg.NoTheme {
-		t.Fatalf("OK with the cursor on a gap: cursor %d, theme music %v; want %d toggled on", o.cur, !a.Cfg.NoTheme, sound+1)
+	o.Key(input.Event{Key: input.Left}, now) // acts on the next selectable sound row
+	if !items[sound].header || o.cur != sound+1 || a.Cfg.AudioBoostValue() != 175 {
+		t.Fatalf("Left with the cursor on a gap: cursor %d, boost %d; want %d and Small", o.cur, a.Cfg.AudioBoostValue(), sound+1)
 	}
 }
 
@@ -342,9 +342,9 @@ func TestOptionsStepOnlyWithLeftAndRight(t *testing.T) {
 	a := betaTestApp(t)
 	o := NewOptions(a)
 	a.Push(o)
-	saved := func() bool { _, err := os.Stat(a.Cfg.path); return err == nil }
+	saved := func() bool { a.Cfg.Flush(); _, err := os.Stat(a.Cfg.path); return err == nil }
 	value := func(label string) string { return o.items()[optionRow(o, label)].val() }
-	for _, label := range []string{"Video bitrate", "Surround downmix boost", "Subtitle size", "Video crop"} {
+	for _, label := range []string{"Video bitrate", "Video crop"} {
 		was := value(label)
 		os.Remove(a.Cfg.path)
 		pressOption(t, o, label, input.Enter)
@@ -386,7 +386,7 @@ func TestOptionsSteppedRowsSayWhereTheyAre(t *testing.T) {
 	for _, tc := range []struct {
 		label string
 		n     int
-	}{{"Video bitrate", len(Bitrates)}, {"Surround downmix boost", len(AudioBoosts)}, {"Subtitle size", len(SubtitleSizes)}, {"Video crop", len(Crops)}} {
+	}{{"Video bitrate", len(Bitrates)}, {"Video crop", len(Crops)}, {"Subtitle size", len(SubtitleSizes)}} {
 		it := o.items()[optionRow(o, tc.label)]
 		if it.at == nil {
 			t.Fatalf("%s steps but does not say where it is", tc.label)
@@ -406,9 +406,48 @@ func TestOptionsSteppedRowsSayWhereTheyAre(t *testing.T) {
 			t.Fatalf("%s: past the last choice at %d of %d; %d values seen", tc.label, i, n, len(seen))
 		}
 	}
-	a.Cfg.AudioBoost = 200 // set by hand: none of the choices, so at neither end
-	if i, _ := o.items()[optionRow(o, "Surround downmix boost")].at(); i != -1 {
-		t.Fatalf("a gain set by hand is at %d", i)
+}
+
+// Subtitle size sits after the downmix boost, as in the Plex app, shows
+// the size saved, and steps and saves as the other stepped rows do.
+func TestOptionsSubtitleSizeShowsStepsAndSaves(t *testing.T) {
+	a := betaTestApp(t)
+	a.Cfg.SubtitleSize = 150
+	o := NewOptions(a)
+	row := optionRow(o, "Subtitle size")
+	if row < 0 || row != optionRow(o, "Surround downmix boost")+1 {
+		t.Fatalf("Subtitle size at %d, want right after Surround downmix boost", row)
+	}
+	if got := o.items()[row].val(); got != "Large" {
+		t.Fatalf("saved 150%% shows as %q", got)
+	}
+	o.cur = row
+	o.Key(input.Event{Key: input.Right}, time.Now())
+	if a.Cfg.SubtitleSize != 200 || o.items()[row].val() != "Extra large" {
+		t.Fatalf("right from Large: %d %q", a.Cfg.SubtitleSize, o.items()[row].val())
+	}
+	a.Cfg.Flush()
+	if LoadConfig(a.Cfg.path).SubtitleSizeValue() != 200 {
+		t.Fatal("the size was not saved")
+	}
+	o.Key(input.Event{Key: input.Enter}, time.Now())
+	if a.Cfg.SubtitleSize != 200 {
+		t.Fatal("OK changed the size")
+	}
+}
+
+func TestPictureOptionsLeaveLegacyVideoPreferencesAlone(t *testing.T) {
+	a := betaTestApp(t)
+	a.Cfg.DeFlicker = true
+	a.Cfg.Progressive = true
+	o := NewOptions(a)
+	for _, it := range o.items() {
+		if it.label == "Video output" || it.label == "De-flicker (480i)" {
+			t.Fatalf("removed picture control %q is still shown", it.label)
+		}
+	}
+	if !a.Cfg.DeFlicker || !a.Cfg.Progressive {
+		t.Fatal("building the picture options changed a legacy preference")
 	}
 }
 
@@ -427,7 +466,7 @@ func TestOptionsOKRunsASteppedRowsAction(t *testing.T) {
 	})
 	o := NewOptions(a)
 	a.Push(o)
-	saved := func() bool { _, err := os.Stat(a.Cfg.path); return err == nil }
+	saved := func() bool { a.Cfg.Flush(); _, err := os.Stat(a.Cfg.path); return err == nil }
 	pressOption(t, o, "Stepper", input.Enter)
 	if ran != 1 || value != 1 || saved() {
 		t.Fatalf("OK on a stepped row with an action: ran %d, value %d, saved %v", ran, value, saved())
@@ -473,6 +512,8 @@ func TestOptionsStepArrows(t *testing.T) {
 	withExtraOptions(t, func(a *App) []option {
 		return []option{
 			{label: "Stepper", val: func() string { return "Some" }, step: func(int) {}},
+			{label: "Neighbor stepper", val: func() string { return "Some" }, step: func(int) {},
+				at: func() (int, int) { return 0, 2 }},
 			{label: "Locked stepper", locked: true, val: func() string { return unlockForever }, step: func(int) {}},
 		}
 	})
@@ -491,15 +532,14 @@ func TestOptionsStepArrows(t *testing.T) {
 		if l, r := arrows("Video bitrate"); l != tc.left || r != tc.right {
 			t.Fatalf("bitrate %d: arrows %06x and %06x, want %06x and %06x", tc.kbps, l, r, tc.left, tc.right)
 		}
-		// the row below, not selected, has none (the left arrow's place
-		// only, as its value is not moved over)
-		below := o.items()[o.cur+1]
-		if l, _ := stepArrowColours(a, c, focusY(c)+MenuRowH, below.val()); below.step == nil || l != gfx.Bg {
-			t.Fatalf("%s, not selected, has an arrow (%06x)", below.label, l)
-		}
 	}
 	if l, r := arrows("Stepper"); l != gfx.Amber || r != gfx.Amber {
 		t.Fatalf("a row that does not say where it is: arrows %06x and %06x", l, r)
+	}
+	// The adjacent fixture row is stepped but not selected, so has no arrow.
+	below := o.items()[o.cur+1]
+	if l, _ := stepArrowColours(a, c, focusY(c)+MenuRowH, below.val()); below.step == nil || l != gfx.Bg {
+		t.Fatalf("%s, not selected, has an arrow (%06x)", below.label, l)
 	}
 	// (the left arrow's place only: the value, not moved over, may reach the right one's)
 	if l, _ := arrows("Locked stepper"); l != gfx.Bg {

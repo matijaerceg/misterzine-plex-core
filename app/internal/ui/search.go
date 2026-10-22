@@ -107,6 +107,7 @@ func (s *Search) accept(gen int, items []*plex.Item, err error) {
 	}
 	s.loading = false
 	if err != nil {
+		s.app.SessionEnded(err)
 		s.message = "Search unavailable. Select Results to retry."
 		return
 	}

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{#
+  Announcement bar: names the version this manual describes.
+
+  The site is deployed only when a release is published, from that release's own
+  tagged commit, so the manual a reader is looking at always matches the .rbf
+  they can download. `released_version` lives in mkdocs.yml `extra:` and is
+  bumped by the release commit. "0.0.0" = no release yet (bring-up).
+#}
+{% block announce %}
+  {% if config.extra.released_version == "0.0.0" %}
+    This manual describes an <strong>unreleased development build</strong>. Nothing is
+    published yet; see the repository's roadmap.
+  {% else %}
+    This manual documents
+    <a href="{{ config.repo_url }}/releases/latest"><strong>v{{ config.extra.released_version }}</strong></a>,
+    the latest release.
+  {% endif %}
+{% endblock %}

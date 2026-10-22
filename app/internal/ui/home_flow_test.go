@@ -218,14 +218,8 @@ func TestHomeFlowSelectedChildUsesItsTokenAndSetsPlaybackEnvironment(t *testing.
 	if cfg.HomeUserID != "2" || cfg.HomeUserTitle != "Child" || cfg.HomeToken != "child-token" || !cfg.HomeRestricted || cfg.AutoSignIn {
 		t.Fatalf("selected child identity not saved safely: %#v", cfg)
 	}
-	want := []string{"PLEX_HOST=http://server.test", "PLEX_TOKEN=server-token", "PLEX_CLIENT_ID=client"}
-	if len(a.Player.Env) != len(want) {
-		t.Fatalf("playback environment: %#v", a.Player.Env)
-	}
-	for i := range want {
-		if a.Player.Env[i] != want[i] {
-			t.Fatalf("playback environment: %#v", a.Player.Env)
-		}
+	if a.Player.Client != a.Plex || a.Plex.Host != "http://server.test" || a.Plex.Token != "server-token" {
+		t.Fatalf("playback client: %#v", a.Player.Client)
 	}
 }
 
@@ -273,7 +267,7 @@ func TestHomeFlowSaveFailureDoesNotGrantAccessOrMutateConfig(t *testing.T) {
 	if cfg.Token != "old-account" || cfg.HomeUserID != "old-user" || cfg.HomeToken != "old-home-token" || cfg.ServerURL != "http://old-server" || cfg.ServerToken != "old-server-token" {
 		t.Fatalf("failed save mutated existing credentials: %#v", cfg)
 	}
-	if a.Plex != nil || a.Player.Env != nil {
+	if a.Plex != nil || a.Player.Client != nil {
 		t.Fatal("failed save activated Plex or playback")
 	}
 }

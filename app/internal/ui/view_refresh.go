@@ -90,7 +90,7 @@ func actionKind(actions []string, at int) string {
 		return ""
 	}
 	a := actions[at]
-	for _, kind := range []string{"Resume", "Mark", "Audio", "Subtitles", "Remove", GoToShow, ShuffleShow} {
+	for _, kind := range []string{"Resume", "Mark", "Audio", "Subtitles", RemoveContinue, GoToShow, ShuffleShow} {
 		if strings.HasPrefix(a, kind) {
 			return kind
 		}
@@ -129,7 +129,7 @@ func (p *Preplay) pollRefresh(now time.Time) {
 			return
 		}
 		kind := actionKind(p.actions, p.cur)
-		*p.item = *items[0]
+		p.app.takeFresh(p.item, items[0])
 		p.rebuild()
 		p.cur = restoreAction(p.actions, kind)
 	})
@@ -147,6 +147,7 @@ func (s *Season) pollRefresh(now time.Time) {
 	if s.loading || s.err != nil || len(s.eps) == 0 {
 		return
 	}
+	s.wantTracks(now) // the cursor came to rest without a release
 	client, key := s.app.Plex, s.season().Key
 	s.periodic.poll(s.app, now, func() ([]*plex.Item, error) {
 		return client.Items(key, nil, 500)

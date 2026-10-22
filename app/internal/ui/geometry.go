@@ -14,8 +14,8 @@ import (
 // screen for sets that hide the picture's edges or draw it too wide or too
 // narrow: each edge moved in from the raster's by an even number of pixels
 // (left, right) or lines (top, bottom), and the picture's width in thousandths
-// of the nominal 4:3 width (0 is 1000). Menus ignore it; the presenter gets it
-// as PLEXFB_GEOMETRY and fits every frame inside it.
+// of the nominal 4:3 width (0 is 1000). Menus ignore it; a supporting worker
+// computes picture and clipping rectangles for the core's scaler.
 type Geometry struct {
 	Left   int `json:"left"`
 	Top    int `json:"top"`
@@ -24,7 +24,7 @@ type Geometry struct {
 	Width  int `json:"width,omitempty"`
 }
 
-// The limits the presenter accepts (arm/plexfb.c parse_screen).
+// The limits the playback geometry helper accepts.
 const (
 	GeometryMaxX     = 720 / 6
 	GeometryMaxY     = 480 / 6
@@ -45,7 +45,7 @@ func (g Geometry) Normal() Geometry {
 	return g
 }
 
-// Env is the PLEXFB_GEOMETRY value.
+// Env is the worker's --geometry argument.
 func (g Geometry) Env() string {
 	g = g.Normal()
 	return fmt.Sprintf("%d,%d,%d,%d,%d", g.Left, g.Top, g.Right, g.Bottom, g.Width)
@@ -55,7 +55,7 @@ func (g Geometry) Env() string {
 // `lines` lines. Without calibration, exactly where it went before
 // calibration existed; with it, the same shape, as large as fits the picture
 // area at the calibrated width, centred. It must match fit() in
-// arm/plexfb.c operation for operation (both are tested against
+// arm/video_geometry.h operation for operation (both are tested against
 // tools/testdata/fit_cases.txt), so the float sums use variables: Go folds
 // constant arithmetic exactly, C rounds each step.
 func (g Geometry) Fit(aspect float64, lines int) (x, y, w, h int) {
@@ -104,8 +104,22 @@ func squareWidth(sqW, sqH int) int {
 	return int(math.Round(1000 * 8 * float64(sqW) / (9 * float64(sqH))))
 }
 
-// VideoGeometry is the presenter's PLEXFB_GEOMETRY, read at each playback start.
+// geometryX maps the persistent 720-pixel calibration coordinates into the
+// app's current logical canvas. A 960-wide canvas is the same display width
+// represented by 720 anamorphic raster pixels.
+func geometryX(x, canvasW int) int {
+	return int(math.Round(float64(x) * float64(canvasW) / 720))
+}
+
+// VideoGeometry is read at each playback start on supporting cores.
 func (a *App) VideoGeometry() string { return a.Cfg.Geometry.Env() }
+
+func (a *App) calibrationLabel() string {
+	if a.Player != nil && a.Player.Geometry != nil {
+		return "Video calibration"
+	}
+	return "Video calibration (preview only)"
+}
 
 // The core leaves the first 12 and the last 8 pixels of every line black in
 // 480i and 240p (core/rtl/ddr_scanout.v, "Line ends"), so an edge placed
@@ -260,12 +274,14 @@ func (s *Calibrate) Draw(c *gfx.Canvas, now time.Time) bool {
 	g := s.pastEnds(s.g.Normal())
 	f := s.app.F
 	c.Fill(0, 0, c.W, c.H, gfx.Black)
-	c.Fill(px, py, pw, ph, calFill)
+	pxOnCanvas, pwOnCanvas := geometryX(px, c.W), geometryX(px+pw, c.W)-geometryX(px, c.W)
+	c.Fill(pxOnCanvas, py, pwOnCanvas, ph, calFill)
 
 	// the picture area's edges: 2 lines across (1 flickers at 480i), 4
 	// pixels down (thinner verticals wash out through composite)
-	ax, ay := g.Left, g.Top
-	aw, ah := 720-g.Left-g.Right, 480-g.Top-g.Bottom
+	ax, ay := geometryX(g.Left, c.W), g.Top
+	aright := geometryX(720-g.Right, c.W)
+	aw, ah := aright-ax, 480-g.Top-g.Bottom
 	col := func(sel int) gfx.Color {
 		if s.sel == sel {
 			return gfx.Amber
@@ -294,18 +310,21 @@ func (s *Calibrate) Draw(c *gfx.Canvas, now time.Time) bool {
 	}
 
 	sx, sy, bottom := s.square(g)
+	sqDrawW := s.sqW // 9:8 compensates for the display's 8:9 horizontal pixel aspect
+	squareCenterX := geometryX(sx+s.sqW/2, c.W)
+	sx = squareCenterX - sqDrawW/2
 	sq := gfx.GreyHi
 	if s.sel == calCorner {
 		sq = gfx.Amber
 	}
-	c.Fill(sx, sy, s.sqW, 2, sq)
-	c.Fill(sx, bottom-2, s.sqW, 2, sq)
+	c.Fill(sx, sy, sqDrawW, 2, sq)
+	c.Fill(sx, bottom-2, sqDrawW, 2, sq)
 	c.Fill(sx, sy, 4, s.sqH, sq)
-	c.Fill(sx+s.sqW-4, sy, 4, s.sqH, sq)
-	cx, cy := sx+s.sqW/2, sy+s.sqH/2
-	inside := drawEllipse(c, cx, cy, s.sqW/2, s.sqH/2, 4, 3, sq)
+	c.Fill(sx+sqDrawW-4, sy, 4, s.sqH, sq)
+	cx, cy := sx+sqDrawW/2, sy+s.sqH/2
+	inside := drawEllipse(c, cx, cy, sqDrawW/2, s.sqH/2, 4, 3, sq)
 	if s.sel == calCorner {
-		cornerArrow(c, sx+s.sqW, sy, gfx.Amber)
+		cornerArrow(c, sx+sqDrawW, sy, gfx.Amber)
 	}
 
 	// the instructions, inside the circle
@@ -351,7 +370,7 @@ func (s *Calibrate) Draw(c *gfx.Canvas, now time.Time) bool {
 	if by+f.Small.Height() <= py+ph-8 {
 		all := fmt.Sprintf("Top %d  Right %d  Bottom %d  Left %d  Width %d.%d%%",
 			g.Top, g.Right, g.Bottom, g.Left, g.Width/10, g.Width%10)
-		s.app.textCenterOn(c, mx, by, f.Small, gfx.GreyLo, calFill, f.Small.Fit(all, pw-24))
+		s.app.textCenterOn(c, mx, by, f.Small, gfx.GreyLo, calFill, f.Small.Fit(all, pwOnCanvas-24))
 	}
 	if ty := sy - 30; ty >= py+8 && s.sel != calCorner {
 		s.app.textCenterOn(c, mx, ty, f.SmallBold, gfx.GreyLo, calFill, "Video geometry: menus stay as they are")

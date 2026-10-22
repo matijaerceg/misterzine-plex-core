@@ -1,18 +1,21 @@
 # HDMI setup
 
-Start with **1080p, Original 4:3, full-height scaling and Sharp interpolation**.
-This keeps the interface's proportions, fills the screen vertically and smooths
-uneven text strokes. Side bars are normal on a widescreen display.
+The picture's mode and shape are chosen in the core's OSD (the MiSTer menu
+button while the app runs); the app's Options have no video output setting.
+MiSTer's HDMI scaler then turns the core's picture into the HDMI resolution set
+in your MiSTer INI. The core's own manual describes every OSD option:
+[core settings](../third_party/MiSTer_h264_decoder/site/content/using/settings.md).
 
 ## Recommended starting point
 
-1. For a direct HDMI connection to a modern display, select **Options > Video
-   output > 480p (HDMI)** in Plex. This is the core's source signal; MiSTer's
-   scaler produces the final HDMI resolution. Keep CRT safety restrictions in
-   place if an analog CRT is also connected.
-2. In the MiSTer OSD, leave **HDMI scaling** on **Normal**. HDMI aspect is fixed at
-   **4:3**. Leave **Force 480i** **Off** for this HDMI setup.
-   Older cores have an **HDMI aspect** choice instead; select **Original 4:3**.
+1. In the core OSD, set **Output Mode** to **480p60**. This fits every video and
+   the menus into a 480-line picture at 59.94 Hz. Use **576p50** instead for a
+   50 Hz picture, or **Native HDMI** (below) to keep the detail of 720p video.
+   If an analog CRT is also connected, keep an interlaced mode it accepts.
+2. Set **Display Shape** to **16:9** on a widescreen display, so the menus and
+   fitted video use its full width, or **4:3** for side bars around a 4:3
+   picture. Make sure the display itself preserves the incoming aspect ratio
+   and does not zoom or overscan.
 3. Add or update this section in the **active MiSTer INI**, preserving other
    settings. If you use an alternate configuration, edit that file rather than
    assuming `MiSTer.ini` is active. Keep the section below the `[MiSTer]`
@@ -22,103 +25,121 @@ uneven text strokes. Side bars are normal on a widescreen display.
    ```ini
    [MisterZine Plex Core]
    video_mode=8
-   direct_video=0
    vscale_mode=0
    vscale_border=0
    vrr_mode=0
    ```
 
-   This selects 1920x1080 at 60 Hz, scaled HDMI output and full-height scaling
-   without an added border, and turns variable refresh rate off (see
-   [below](#variable-refresh-rate-vrr-freesync)). These settings are scoped to
-   Plex; other cores keep your global settings.
-4. In **Video Processing**, set the horizontal filter to **From file** and choose
-   **Interpolation (Sharp).txt**. Set the vertical filter to **From file** and
-   choose the same file. Select an actual file; an empty selection is not this
-   preset. No CRT simulation or scanline effect is needed.
-5. On the display, preserve the incoming aspect ratio and disable zoom/overscan
-   if the edges are cropped. The interface should reach the top and bottom,
-   with side bars on a 16:9 screen.
+   This selects 1920x1080 at 60 Hz, full-height scaling without an added border,
+   and turns variable refresh rate off (see
+   [below](#variable-refresh-rate-vrr-freesync)). These settings apply only to
+   this core; other cores keep your global settings. MiSTer matches the section
+   to the core by its name, so it must read exactly `[MisterZine Plex Core]`.
+   Earlier releases used the same name, so a section written for them still
+   applies: check its settings against the ones above.
+4. Optionally, in the OSD's **Video Processing** settings, choose a scaler
+   filter from file, such as **Interpolation (Sharp).txt** for both directions,
+   to smooth uneven text strokes. No CRT simulation or scanline effect is
+   needed.
+
+If a global `vscale_mode` turns on integer scaling for every core, the picture
+may not fill the screen; `vscale_mode=0` in the section above fills it.
+
+## 50 Hz output and refresh matching
+
+The core's refresh rate follows **Output Mode**: 59.94 Hz in the 480-line
+modes, 50 Hz in the 576-line modes. With **Refresh Rate Match** at **50/60**
+it switches family while a video plays, to suit the video, and returns when
+playback ends. With **Native HDMI** a playing video runs at exactly 60 Hz in
+the 60 Hz family.
+
+With `vsync_adjust=0` (MiSTer's default), HDMI keeps the rate of `video_mode`
+whatever the core does. When the two differ, frames are dropped or repeated and
+motion judders. For a 50 Hz picture either pick a 50 Hz HDMI mode
+(`video_mode=9` is 1920x1080 at 50 Hz, `7` is 1280x720 at 50 Hz), or set
+`vsync_adjust=1` so HDMI follows the core's rate, if your display accepts both
+50 and 60 Hz. Refresh Rate Match on HDMI needs the second: a fixed HDMI mode
+cannot follow a switch.
+
+## Native HDMI
+
+**Native HDMI** shows a playing video at its own picture size, up to 1280x720,
+and leaves the scaling to MiSTer's HDMI scaler, so a 720p film keeps its
+detail on an HD display. A playing video takes the HDMI mode's own shape;
+the menus still follow Display Shape. **Video calibration** does not apply in
+this mode. The analog output carries the same timing, so it is meant for HDMI
+only.
+
+## Interlaced output on HDMI
+
+On the interlaced modes (**480i60**, **576i50**) the OSD shows **HDMI
+Deinterlace**: **Weave** joins the two fields for full detail (moving edges can
+comb), **Bob** shows each field on its own. The analog output is not affected.
+On the progressive modes, **Deinterlace** chooses how video recorded as
+interlaced fields is shown: **Weave**, **Bob** or **Blend**.
 
 ## Choosing an alternative
 
-```mermaid
-flowchart TD
-    A[Start with 1080p, full height, Original 4:3 and Sharp interpolation]
-    A --> B{Picture correctly proportioned and text comfortable?}
-    B -->|Yes| C[Keep these settings]
-    B -->|No: stretched or cropped| D[Check display aspect, zoom and overscan]
-    D --> B
-    B -->|No: prefer another scaling result| E[Try genuine 1920x1440 if the display supports it]
-    E --> F{Signal accepted and proportions correct?}
-    F -->|Yes| G[Compare text and keep the preferred result]
-    F -->|No| H[Restore the 1080p settings]
-```
-
 - **Compatible higher-resolution displays:** `video_mode=12` selects genuine
-  1920x1440 at approximately 60 Hz. It looked clear and correctly proportioned
-  on the tested 4K monitor, including with NearNeighbour filtering. Keep
-  full-height scaling and Original 4:3. Other displays may reject this timing
-  or stretch it; have a way to restore the INI. This is not MiSTer's
+  1920x1440 at approximately 60 Hz. Other displays may reject this timing or
+  stretch it; have a way to restore the INI. This is not MiSTer's
   pixel-repeated 2560x1440 mode.
 - **720p or 480p displays:** use a supported output mode (`video_mode=0` for
   1280x720, `6` for 640x480, or `2` for 720x480). Check proportions and text on
-  the actual display. Lower-resolution trials remained usable, but were not
-  preferred over the higher-resolution options. Filtering can trade sharpness
-  for more even strokes; matching 720x480 alone does not guarantee one-to-one
-  pixels after aspect correction.
-- **Integer height** in the core OSD can make source rows more even,
-  but leaves top/bottom bars at 1080p and an especially small picture at 720p.
-  It is an optional preference, not the full-height recommendation.
-  **Normal** follows MiSTer's INI scaling settings: use `vscale_mode=0` and
-  `vscale_border=0` for full height. A global `vscale_mode=1` can still add borders
-  when Normal is selected. The **HDMI setup help** submenu explains these settings; its notes are guidance,
-  not live INI values. The dimmed **HDMI aspect: 4:3** row is fixed information.
+  the actual display. Filtering can trade sharpness for more even strokes;
+  matching 720x480 alone does not guarantee one-to-one pixels after aspect
+  correction.
+- **Integer scaling** (`vscale_mode=1`) can make source rows more even, but
+  leaves top and bottom bars at 1080p and an especially small picture at 720p.
 
 ## Variable refresh rate (VRR, FreeSync)
 
-Plex's picture always refreshes at the NTSC rate, about 59.94 times a second,
-whatever the video's own frame rate. A 30 fps video holds every frame for two
-refreshes. A 24 fps film holds its frames for three and two refreshes in turn,
-and 25 fps video (including 50 fps sources, which play at half rate) uses a
-similar uneven pattern. VRR lets the display follow a core whose refresh rate
-changes; this one never changes, so VRR gives Plex no benefit.
+VRR lets the display follow a core whose refresh rate changes. This core's
+rate changes during playback when **Refresh Rate Match** switches family, and
+slightly in Native HDMI and 240p playback. With VRR forced on, HDMI follows
+the core's rate, as it does with `vsync_adjust`, so Options do not flag it.
+MiSTer switches VRR off whenever `vsync_adjust` is 1 or 2. Forcing FreeSync
+(`vrr_mode=2`) was reported to make 24 fps films stutter with this app's
+earlier core, which ran at a fixed 59.94 Hz; it has not been tested with the
+H.264 core. Keep `vrr_mode=0` in the section above unless you have checked
+your display with it.
 
-Forcing FreeSync (`vrr_mode=2`) has been reported to make 24 fps films play
-badly while 30 fps video stayed smooth, and turning it off fixed every file.
-Keep `vrr_mode=0` in the Plex section above. MiSTer also switches VRR off
-whenever `vsync_adjust` is 1 or 2.
-
-With VRR off, films can still look slightly uneven: that is the three-two
-pattern above. Some displays smooth it with a film-mode or motion setting,
-which game modes often disable.
+With VRR off, 24 fps films at 59.94 or 60 Hz can still look slightly uneven:
+their frames are held for three and two refreshes in turn. Some displays smooth
+it with a film-mode or motion setting, which game modes often disable. On a
+50 Hz picture, **Play 24fps at 25fps** avoids the uneven pattern by speeding
+films up.
 
 ## Settings Options warn about
 
-When Plex starts, it reads the INI MiSTer loaded for it, including an
-alternative INI chosen in the MiSTer menu, and applies MiSTer's own section
-rules. It reads the file, not live values. **Options** then shows a row, below
-**Video crop**, for each setting that hurts Plex. Select a row to see which
-file to change and what to add.
+When the app starts, its launcher reads the INI MiSTer loaded for the core,
+including an alternative INI chosen in the MiSTer menu, and applies MiSTer's
+own section rules. It reads the file, not live values. **Options** then shows
+a row, below **Video crop**, for each setting that hurts playback, weighed
+against the core's current **Output Mode** and **Refresh Rate Match**. Select
+a row to see which file to change and what to add; the lines go in a
+`[MisterZine Plex Core]` section at the end of that file, and take effect once
+you start the app again from the MiSTer menu.
 
-- **HDMI VRR: Forced on**: `vrr_mode` is 2, 3 or 4 with `vsync_adjust=0`. The
-  automatic setting (`vrr_mode=1`) depends on what the display reports, so it
-  is not flagged.
-- **HDMI refresh** (for example **50 Hz**): HDMI keeps a fixed rate well away
-  from 60 Hz, so frames are dropped or repeated and motion judders. Modes 3, 7
-  and 9 are 50 Hz. With `vsync_adjust=0` the rate is `video_mode`'s. With
-  `vsync_adjust` 1 or 2, MiSTer follows Plex instead, unless `refresh_min` or
-  `refresh_max` leaves out 59.94 Hz, or a `video_mode_pal` is set without a
-  `video_mode_ntsc`. With `vrr_mode=1` a display that uses VRR may follow Plex
-  anyway, and the note says so.
+- **HDMI refresh** (with the rate, for example **60 Hz**): HDMI keeps a fixed
+  rate, and either it is well away from the Output Mode's own (50 Hz for the
+  576-line modes, 59.94 Hz for the others), or Refresh Rate Match is on and
+  can move playback to a rate HDMI does not follow. Modes 3, 7 and 9 are
+  50 Hz. With `vsync_adjust=0` the rate is `video_mode`'s. With `vsync_adjust`
+  1 or 2, MiSTer follows the core instead, unless `refresh_min` or
+  `refresh_max` leaves out the core's rate, or a `video_mode_pal` is set
+  without a `video_mode_ntsc`. For a mismatched Output Mode the note suggests
+  a fixed mode at the right rate (`video_mode=8`, or `9` for the 576-line
+  modes; `0` or `7` for 1280x720). With Refresh Rate Match on it suggests
+  `vsync_adjust=1`, or turning matching off.
 - **HDMI sound: Off (DVI mode)**: `dvi_mode=1` sends no sound over HDMI. Sound
   still plays from the analog audio output.
-- **Plex INI section: Overridden**: a `[MiSTer]` section further down the file
-  changes a video setting the Plex section sets to a different value. Move the
-  Plex section to the end.
+- **INI section: Overridden**: a `[MiSTer]` section further down the file
+  changes a video setting the `[MisterZine Plex Core]` section sets to a
+  different value. Move that section to the end.
 
-Each alternative INI is checked on its own, so a Plex section kept in only
-some of them, such as an HDMI INI but not a CRT one, is not flagged.
+Each alternative INI is checked on its own, so a section for this core kept in
+only some of them, such as an HDMI INI but not a CRT one, is not flagged.
 **Send a report** still notes it, in case settings seem to be ignored.
 
 Some settings are only resolved while MiSTer runs, so rows that depend on them
@@ -129,13 +150,10 @@ current video mode, which MiSTer measures once the core runs.
 
 ## What has been checked
 
-These recommendations come from DE10-Nano testing on a 4K monitor, with HDMI
-capture used to verify 1080p and genuine 1920x1440 output. The monitor also
-scales the incoming signal. Native 1080p and 720p panels still need separate
-validation; this is a starting point rather than a guarantee for every display.
-Variable refresh rate has not been tested on a VRR display yet; the advice
-above follows from the fixed output rate and that report.
-When comparing captures, view them at actual size so preview resizing does not
+These recommendations follow from how the core and MiSTer's scaler work. The
+release notes list the setups each release was tested on; native 1080p and
+720p panels and VRR displays have not been checked with this app yet. When
+comparing captures, view them at actual size so preview resizing does not
 introduce another scaling artifact.
 
 For more detail, see MiSTer's [video scaling documentation](https://mister-devel.github.io/MkDocs_MiSTer/advanced/videoscaling/)

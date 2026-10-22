@@ -20,7 +20,7 @@ MAINTAIN_LOG = '/tmp/misterzine-plex-maintain.log'
 def start_upkeep(card, root, patience=20):
     """Check the Plex entries once as the watch starts (at boot, or after an
     install): `manager.py maintain`. Returns once the check has let go of the
-    Plex locks, which it signals by closing its stdout, so the app is never
+    app locks, which it signals by closing its stdout, so the app is never
     launched into a held lock. A pick made meanwhile is launched after, since
     the watch compares the core name's time stamp. A Zaparoo reload can go on
     after that; the caller reaps the child. A check still holding on after

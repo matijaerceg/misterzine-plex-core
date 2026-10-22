@@ -100,6 +100,7 @@ func TestShowBetaFeaturesToggle(t *testing.T) {
 	if !a.Cfg.ShowBeta || !a.showBeta() {
 		t.Fatal("toggle did not turn beta on")
 	}
+	a.Cfg.Flush() // settings are written once the steps stop
 	saved := LoadConfig(a.Cfg.path)
 	if !saved.ShowBeta {
 		t.Fatal("toggle not saved")

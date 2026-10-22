@@ -1,6 +1,8 @@
 # Help
 
-[Downloads](https://github.com/matijaerceg/misterzine-plex-core/releases) · [Installation](https://github.com/matijaerceg/misterzine-plex-core#install)
+[Downloads](https://github.com/matijaerceg/misterzine-plex-core/releases) ·
+[Installation](https://github.com/matijaerceg/misterzine-plex-core#install) ·
+[Full reference](https://github.com/matijaerceg/misterzine-plex-core/blob/main/docs/REFERENCE.md)
 
 ### Before you start
 
@@ -12,19 +14,13 @@ does to your library or your MiSTer.
 ### How do I use it?
 
 D-pad moves, OK selects, and Back returns or opens the menu. During playback,
-OK opens the controls; Back or Down closes them. Press Back with the controls
-hidden to stop. To leave the app, choose Exit to MiSTer menu near the bottom
-of the menu.
+OK opens the controls. The first Back closes whatever is on screen; Back with
+nothing on screen stops playback. A second Back within half a second of the
+first is ignored, so a double press does not stop the video by surprise. To
+leave the app, choose Exit to MiSTer menu near the bottom of the menu.
 
-### Subtitles are too small
-
-Choose **Options > Subtitle size**, or **More > Subtitle size** in the playback
-controls. Normal, Large and Extra large use 100%, 150% and 200% of Plex's original
-size. Your choice is saved for future videos. Changing size while subtitles are
-enabled briefly reloads the video at your current position.
-
-The result depends on the subtitle format and Plex server. Lettering already
-embedded in the original video cannot be resized this way.
+Video is decoded by the MisterZine Plex H.264 core, which the app loads when it
+starts. The screen stays black until the app draws its first menu.
 
 ### Why is it asking for another code?
 
@@ -43,37 +39,79 @@ If the server cannot be reached but other Plex apps on your network work, set
 the server's **Settings > Network > Secure connections** to **Preferred**.
 Older builds may have different script names; follow their included instructions.
 
-### Playback stutters
-
-Try 1.5 or 2 Mbps in Options, and check that your Plex server can transcode the
-video. The default is 3 Mbps; higher settings are experimental.
-
-On HDMI, if films (24 fps) stutter but 30 fps shows play smoothly, turn off
-variable refresh rate for Plex: add `vrr_mode=0` to the Plex section of your
-MiSTer INI, as shown in [HDMI setup](https://github.com/matijaerceg/misterzine-plex-core/blob/main/docs/HDMI.md#variable-refresh-rate-vrr-freesync).
-When your INI forces VRR on, **Options** shows **HDMI VRR: Forced on**; select
-it for the lines to add.
-
-Options also flag other MiSTer INI settings that hurt playback: HDMI running
-at 50 Hz, DVI mode (no sound over HDMI), and a Plex section that another
-section overrides. Alternative INIs are each checked on their own. Each row explains the fix;
-see [HDMI setup](https://github.com/matijaerceg/misterzine-plex-core/blob/main/docs/HDMI.md#settings-options-warn-about).
-
 ### The picture looks wrong
 
-CRT output uses NTSC 480i. For RGB-only CRT profiles, choose **Safe 480i** in the
-core's on-screen menu. PAL isn't supported yet. Select HDMI 480p in Options;
-hold OK for two seconds to keep the change, or let it revert.
-For HDMI, leave **Scale** on **Normal**. If the picture is cropped or too small,
-see [HDMI setup](https://github.com/matijaerceg/misterzine-plex-core/blob/main/docs/HDMI.md).
+The output is chosen in the core's on-screen menu (the MiSTer menu button while
+the app runs), not in the app's Options. Start with **Output Mode: 480i60**,
+**Refresh Rate Match: Off** and **240p Playback: Off**. **576i50** and
+**576p50** are for PAL displays. Progressive 480p and 576p need a display that
+accepts them; a normal 15 kHz CRT does not. Refresh Rate Match can switch
+between the 50 and 60 Hz families during playback, so turn it on only if your
+display accepts both. **Native HDMI** plays video at its own size and leaves
+scaling to MiSTer's HDMI scaler.
+
+**Display Shape** in the core's menu selects a 4:3 or 16:9 screen; the app's
+screens widen for 16:9. **De-flicker** softens thin horizontal lines on
+interlaced output. **Options > Video calibration** lines the picture up with
+your screen's edges, and **Options > Video crop** chooses how much of a wide
+film's sides to cut.
+
+HDMI scaling follows your MiSTer INI. If it turns on integer scaling
+(`vscale_mode`) for every core, the picture may not fill the screen; add a
+section for this core to fill it:
+
+```ini
+[MisterZine Plex Core]
+vscale_mode=0
+```
+
+See [HDMI setup](https://github.com/matijaerceg/misterzine-plex-core/blob/main/docs/HDMI.md).
+
+### Playback stutters
+
+Files the core can decode are streamed as stored; everything else is converted
+(transcoded) by your Plex server. Try a lower **Video bitrate** in Options, and
+check that your Plex server can transcode the video in real time. The steps
+below 3 Mbps (2, 1 and 0.4 Mbps) are for weak Wi-Fi; they also make the
+transcoded picture smaller, which costs little on a CRT. A file whose video is
+above the chosen bitrate is transcoded rather than streamed as stored. If a
+stream played as stored falls behind, playback switches once to a transcode at
+the same position.
+
+On HDMI, if films stutter or motion judders, look in **Options** below
+**Video crop**: the app adds rows for MiSTer INI settings that hurt playback.
+**HDMI refresh** means HDMI is held at a fixed rate that the core's Output Mode
+or Refresh Rate Match does not keep to, **HDMI sound** means DVI mode (no sound
+over HDMI), and **INI section** means a later `[MiSTer]` section overrides the
+app's `[MisterZine Plex Core]` section. Select a row for the lines to add. If
+24 fps films stutter with variable refresh rate forced on, see
+[HDMI setup](https://github.com/matijaerceg/misterzine-plex-core/blob/main/docs/HDMI.md#variable-refresh-rate-vrr-freesync).
+
+### Subtitles are too small or missing
+
+Choose **Options > Subtitle size**, or **More > Subtitle size** in the playback
+controls: Normal, Large (150%) or Extra large (200%). Your choice is saved for
+future videos.
+
+Text subtitles (SRT, ASS/SSA, WebVTT) are drawn by the app, so the video needs
+no transcode for them, and turning them on or off or changing their size does
+not restart it. Only the words are shown, without the styling of ASS/SSA
+tracks. The first time a track embedded in a large file is asked for, the
+server extracts it, which can take a while; the video plays without subtitles
+meanwhile.
+
+Picture subtitles (PGS, VobSub) are burned into the video by your Plex server
+at the chosen size, so they need a transcode. Turning them on restarts the
+stream at the same position, and the server can take a while to start it.
+Lettering already embedded in the original video cannot be resized.
 
 ### Some videos show blocks or patches of other frames
 
-Your Plex server converts every video before sending it to the MiSTer. If
-rectangular patches of earlier frames linger on screen, most often with older
-XviD or DivX `.avi` files, the server's conversion is damaging the picture.
-Other Plex apps can look fine because they often play such files without
-converting them.
+Videos the core cannot play as stored are converted by your Plex server before
+they reach the MiSTer. If rectangular patches of earlier frames linger on
+screen, most often with older XviD or DivX `.avi` files, the server's
+conversion is damaging the picture. Other Plex apps can look fine because they
+often play such files without converting them.
 
 To check, play the same video in Plex Web at a lower quality, such as 2 Mbps,
 so the server has to convert it. If the same patches appear, turn off
@@ -83,15 +121,18 @@ the Plex server and play it again. Re-encoding the file to H.264 also avoids it.
 ### How do I update or remove it?
 
 Use **Options > Updates** to install a release, then choose **Restart now** when
-ready. Sign-in and settings are kept. If you need to go back, return to MiSTer
+ready. Sign-in and settings are kept. If the new version does not start, the
+previous one is put back. If you need to go back yourself, return to MiSTer
 Menu and run **MisterZine-Plex-Rollback**.
 
 Downloads go through MiSTer Downloader, and fall back to a direct fetch of the
 release file when that fails. If both fail, the message under **Options > Updates**
-says whether your MiSTer's connection, its clock, or the release is the problem.
-A board whose clock is far off cannot verify any secure site, so set the time in
-MiSTer Menu or let it sync over the network. The full reasons are kept in
-`/media/fat/misterzine-plex/updates/last-error.log` and in the diagnostics file.
+says whether your MiSTer's connection, its clock, its SD card or the release is
+the problem. A board whose clock is far off cannot verify any secure site, so
+set the time in MiSTer Menu or let it sync over the network. Wait for any
+running Downloader or Update All to finish before trying again. The full
+reasons are kept in `/media/fat/misterzine-plex/updates/last-error.log` and in
+the diagnostics file.
 
 To remove it, return to MiSTer Menu and run **MisterZine-Plex-Uninstall**.
 It keeps your settings by default; removing all Plex data requires typing REMOVE.
@@ -100,15 +141,17 @@ It keeps your settings by default; removing all Plex data requires typing REMOVE
 
 **Options > Send a report** in the app describes your MiSTer to the developer and
 shows a short code, such as `K7M4`, to post wherever you asked for help. The
-report holds the app and launcher logs, the video settings read from the MiSTer INI,
-which MiSTer main is running and the framebuffer state. It can name media titles
-and playback details; sign-in tokens, the server address and account files are
-never included. Reports go to `api.misterzine.fyi`, which keeps nothing about who
-sent them, and are deleted after 30 days. A copy is always saved as
-`/media/fat/misterzine-plex/report.txt`.
+report holds the app and launcher logs, the reasons for connection and update
+failures, the video settings read from the MiSTer INI, which MiSTer main is
+running and the framebuffer state. It can name media titles and playback
+details; sign-in tokens, the server address and account files are never
+included, and beta access codes are redacted. Reports go to
+`api.misterzine.fyi`, which keeps nothing about who sent them, and are deleted
+after 30 days. A copy is always saved as `/media/fat/misterzine-plex/report.txt`.
 
 If the app does not start, **MisterZine-Plex-Diagnostics** in MiSTer Menu writes
 and sends the same report and prints the code. If the MiSTer is offline, attach the
 saved file to a [problem report](https://github.com/matijaerceg/misterzine-plex-core/issues/new?template=bug_report.yml)
-with the version from Options, your MiSTer model, display connection and what
+with the version from Options, your MiSTer model, the core's Output Mode and
+display connection, the bitrate, whether Plex was transcoding, and what
 happened. Don't share account files, tokens or member codes.

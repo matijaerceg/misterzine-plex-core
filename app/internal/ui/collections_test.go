@@ -18,13 +18,15 @@ import (
 // collectionServer is a synthetic server: library 1 (films) has two
 // collections, library 2 (shows) none. The collections listing of
 // library 1 waits for hold to close, so a test can look before it lands,
-// and answers with an error while failing is set.
+// and answers with an error while failing is set. The first collection
+// holds a 4:3 film, or only a wide one while wideFirst is set.
 type collectionServer struct {
 	*httptest.Server
-	hold    chan struct{}
-	mu      sync.Mutex
-	asks    map[string]int
-	failing bool
+	hold      chan struct{}
+	mu        sync.Mutex
+	asks      map[string]int
+	failing   bool
+	wideFirst bool
 }
 
 func newCollectionServer(t *testing.T) *collectionServer {
@@ -32,7 +34,7 @@ func newCollectionServer(t *testing.T) *collectionServer {
 	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		s.asks[r.URL.Path]++
-		failing := s.failing
+		failing, wideFirst := s.failing, s.wideFirst
 		s.mu.Unlock()
 		switch r.URL.Path {
 		case "/library/sections/1/collections":
@@ -52,6 +54,12 @@ func newCollectionServer(t *testing.T) *collectionServer {
 				`<Video ratingKey="11" key="/library/metadata/11" type="movie" title="Alpha"/>`+
 				`<Video ratingKey="12" key="/library/metadata/12" type="movie" title="Beta"/>`+
 				`</MediaContainer>`)
+		case "/library/collections/901/children":
+			if wideFirst {
+				io.WriteString(w, `<MediaContainer size="1"><Video ratingKey="31" key="/library/metadata/31" type="movie" title="Wide Two"><Media aspectRatio="2.35"/></Video></MediaContainer>`)
+				return
+			}
+			io.WriteString(w, `<MediaContainer size="1"><Video ratingKey="32" key="/library/metadata/32" type="movie" title="Square Two"><Media aspectRatio="1.33"/></Video></MediaContainer>`)
 		case "/library/collections/9020/children", "/library/collections/902/children":
 			// the collection's own order; one wide film for the 4:3 filter to hide.
 			// The server's key for it is not the usual path, to tell them apart.
@@ -104,6 +112,15 @@ func waitUntil(t *testing.T, what string, ok func() bool) {
 	}
 }
 
+// settled reports whether p's first page has landed and nothing more is on
+// its way: the pager asks for pages 0 and 1 together before it knows the
+// total, and the empty page 1 may land first.
+func settled(p *Pager) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.total >= 0 && len(p.inFlt) == 0
+}
+
 var (
 	filmsLibrary = plex.Section{Key: "1", Title: "Films", Type: "movie"}
 	showsLibrary = plex.Section{Key: "2", Title: "Shows", Type: "show"}
@@ -128,7 +145,7 @@ func TestWallCollectionsTabOnlyWithCollections(t *testing.T) {
 		t.Fatal("moved to a Collections tab that is not shown")
 	}
 	close(s.hold)
-	waitUntil(t, "the collections listing", func() bool { return films.collections().Total() >= 0 })
+	waitUntil(t, "the collections listing", func() bool { return settled(films.collections()) })
 	if n := films.tabCount(); n != len(wallViews) {
 		t.Fatalf("%d tabs once the library listed two collections", n)
 	}
@@ -153,7 +170,7 @@ func TestWallCollectionsTabOnlyWithCollections(t *testing.T) {
 	}
 
 	shows := NewWall(a, showsLibrary)
-	waitUntil(t, "the empty collections listing", func() bool { return shows.collections().Total() >= 0 })
+	waitUntil(t, "the empty collections listing", func() bool { return settled(shows.collections()) })
 	if n := shows.tabCount(); n != len(wallViews)-1 {
 		t.Fatalf("a library without collections shows %d tabs", n)
 	}
@@ -256,10 +273,7 @@ func TestWallOpensCollection(t *testing.T) {
 	now := time.Now()
 	library := NewWallView(a, filmsLibrary, len(wallViews)-1)
 	a.Push(library)
-	waitUntil(t, "the collections", func() bool { return library.total() == 2 })
-	if library.pager.Filtered() {
-		t.Fatal("the 4:3 filter walked the collections themselves")
-	}
+	waitUntil(t, "the collections", func() bool { return library.pager.Done() && library.total() == 2 }) // both hold a 4:3 film
 	a.key(input.Event{Key: input.Right}, now)
 	a.key(input.Event{Key: input.Enter}, now)
 	coll, ok := a.top().(*Wall)
@@ -308,6 +322,39 @@ func TestWallOpensCollection(t *testing.T) {
 	waitUntil(t, "the usual path", func() bool { return odd.pager.Done() && odd.total() == 2 })
 	if s.asked("/library/collections/902/children") == 0 || s.asked("/elsewhere/children") != 0 {
 		t.Fatal("a collection without a library key was not opened at the usual path")
+	}
+}
+
+// Under the 4:3 filter a collection holding nothing it keeps is left out
+// of the Collections tab; one with an item it cannot judge stays. Without
+// the filter every collection shows.
+func TestWallCollectionsFilteredEmptyHidden(t *testing.T) {
+	s := newCollectionServer(t)
+	close(s.hold)
+	s.mu.Lock()
+	s.wideFirst = true
+	s.mu.Unlock()
+	a := collectionTestApp(t, s, true)
+	films := NewWallView(a, filmsLibrary, len(wallViews)-1)
+	waitUntil(t, "the filtered collections", func() bool { return films.pager.Done() && films.total() >= 0 })
+	if films.pager != films.collections() || films.total() != 1 {
+		t.Fatalf("%d collections under the filter, want the second set only", films.total())
+	}
+	if it := films.pager.Get(0); it == nil || it.RatingKey != "902" {
+		t.Fatalf("kept %+v", it)
+	}
+	if s.asked("/library/collections/901/children") == 0 {
+		t.Fatal("the first set's items were not looked into")
+	}
+	if n := films.tabCount(); n != len(wallViews) {
+		t.Fatalf("%d tabs with a collection left", n)
+	}
+
+	a.Cfg.FourThree = false
+	films = NewWallView(a, filmsLibrary, len(wallViews)-1)
+	waitUntil(t, "the collections", func() bool { return films.total() == 2 })
+	if films.pager.Filtered() {
+		t.Fatal("the collections were filtered with the filter off")
 	}
 }
 

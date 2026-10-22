@@ -4,10 +4,10 @@ import (
 	"math"
 	"time"
 
-	"plexcrt/internal/beta"
 	"plexcrt/internal/gfx"
 	"plexcrt/internal/input"
 	"plexcrt/internal/plex"
+	"plexcrt/internal/updates"
 )
 
 // Drawer is the menu: a panel that slides in down the left over the home
@@ -15,10 +15,12 @@ import (
 // Patreon.
 type Drawer struct {
 	app       *App
+	under     Screen
 	items     []*plex.Item
 	cur       int
 	first     int         // the first row shown: the list scrolls when it outgrows the panel
 	back      *gfx.Image  // the home screen, dimmed
+	snap      *gfx.Canvas // back's pixels: a spare frame, given back when the drawer goes
 	page      *gfx.Canvas // the drawer panel, composed only when selection changes
 	key       string      // what the page was composed for
 	openAt    time.Time
@@ -34,27 +36,48 @@ const (
 	DrawerY0   = SafeY + 64
 	// DrawerRows is how many entries fit above the version line at the foot.
 	DrawerRows = (SafeBottom - 28 - DrawerY0) / DrawerRowH
-	BackBright = 56 // of 255: the home screen behind the menu
+	BackBright = 56 // of 256: the screen behind the menu or a chooser
 )
 
 // NewDrawer composes the menu over a snapshot of the screen beneath, with
 // the entry at cur selected and in view.
 func NewDrawer(app *App, under Screen, items []*plex.Item, cur int) *Drawer {
-	d := &Drawer{app: app, items: items, animating: true}
+	d := &Drawer{app: app, under: under, items: items, animating: true}
 	d.cur = max(0, min(len(items)-1, cur))
 	d.scroll()
-	snap := gfx.NewCanvas(720, 480)
-	under.Draw(snap, time.Now())
-	d.back = &gfx.Image{W: snap.W, H: snap.H, Pix: snap.Pix}
-	// Dim in place with the vectorized blend; avoid a second full-frame
-	// allocation and a scalar multiply for every byte before opening.
-	snap.BlendSolidClip(0, 0, d.back, 0, 256-BackBright, 0, 0, snap.W, snap.H)
-	d.page = gfx.NewCanvas(DrawerW, 480)
-	d.compose()
-	d.key = d.composeKey()
+	w, h := layoutCanvasSize(app)
+	d.prepare(w, h, time.Now())
 	// Preparation must not consume the first part of the slide.
 	d.openAt = time.Now()
 	return d
+}
+
+// prepare snapshots the screen beneath, dimmed, and composes the panel,
+// into spare canvases: nothing is allocated as the menu opens.
+func (d *Drawer) prepare(w, h int, now time.Time) {
+	d.left()
+	d.snap = dimmedSnapshot(d.under, w, h, now)
+	d.back = &gfx.Image{W: w, H: h, Pix: d.snap.Pix}
+	d.page = gfx.TakeCanvas(DrawerW, h)
+	d.compose()
+	d.key = d.composeKey()
+}
+
+// left gives the canvases back once the drawer is off the stack.
+func (d *Drawer) left() {
+	gfx.GiveCanvas(d.snap)
+	gfx.GiveCanvas(d.page)
+	d.snap, d.page, d.back = nil, nil, nil
+}
+
+// dimmedSnapshot draws a screen into a spare frame and darkens it to
+// BackBright in place, with the vectorized blend: the background of a
+// pop-over. The caller gives the canvas back when it closes.
+func dimmedSnapshot(under Screen, w, h int, now time.Time) *gfx.Canvas {
+	snap := gfx.TakeCanvas(w, h)
+	under.Draw(snap, now)
+	snap.Darken(BackBright)
+	return snap
 }
 
 // Close slides the drawer out, then runs then (after the Pop).
@@ -137,6 +160,9 @@ func (d *Drawer) offset(now time.Time) (int, bool) {
 
 // Draw slides the prepared panel, copying each output pixel just once.
 func (d *Drawer) Draw(c *gfx.Canvas, now time.Time) bool {
+	if d.back == nil || d.back.W != c.W || d.back.H != c.H || d.page.H != c.H {
+		d.prepare(c.W, c.H, now)
+	}
 	off, moving := d.offset(now)
 	d.animating = moving
 	if !d.closeAt.IsZero() && !moving {
@@ -165,7 +191,7 @@ func (d *Drawer) compose() {
 	c := d.page
 	c.Fill(0, 0, c.W, c.H, gfx.Bg)
 	d.app.Mark.Place(c, MenuX, SafeY-8)
-	if beta.IsBeta() {
+	if updates.Channel == "beta" {
 		d.app.betaBadge(c, MenuX+d.app.Mark.W+12, SafeY)
 		d.app.text(c, MenuX, SafeBottom-20, d.app.F.SmallBold, gfx.Amber, d.app.F.SmallBold.Fit(d.app.Version, DrawerW-MenuX-12))
 	}

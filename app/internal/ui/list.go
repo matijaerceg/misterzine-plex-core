@@ -140,7 +140,7 @@ func (l *List) Draw(c *gfx.Canvas, now time.Time) bool {
 		l.app.text(c, ListSideX, y, f.Small, gfx.Amber, "Resume at "+clock(it.ViewOffset))
 		y += f.Small.Height() + 2
 	}
-	for _, line := range wrap(f.Small, it.Summary, SafeX+SafeW-ListSideX, 6) {
+	for _, line := range wrapped(f.Small, it.Summary, SafeX+SafeW-ListSideX, 6) {
 		if y+f.Small.Height() > c.H-SafeY {
 			break
 		}

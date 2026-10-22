@@ -20,8 +20,9 @@ import (
 
 func betaTestApp(t *testing.T) *App {
 	t.Helper()
-	ch, b, c, k := beta.Channel, beta.Batch, beta.CodeSHA256, beta.KeySHA256
-	t.Cleanup(func() { beta.Channel, beta.Batch, beta.CodeSHA256, beta.KeySHA256 = ch, b, c, k })
+	ch, b, c, k, uc := beta.Channel, beta.Batch, beta.CodeSHA256, beta.KeySHA256, updates.Channel
+	t.Cleanup(func() { beta.Channel, beta.Batch, beta.CodeSHA256, beta.KeySHA256, updates.Channel = ch, b, c, k, uc })
+	updates.Channel = "beta"
 	sum := sha256.Sum256([]byte("012345"))
 	beta.Channel, beta.Batch, beta.CodeSHA256, beta.KeySHA256 = "beta", "fixture", hex.EncodeToString(sum[:]), ""
 	a := &App{Cfg: &Config{path: filepath.Join(t.TempDir(), "settings.json"), NoTheme: true}, Version: "v0.2.0-beta.3", Build: "fixture", Log: log.New(io.Discard, "", 0)}

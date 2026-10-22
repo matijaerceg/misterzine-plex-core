@@ -214,7 +214,18 @@ func TestPlaybackHeldForTheBetaCodeStillUpdatesTheSeason(t *testing.T) {
 	if plays != 1 {
 		t.Fatalf("the playback ran %d times after the code, want once", plays)
 	}
-	if s.eps[1].ViewCount != 1 || s.cur != 1 {
-		t.Fatalf("the page was not brought up to date after the held playback: watched %d, cur %d", s.eps[1].ViewCount, s.cur)
+	// the episode and the season are read again off-thread, and land on
+	// the UI thread
+	deadline := time.After(5 * time.Second) // as drain: an HTTP round trip on a loaded test machine
+	for s.eps[1].ViewCount != 1 {
+		select {
+		case f := <-a.later:
+			f()
+		case <-deadline:
+			t.Fatalf("the page was not brought up to date after the held playback: watched %d, cur %d", s.eps[1].ViewCount, s.cur)
+		}
+	}
+	if s.cur != 1 {
+		t.Fatalf("the held playback moved the cursor to %d", s.cur)
 	}
 }

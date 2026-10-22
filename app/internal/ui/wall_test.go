@@ -71,11 +71,38 @@ func TestWallBandPixels(t *testing.T) {
 	}
 }
 
+// The focused poster dims while the cursor is on the tabs, from one shaded
+// copy made when that poster changes.
+func TestWallFocusedPosterDimsOnTabs(t *testing.T) {
+	w, _ := benchWall()
+	it := w.pager.Get(w.cur)
+	img := w.app.Art.Get(it.Thumb, WallPW, WallPH)
+	c := gfx.NewCanvas(720, 480)
+	x, y := SafeX, WallY0
+	at := ((y+80)*c.W + x + 50) * 4
+	src := img.Pix[(80*WallPW+50)*4]
+	w.tabs = true
+	w.drawPoster(c, it, x, y, true)
+	if want := byte(int(src) * WatchedBright / 255); c.Pix[at] != want {
+		t.Fatalf("focused poster on the tabs drew %d, want %d", c.Pix[at], want)
+	}
+	dim := w.dim
+	w.drawPoster(c, it, x, y, true)
+	if w.dim != dim {
+		t.Fatal("the same poster was shaded again")
+	}
+	w.tabs = false
+	w.drawPoster(c, it, x, y, true)
+	if c.Pix[at] != src {
+		t.Fatalf("focused poster in the grid drew %d, want %d", c.Pix[at], src)
+	}
+}
+
 func TestWallPrefetchBounds(t *testing.T) {
 	for _, cur := range []int{0, 20, 79} {
 		w, _ := benchWall()
 		w.cur = cur
-		w.app.Art.have = map[string]*artEntry{}
+		w.app.Art.have = map[artKey]*artEntry{}
 		w.prefetchRows()
 		want := 0
 		for i := 0; i < w.total(); i++ {

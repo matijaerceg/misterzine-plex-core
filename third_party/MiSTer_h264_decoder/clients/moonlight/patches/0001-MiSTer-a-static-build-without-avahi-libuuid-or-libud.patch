@@ -1,0 +1,316 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: MiSTer H264 core <noreply@example.invalid>
+Date: Tue, 29 Sep 2026 20:59:20 -0400
+Subject: [PATCH 1/3] MiSTer: a static build without avahi, libuuid or libudev
+
+Discovery is compiled out (the host is named); libuuid is replaced by a random UUID from OpenSSL;
+udev's hotplug is replaced by an inotify watch on /dev/input. libgamestream and
+moonlight-common are static libraries. For the MiSTer H264 core's Moonlight client
+(docs/moonlight.md in that repository).
+---
+ CMakeLists.txt               |   5 +-
+ libgamestream/CMakeLists.txt |  17 +++---
+ libgamestream/client.c       |  15 ++++-
+ libgamestream/discover.c     |  10 ++++
+ src/input/evdev.c            |   1 -
+ src/input/udev.c             | 109 ++++++++++++++++++-----------------
+ src/platform.c               |   1 +
+ 7 files changed, 93 insertions(+), 65 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 2be10fd..9bb8cc9 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -30,7 +30,6 @@ option(ENABLE_CEC "Compile CEC support" ON)
+ option(ENABLE_PULSE "Compile PulseAudio support" ON)
+ 
+ pkg_check_modules(EVDEV REQUIRED libevdev)
+-pkg_check_modules(UDEV REQUIRED libudev)
+ if (ENABLE_SDL)
+   pkg_check_modules(SDL sdl2>=2.0.4)
+ endif()
+@@ -223,8 +222,8 @@ endif()
+ configure_file("./src/configuration.h.in" "${PROJECT_BINARY_DIR}/configuration.h")
+ 
+ set_property(TARGET moonlight PROPERTY COMPILE_DEFINITIONS ${MOONLIGHT_DEFINITIONS})
+-target_include_directories(moonlight PRIVATE ${GAMESTREAM_INCLUDE_DIR} ${MOONLIGHT_COMMON_INCLUDE_DIR} ${OPUS_INCLUDE_DIRS} ${EVDEV_INCLUDE_DIRS} ${UDEV_INCLUDE_DIRS})
+-target_link_libraries(moonlight ${EVDEV_LIBRARIES} ${OPUS_LIBRARY} ${UDEV_LIBRARIES} ${CMAKE_DL_LIBS})
++target_include_directories(moonlight PRIVATE ${GAMESTREAM_INCLUDE_DIR} ${MOONLIGHT_COMMON_INCLUDE_DIR} ${OPUS_INCLUDE_DIRS} ${EVDEV_INCLUDE_DIRS})
++target_link_libraries(moonlight ${EVDEV_LINK_LIBRARIES} ${OPUS_LIBRARY} ${CMAKE_DL_LIBS} m)
+ 
+ add_subdirectory(docs)
+ 
+diff --git a/libgamestream/CMakeLists.txt b/libgamestream/CMakeLists.txt
+index d8dd04e..09ab04d 100644
+--- a/libgamestream/CMakeLists.txt
++++ b/libgamestream/CMakeLists.txt
+@@ -1,12 +1,13 @@
+ set(SO_VERSION 4)
+ 
+-find_package(LibUUID REQUIRED)
+ find_package(Threads REQUIRED)
+ find_package(CURL REQUIRED)
+ find_package(OpenSSL 1.1.0 REQUIRED)
+ find_package(EXPAT REQUIRED)
+ 
+-pkg_check_modules(AVAHI REQUIRED avahi-client)
++# MiSTer: no avahi (discovery needs a daemon the MiSTer does not run; the host is named) and
++# no libuuid (required here, never called). Static libraries for a static client.
++set(OPENSSL_USE_STATIC_LIBS TRUE)
+ 
+ aux_source_directory(./ GAMESTREAM_SRC_LIST)
+ aux_source_directory(../third_party/h264bitstream GAMESTREAM_SRC_LIST)
+@@ -15,18 +16,18 @@ aux_source_directory(../third_party/moonlight-common-c/enet MOONLIGHT_COMMON_SRC
+ aux_source_directory(../third_party/moonlight-common-c/src MOONLIGHT_COMMON_SRC_LIST)
+ aux_source_directory(../third_party/moonlight-common-c/reedsolomon MOONLIGHT_COMMON_SRC_LIST)
+ 
+-add_library(moonlight-common SHARED ${MOONLIGHT_COMMON_SRC_LIST})
++add_library(moonlight-common STATIC ${MOONLIGHT_COMMON_SRC_LIST})
+ 
+-add_library(gamestream SHARED ${GAMESTREAM_SRC_LIST})
++add_library(gamestream STATIC ${GAMESTREAM_SRC_LIST})
+ target_link_libraries(gamestream moonlight-common)
+ 
+ set_target_properties(gamestream PROPERTIES SOVERSION ${SO_VERSION} VERSION ${PROJECT_VERSION})
+ set_target_properties(moonlight-common PROPERTIES SOVERSION ${SO_VERSION} VERSION ${PROJECT_VERSION})
+ 
+-target_include_directories(gamestream PRIVATE ../third_party/moonlight-common-c/src ../third_party/h264bitstream ${AVAHI_INCLUDE_DIRS} ${LibUUID_INCLUDE_DIRS})
+-target_include_directories(moonlight-common PRIVATE ../third_party/moonlight-common-c/reedsolomon ../third_party/moonlight-common-c/enet/include)
+-target_link_libraries(gamestream ${CURL_LIBRARIES} ${OPENSSL_LIBRARIES} ${EXPAT_LIBRARIES} ${AVAHI_LIBRARIES} ${LibUUID_LIBRARIES})
++target_include_directories(gamestream PRIVATE ../third_party/moonlight-common-c/src ../third_party/h264bitstream ${CURL_INCLUDE_DIRS} ${OPENSSL_INCLUDE_DIR} ${EXPAT_INCLUDE_DIRS})
++target_include_directories(moonlight-common PRIVATE ../third_party/moonlight-common-c/reedsolomon ../third_party/moonlight-common-c/enet/include ${OPENSSL_INCLUDE_DIR})
++target_link_libraries(moonlight-common ${OPENSSL_LIBRARIES})
++target_link_libraries(gamestream ${CURL_LIBRARIES} ${OPENSSL_LIBRARIES} ${EXPAT_LIBRARIES})
+ 
+ target_link_libraries(gamestream ${CMAKE_THREAD_LIBS_INIT} ${CMAKE_DL_LIBS})
+ 
+-install(TARGETS gamestream moonlight-common DESTINATION ${CMAKE_INSTALL_LIBDIR})
+diff --git a/libgamestream/client.c b/libgamestream/client.c
+index 63e2d55..2cc4767 100644
+--- a/libgamestream/client.c
++++ b/libgamestream/client.c
+@@ -31,7 +31,6 @@
+ #include <stdio.h>
+ #include <string.h>
+ #include <arpa/inet.h>
+-#include <uuid/uuid.h>
+ #include <openssl/sha.h>
+ #include <openssl/aes.h>
+ #include <openssl/rand.h>
+@@ -58,6 +57,20 @@ const char* gs_error;
+ 
+ #define UUID_STRLEN 37
+ 
++/* MiSTer: a random (version 4) UUID from OpenSSL instead of libuuid -- one fewer static
++ * dependency; the host only needs a fresh token per request */
++typedef unsigned char uuid_t[16];
++static void uuid_generate_random(uuid_t u) {
++  if (RAND_bytes(u, 16) != 1)
++    memset(u, 0, 16);
++  u[6] = (u[6] & 0x0f) | 0x40;
++  u[8] = (u[8] & 0x3f) | 0x80;
++}
++static void uuid_unparse(const uuid_t u, char* out) {
++  snprintf(out, UUID_STRLEN, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
++           u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7], u[8], u[9], u[10], u[11], u[12], u[13], u[14], u[15]);
++}
++
+ static int mkdirtree(const char* directory) {
+   char buffer[PATH_MAX];
+   char* p = buffer;
+diff --git a/libgamestream/discover.c b/libgamestream/discover.c
+index 28cc052..b094753 100644
+--- a/libgamestream/discover.c
++++ b/libgamestream/discover.c
+@@ -19,6 +19,8 @@
+ 
+ #include "errors.h"
+ 
++#ifdef HAVE_AVAHI
++
+ #include <avahi-client/client.h>
+ #include <avahi-client/lookup.h>
+ 
+@@ -116,3 +118,11 @@ void gs_discover_server(char* dest, unsigned short* port) {
+   if (simple_poll)
+     avahi_simple_poll_free(simple_poll);
+ }
++
++#else /* MiSTer: built without avahi -- the host must be named */
++
++void gs_discover_server(char* dest, unsigned short* port) {
++  gs_error = "Discovery not available in this build";
++}
++
++#endif
+diff --git a/src/input/evdev.c b/src/input/evdev.c
+index e938a8f..6bbd8c5 100644
+--- a/src/input/evdev.c
++++ b/src/input/evdev.c
+@@ -26,7 +26,6 @@
+ #include "libevdev/libevdev.h"
+ #include <Limelight.h>
+ 
+-#include <libudev.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <stdbool.h>
+diff --git a/src/input/udev.c b/src/input/udev.c
+index 6541ff1..ddb8a7f 100644
+--- a/src/input/udev.c
++++ b/src/input/udev.c
+@@ -17,85 +17,90 @@
+  * along with Moonlight; if not, see <http://www.gnu.org/licenses/>.
+  */
+ 
++
++/* MiSTer: hotplug without libudev (a static libudev is systemd's, and MiSTer Linux creates
++ * /dev/input/event* nodes itself): the devices present are enumerated from /dev/input, and
++ * an inotify watch on it adds the ones plugged in later. The API is upstream's. */
++
+ #include "../loop.h"
+ 
+ #include "udev.h"
+ #include "evdev.h"
+ 
+-#include <libudev.h>
+-
++#include <dirent.h>
++#include <poll.h>
+ #include <stdbool.h>
+ #include <stddef.h>
+ #include <stdio.h>
+-#include <string.h>
+ #include <stdlib.h>
+-#include <poll.h>
++#include <string.h>
++#include <sys/inotify.h>
++#include <unistd.h>
+ 
+ static bool autoadd, debug;
+ static struct mapping* defaultMappings;
+-
+-static struct udev *udev;
+-static struct udev_monitor *udev_mon;
+ static int inputRotate;
++static int inotify_fd = -1;
++static bool added[1024];   /* eventN already handed to evdev: enumeration and the watch overlap */
++
++static void udev_add(const char* name, struct mapping* mappings) {
++  int id;
++  char devnode[64];
++  if (sscanf(name, "event%d", &id) != 1 || id < 0 || id >= 1024 || added[id])
++    return;
++  added[id] = true;
++  snprintf(devnode, sizeof(devnode), "/dev/input/event%d", id);
++  evdev_create(devnode, mappings, debug, inputRotate);
++}
+ 
+ static int udev_handle(int fd) {
+-  struct udev_device *dev = udev_monitor_receive_device(udev_mon);
+-  const char *action = udev_device_get_action(dev);
+-  if (action != NULL) {
+-    if (autoadd && strcmp("add", action) == 0) {
+-      const char *devnode = udev_device_get_devnode(dev);
+-      int id;
+-      if (devnode != NULL && sscanf(devnode, "/dev/input/event%d", &id) == 1) {
+-        evdev_create(devnode, defaultMappings, debug, inputRotate);
+-      }
+-    }
+-    udev_device_unref(dev);
++  char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
++  ssize_t len = read(fd, buf, sizeof(buf));
++  for (char* p = buf; len > 0 && p < buf + len; ) {
++    struct inotify_event* ev = (struct inotify_event*) p;
++    int id;
++    if (ev->len > 0 && (ev->mask & IN_DELETE) && sscanf(ev->name, "event%d", &id) == 1 &&
++        id >= 0 && id < 1024)
++      added[id] = false;   /* evdev drops the device itself when its reads fail */
++    else if (autoadd && ev->len > 0 && (ev->mask & IN_CREATE))
++      udev_add(ev->name, defaultMappings);
++    p += sizeof(struct inotify_event) + ev->len;
+   }
+   return LOOP_OK;
+ }
+ 
+ void udev_init(bool autoload, struct mapping* mappings, bool verbose, int rotate) {
+-  udev = udev_new();
+   debug = verbose;
+-  if (!udev) {
+-    fprintf(stderr, "Can't create udev\n");
+-    exit(1);
++  autoadd = autoload;
++  defaultMappings = mappings;
++  inputRotate = rotate;
++
++  /* the watch first, so a device plugged in during the enumeration is not missed */
++  inotify_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
++  if (inotify_fd >= 0 && inotify_add_watch(inotify_fd, "/dev/input", IN_CREATE | IN_DELETE) < 0) {
++    close(inotify_fd);
++    inotify_fd = -1;
+   }
++  if (inotify_fd < 0)
++    fprintf(stderr, "Can't watch /dev/input: no hotplug\n");
++  else
++    loop_add_fd(inotify_fd, &udev_handle, POLLIN);
+ 
+-  autoadd = autoload;
+   if (autoload) {
+-    struct udev_enumerate *enumerate = udev_enumerate_new(udev);
+-    udev_enumerate_add_match_subsystem(enumerate, "input");
+-    udev_enumerate_scan_devices(enumerate);
+-    struct udev_list_entry *devices = udev_enumerate_get_list_entry(enumerate);
+-
+-    struct udev_list_entry *dev_list_entry;
+-    udev_list_entry_foreach(dev_list_entry, devices) {
+-      const char *path = udev_list_entry_get_name(dev_list_entry);
+-      struct udev_device *dev = udev_device_new_from_syspath(udev, path);
+-      const char *devnode = udev_device_get_devnode(dev);
+-      int id;
+-      if (devnode != NULL && sscanf(devnode, "/dev/input/event%d", &id) == 1) {
+-        evdev_create(devnode, mappings, verbose, rotate);
+-      }
+-      udev_device_unref(dev);
++    DIR* dir = opendir("/dev/input");
++    if (dir != NULL) {
++      struct dirent* de;
++      while ((de = readdir(dir)) != NULL)
++        udev_add(de->d_name, mappings);
++      closedir(dir);
+     }
+-
+-    udev_enumerate_unref(enumerate);
+   }
+-
+-  udev_mon = udev_monitor_new_from_netlink(udev, "udev");
+-  udev_monitor_filter_add_match_subsystem_devtype(udev_mon, "input", NULL);
+-  udev_monitor_enable_receiving(udev_mon);
+-
+-  defaultMappings = mappings;
+-  inputRotate = rotate;
+-
+-  loop_add_fd(udev_monitor_get_fd(udev_mon), &udev_handle, POLLIN);
+ }
+ 
+ void udev_destroy() {
+-  loop_remove_fd(udev_monitor_get_fd(udev_mon));
+-  udev_monitor_unref(udev_mon);
+-  udev_unref(udev);
++  if (inotify_fd >= 0) {
++    loop_remove_fd(inotify_fd);
++    close(inotify_fd);
++    inotify_fd = -1;
++  }
+ }
+diff --git a/src/platform.c b/src/platform.c
+index fab3057..112da0a 100644
+--- a/src/platform.c
++++ b/src/platform.c
+@@ -205,6 +205,7 @@ AUDIO_RENDERER_CALLBACKS* platform_get_audio(enum platform system, char* audio_d
+     #ifdef __FreeBSD__
+     return &audio_callbacks_oss;
+     #endif
++    break;   /* MiSTer: a build with no audio backend at all */
+   }
+   return NULL;
+ }

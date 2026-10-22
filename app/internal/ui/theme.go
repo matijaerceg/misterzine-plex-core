@@ -15,40 +15,72 @@ import (
 const themeGain = 0.275 // half the previous 0.55 level
 
 // Theme owns both children. Stop waits until ALSA has been released, including
-// when decoding, network access or an audio write stalls.
+// when decoding, network access or an audio write stalls. Cancel, for
+// navigation, does not wait: the fade runs out behind the next page, and
+// the next theme waits for it before it opens the device.
 type Theme struct {
 	key    string
 	cancel context.CancelFunc
-	done   chan struct{}
+	done   chan struct{} // closed once this player and every one before it are gone
 }
 
-func (t *Theme) Stop() {
+// The tests' seams: where the theme comes from and what plays it.
+var (
+	themeFile = (*plex.Client).ThemeFile
+	themePlay = playTheme
+)
+
+// Cancel stops the theme without waiting for its fade.
+func (t *Theme) Cancel() {
 	if t.cancel != nil {
 		t.cancel()
-		<-t.done
 		t.cancel = nil
 	}
 	t.key = ""
+}
+
+// Stop is Cancel that waits until every player has released ALSA: playback
+// needs the device.
+func (t *Theme) Stop() {
+	t.Cancel()
+	if t.done != nil {
+		<-t.done
+		t.done = nil
+	}
 }
 
 func (t *Theme) Select(c *plex.Client, key, path string) {
 	if key == t.key {
 		return
 	} // includes a theme that already finished: play once
-	t.Stop()
+	t.Cancel()
 	if key == "" || c == nil {
 		return
 	}
 	t.key = key
 	ctx, cancel := context.WithCancel(context.Background())
-	t.cancel, t.done = cancel, make(chan struct{})
+	prev, done := t.done, make(chan struct{})
+	t.cancel, t.done = cancel, done
 	go func() {
-		defer close(t.done)
-		file, err := c.ThemeFile(ctx, key, path)
+		defer func() {
+			if prev != nil {
+				<-prev // done says the earlier players are gone too
+			}
+			close(done)
+		}()
+		file, err := themeFile(c, ctx, key, path)
 		if err != nil || ctx.Err() != nil {
 			return
 		}
-		playTheme(ctx, file)
+		if prev != nil {
+			// ALSA is single-client: the last theme's fade first
+			select {
+			case <-prev:
+			case <-ctx.Done():
+				return
+			}
+		}
+		themePlay(ctx, file)
 	}()
 }
 
@@ -142,7 +174,7 @@ func playThemeCommands(ctx context.Context, commands func(context.Context) (*exe
 // Dialogs within a show inherit that show's music; navigation pages do not.
 func (a *App) syncTheme() {
 	if a.Cfg == nil || a.Cfg.NoTheme || a.Plex == nil {
-		a.theme.Stop()
+		a.theme.Cancel()
 		return
 	}
 	var key, path string

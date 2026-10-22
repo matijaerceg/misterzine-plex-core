@@ -1,6 +1,6 @@
-// plexcrt is the PlexCRT front end for MiSTer: draws into the core's frame
-// ring, reads the pad through the core's status words, plays through the
-// existing launcher.
+// plexcrt is the MisterZine Plex Core app for MiSTer: draws into the H.264
+// core's overlay pages, reads the pad through the core's input region, plays
+// through jfplay.
 //
 //	plexcrt                      run on the device (core must be loaded)
 //	plexcrt -dump out.ppm        render the home screen once to a file, no ring
@@ -18,6 +18,7 @@ import (
 	"runtime/pprof"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"plexcrt/internal/plex"
 	"plexcrt/internal/ring"
 	"plexcrt/internal/ui"
+	"plexcrt/internal/updates"
 )
 
 var version = "0.1.0-beta.16"
@@ -47,7 +49,7 @@ func run() int {
 	cache := flag.String("cache", filepath.Join(home, "cache"), "artwork cache directory")
 	dump := flag.String("dump", "", "render once to this PPM and exit")
 	wait := flag.Duration("wait", 8*time.Second, "with -dump: how long to wait for artwork")
-	script := flag.String("player", filepath.Join(home, "plexplay.py"), "launcher script")
+	script := flag.String("player", filepath.Join(home, "jfplay"), "playback worker")
 	prof := flag.String("cpuprofile", "", "write a CPU profile here until exit")
 	cfgPath := flag.String("config", filepath.Join(home, "plexcrt.json"), "settings file")
 	showVersion := flag.Bool("version", false, "show version and exit")
@@ -56,7 +58,7 @@ func run() int {
 	flag.Parse()
 	if *showVersion {
 		fmt.Printf("MisterZine Plex Core %s (%s)\n", version, build)
-		channel := beta.Channel
+		channel := updates.Channel
 		if channel == "" {
 			channel = "development"
 		}
@@ -88,7 +90,7 @@ func run() int {
 		fmt.Printf("Installation ready: %s (%s)\n", version, build)
 		return 0
 	}
-	// Prevent two copies of this install writing the same frame ring.
+	// Prevent two copies of this install writing the same overlay pages.
 	lock, err := os.OpenFile(filepath.Join(home, "app.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Cannot create app lock:", err)
@@ -119,13 +121,10 @@ func run() int {
 	// the server: from the sign-in on record, else the legacy token file
 	// with the -host flag; with neither the app opens on the sign-in screen
 	var client *plex.Client
-	var playerEnv []string
 	if cfg.ResumeWithoutPicker() {
 		client = plex.New(cfg.ServerURL, cfg.ServerToken, *cache, cfg.ClientID)
-		playerEnv = []string{"PLEX_HOST=" + cfg.ServerURL, "PLEX_TOKEN=" + cfg.ServerToken, "PLEX_CLIENT_ID=" + cfg.ClientID}
 	} else if tok, err := os.ReadFile(*tokenFile); *host != "" && *tokenFile != "" && err == nil && strings.TrimSpace(string(tok)) != "" {
 		client = plex.New(*host, strings.TrimSpace(string(tok)), *cache, cfg.ClientID)
-		playerEnv = []string{"PLEX_HOST=" + *host, "PLEX_TOKEN=" + strings.TrimSpace(string(tok)), "PLEX_CLIENT_ID=" + cfg.ClientID}
 	}
 
 	if *dump != "" {
@@ -151,20 +150,24 @@ func run() int {
 
 	r, err := ring.Open()
 	if err != nil {
-		lg.Fatalf("ring: %v (is MisterZine Plex Core loaded?)", err)
+		lg.Fatalf("ring: %v (is the PlexH264 core loaded?)", err)
 	}
 	// The ring stays mapped until the process ends: the pad poller and the
 	// watchdog may still be reading it as the app stops, and exiting unmaps it.
-	player := &ui.Player{Script: *script, Fifo: "/tmp/plexplay.ctl", LogTo: filepath.Join(os.TempDir(), "plexplay.log"),
-		Status: "/tmp/plexfb.stat", Env: playerEnv, Kbps: cfg.BitrateKbps, Boost: cfg.AudioBoostValue,
-		SubtitleSize: cfg.SubtitleSizeValue}
+	player := &ui.Player{Client: client, Binary: *script, Fifo: "/tmp/jfplay.ctl", LogTo: filepath.Join(os.TempDir(), "jfplay.log"),
+		Status: "/tmp/jfplay.status", Kbps: cfg.BitrateKbps, Boost: cfg.AudioBoostValue, SubtitleSize: cfg.SubtitleSizeValue, Hide: r.Hide}
 	player.Access = func() error { return beta.Check(filepath.Dir(*cfgPath)) }
 	app := ui.New(client, r, player, lg)
-	player.Geometry = app.VideoGeometry
-	player.Crop, player.CropFile = app.VideoCrop, "/tmp/plexfb.crop"
+	player.Crop = app.VideoCrop
+	if r.GeometrySupported() {
+		player.Geometry = app.VideoGeometry
+	}
 	watching := make(chan struct{})
-	go r.Watch(lg.Printf, app.WakeUp, watching)
-	defer close(watching)
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		r.Watch(lg.Printf, app.WakeUp, watching)
+	}()
 	app.Cfg = cfg
 	app.Version, app.Build = version, build
 	app.Display = ui.ParseDisplayCheck(os.Getenv("MISTERZINE_PLEX_DISPLAY"))
@@ -180,15 +183,39 @@ func run() int {
 	stop := make(chan struct{})
 	var stopping sync.Once
 	quit := func() { stopping.Do(func() { close(stop) }) }
+	coreChanged := atomic.Bool{}
+	coreWatchDone := make(chan struct{})
+	go func() {
+		defer close(coreWatchDone)
+		tick := time.NewTicker(50 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-tick.C:
+				if !r.CoreAvailable() {
+					name, _ := ring.CoreName()
+					coreChanged.Store(true)
+					lg.Printf("core changed to %q; stopping app", name)
+					quit()
+					return
+				}
+			}
+		}
+	}()
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() { <-sig; quit() }()
 	events := merge(input.Poll(r, stop), input.Sim("/tmp/plexcrt.ctl", stop), stop)
 	app.Run(events, stop)
 	quit() // after the menu's Exit, the pad and the test FIFO stop too
+	close(watching)
+	<-watchDone
+	<-coreWatchDone
 	// Leave our core on black, but once MiSTer main has loaded another core
 	// or the menu, this memory is main's picture.
-	if r.CoreRunning(100 * time.Millisecond) {
+	if !coreChanged.Load() && ring.CoreLoaded() && r.CoreRunning(100*time.Millisecond) {
 		r.Blank()
 	}
 	if app.ToMenu {
@@ -208,9 +235,9 @@ func merge(a, b <-chan input.Event, stop <-chan struct{}) <-chan input.Event {
 				if !ok {
 					return
 				}
-				out <- ev
+				input.Send(out, ev) // the poller's rule again: this buffer is the one a stall fills
 			case ev := <-b:
-				out <- ev
+				input.Send(out, ev)
 			case <-stop:
 				return
 			}
@@ -230,12 +257,12 @@ func (f *fileOut) Late() (time.Duration, time.Duration) { return 0, 0 }
 func (f *fileOut) WaitField(max time.Duration)          { time.Sleep(16 * time.Millisecond) }
 
 func preflight(home, script, cfg, cache, ff string) error {
-	for _, name := range []string{"python3", "aplay"} {
+	for _, name := range []string{"aplay"} {
 		if _, err := exec.LookPath(name); err != nil {
 			return fmt.Errorf("%s is missing; update MiSTer Linux and reinstall", name)
 		}
 	}
-	for _, path := range []string{script, filepath.Join(home, "plexfb"), ff} {
+	for _, path := range []string{script, ff} {
 		st, err := os.Stat(path)
 		if err != nil || st.IsDir() {
 			return fmt.Errorf("installation is incomplete (%s); run the installer again", filepath.Base(path))

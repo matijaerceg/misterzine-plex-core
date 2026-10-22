@@ -4,14 +4,10 @@ import hashlib
 import io
 import json
 from pathlib import Path
-import shutil
-import socket
 import struct
-import tarfile
 import tempfile
 import unittest
 from unittest import mock
-import urllib.error
 
 import manager
 
@@ -37,8 +33,7 @@ class InstallerTests(unittest.TestCase):
             files[name] = hashlib.sha256(data).hexdigest()
         manager.write_json(self.package / 'manifest.json', {'id': ident, 'files': files})
 
-    @mock.patch.object(manager, 'decoder')
-    def test_install_update_rollback_preserve_settings(self, decoder):
+    def test_install_update_rollback_preserve_settings(self):
         self.package_version('alpha-1')
         manager.install(self.card, self.package)
         account = self.root / 'plexcrt.json'
@@ -61,22 +56,49 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(key.read_bytes(), b'patron-test-key')
         self.assertEqual(receipt.read_text(), 'unlocked\n')
 
-    @mock.patch.object(manager, 'decoder')
-    def test_rollback_to_local_pre_rename_release(self, decoder):
-        self.package_version('before-rename')
+    def test_install_after_remove_restores_the_scripts_entries(self):
+        self.package_version('alpha-1')
         manager.install(self.card, self.package)
-        previous = self.root / 'releases/before-rename'
-        (previous / 'MisterZine Plex Core.rbf').rename(previous / 'MisterZine Plex.rbf')
-        manifest = json.loads((previous / 'manifest.json').read_text())
-        manifest['files']['MisterZine Plex.rbf'] = manifest['files'].pop('MisterZine Plex Core.rbf')
-        manager.write_json(previous / 'manifest.json', manifest)
-        self.package_version('after-rename')
+        manager.remove(self.card)
         manager.install(self.card, self.package)
-        manager.rollback(self.root)
-        self.assertEqual(manager.read_state(self.root)['current'], 'before-rename')
+        scripts = self.card / 'Scripts'
+        self.assertTrue((scripts / 'MisterZine-Plex-Rollback.sh').is_file())
+        # A set-aside copy left behind would keep the boot check switched off.
+        self.assertEqual(list(scripts.glob('*.disabled')), [])
 
-    @mock.patch.object(manager, 'decoder')
-    def test_bad_package_never_changes_active_release(self, decoder):
+    def test_runtime_preflight_finishes_before_core_switch_and_app_launch(self):
+        self.root.mkdir(parents=True)
+        manager.write_json(self.root / 'active.json', {'current': 'fixture', 'previous': None})
+        events = []
+        child = mock.Mock(pid=123)
+        child.wait.return_value = 0
+        def preflight(args, check=False):
+            events.append('preflight')
+            self.assertTrue(check)
+            self.assertEqual(args[-1], '-check')
+        def select(card, root, folder):
+            events.append('core')
+            return True
+        def display(card):
+            events.append('display')
+            self.assertEqual(card, self.root.parent)
+            return '{"ini": "MiSTer.ini", "vrr": "off"}'
+        def launch(*args, **kwargs):
+            events.append('app')
+            self.assertEqual(kwargs['env']['MISTERZINE_PLEX_DISPLAY'], '{"ini": "MiSTer.ini", "vrr": "off"}')
+            return child
+        with mock.patch.object(manager, 'recover_activation', return_value=True), \
+                mock.patch.object(manager, 'ensure_selected_core', side_effect=select), \
+                mock.patch.object(manager, 'display_env', side_effect=display), \
+                mock.patch.object(manager.subprocess, 'run', side_effect=preflight), \
+                mock.patch.object(manager.subprocess, 'Popen', side_effect=launch), \
+                mock.patch.object(manager, 'rotate_log'), \
+                mock.patch('builtins.open', mock.mock_open()):
+            manager.run(self.root)
+        # the INI check once main has read the INI for the core, before the app
+        self.assertEqual(events, ['preflight', 'core', 'display', 'app'])
+
+    def test_bad_package_never_changes_active_release(self):
         self.package_version('alpha-1')
         manager.install(self.card, self.package)
         self.package_version('alpha-2')
@@ -85,8 +107,19 @@ class InstallerTests(unittest.TestCase):
             manager.install(self.card, self.package)
         self.assertEqual(manager.read_state(self.root)['current'], 'alpha-1')
 
-    @mock.patch.object(manager, 'decoder')
-    def test_interrupted_activation_keeps_previous_release(self, decoder):
+    def test_install_keeps_beta_help_and_core_build_provenance_with_release(self):
+        self.package_version('beta-1')
+        (self.package / 'BETA_ACCESS.md').write_text('access help')
+        (self.package / 'TERMS.md').write_text('terms')
+        (self.package / 'provenance').mkdir()
+        (self.package / 'provenance/quartus-rbf-manifest.json').write_text('{"fixture":true}')
+        manager.install(self.card, self.package)
+        installed = self.root / 'releases/beta-1'
+        self.assertEqual((installed / 'BETA_ACCESS.md').read_text(), 'access help')
+        self.assertEqual((self.root / 'TERMS.md').read_text(), 'terms')
+        self.assertEqual((installed / 'provenance/quartus-rbf-manifest.json').read_text(), '{"fixture":true}')
+
+    def test_interrupted_activation_keeps_previous_release(self):
         self.package_version('alpha-1')
         manager.install(self.card, self.package)
         self.package_version('alpha-2')
@@ -100,20 +133,19 @@ class InstallerTests(unittest.TestCase):
                 manager.install(self.card, self.package)
         self.assertEqual(manager.read_state(self.root)['current'], 'alpha-1')
 
-    @mock.patch.object(manager, 'decoder')
-    def test_menu_entry_follows_the_selected_release_and_the_installed_watcher(self, decoder):
+    def test_menu_entry_follows_the_selected_release_and_the_installed_watcher(self):
         import xml.etree.ElementTree as ET
-        entry = self.card / 'MisterZine Plex Core.mgl'
+        entry = self.card / 'MisterZine Plex.mgl'
         self.root.mkdir(parents=True)
         (self.root / 'menu_launcher.py').write_text("SELECTIONS = ('MisterZine Plex Core',)\n")
         self.package_version('alpha-1')
         manager.install(self.card, self.package)
-        self.assertEqual(ET.parse(entry).findtext('rbf'), 'misterzine-plex/releases/alpha-1/MisterZine Plex Core')
+        self.assertEqual(ET.parse(entry).findtext('rbf'), 'misterzine-plex/releases/alpha-1/PlexH264')
         self.package_version('alpha-2')
         manager.install(self.card, self.package)
-        self.assertEqual(ET.parse(entry).findtext('rbf'), 'misterzine-plex/releases/alpha-2/MisterZine Plex Core')
+        self.assertEqual(ET.parse(entry).findtext('rbf'), 'misterzine-plex/releases/alpha-2/PlexH264')
         manager.rollback(self.root)
-        self.assertEqual(ET.parse(entry).findtext('rbf'), 'misterzine-plex/releases/alpha-1/MisterZine Plex Core')
+        self.assertEqual(ET.parse(entry).findtext('rbf'), 'misterzine-plex/releases/alpha-1/PlexH264')
         # A watcher from before beta.4 only reacts to the menu bounce.
         (self.root / 'menu_launcher.py').write_text("SELECTION = 'misterzine-plex'\n")
         manager.rollback(self.root)
@@ -122,17 +154,43 @@ class InstallerTests(unittest.TestCase):
         manager.repair_menu_entry(self.card)
         self.assertFalse(entry.exists())
 
+    def test_menu_entry_takes_its_new_name_and_keeps_the_old_one_for_an_old_manager(self):
+        entry, old = self.card / 'MisterZine Plex.mgl', self.card / 'MisterZine Plex Core.mgl'
+        self.root.mkdir(parents=True)
+        (self.root / 'menu_launcher.py').write_text("SELECTIONS = ('MisterZine Plex Core',)\n")
+        old.write_bytes(manager.LEGACY_ENTRY)               # what an earlier release wrote
+        self.package_version('alpha-1')
+        manager.install(self.card, self.package)
+        self.assertTrue(entry.is_file())
+        self.assertFalse(old.exists())
+        # The core keeps its name: only the entry's file name changed.
+        self.assertIn(b'<setname>MisterZine Plex Core</setname>', entry.read_bytes())
+        self.package_version('alpha-2')
+        manager.install(self.card, self.package)
+        # A rollback that restores a manager writing only the old name keeps that name.
+        (self.root / 'releases/alpha-1/maintenance').mkdir(parents=True, exist_ok=True)
+        (self.root / 'releases/alpha-1/maintenance/manager.py').write_text("entry = 'MisterZine Plex Core.mgl'\n")
+        manager.rollback(self.root)
+        self.assertTrue(old.is_file())
+        self.assertFalse(entry.exists())
+        self.package_version('alpha-3')
+        manager.install(self.card, self.package)
+        self.assertTrue(entry.is_file())
+        self.assertFalse(old.exists())
+        manager.menu_entries(self.card, enable=False)
+        self.assertFalse(entry.exists() or old.exists())
+
     def test_core_already_loaded_by_the_menu_entry_needs_no_reload(self):
         proc = self.base / 'proc/40'
         proc.mkdir(parents=True)
         (proc / 'comm').write_text('MiSTer_Zaparoo\n')
-        (proc / 'cmdline').write_bytes(b'/media/fat/zaparoo/MiSTer_Zaparoo\0/media/fat/x/MisterZine Plex Core.rbf\0')
+        (proc / 'cmdline').write_bytes(b'/media/fat/zaparoo/MiSTer_Zaparoo\0/media/fat/x/PlexH264.rbf\0')
         corename = self.base / 'CORENAME'
-        core = Path('/media/fat/x/MisterZine Plex Core.rbf')
+        core = Path('/media/fat/x/PlexH264.rbf')
         self.assertFalse(manager.core_loaded(core, proc.parent, corename, wait=0))
         corename.write_text('MENU\n')
         self.assertFalse(manager.core_loaded(core, proc.parent, corename, wait=0))
-        corename.write_text('MisterZine Plex Core\n')
+        corename.write_text('PlexH264\n')
         self.assertTrue(manager.core_loaded(core, proc.parent, corename, wait=0))
         (proc / 'comm').write_text('python3\n')
         self.assertFalse(manager.core_loaded(core, proc.parent, corename, wait=0))
@@ -141,24 +199,48 @@ class InstallerTests(unittest.TestCase):
         import xml.etree.ElementTree as ET
         folder = self.root / 'releases/alpha-1'
         folder.mkdir(parents=True)
-        core = folder / 'MisterZine Plex Core.rbf'
+        core = folder / 'PlexH264.rbf'
         core.write_bytes(b'core')
         entry = manager.core_launch_entry(self.root, folder)
         self.assertEqual(entry.parent, self.card)
         self.assertEqual(ET.parse(entry).findtext('rbf'),
-                         'misterzine-plex/releases/alpha-1/MisterZine Plex Core')
-        core.rename(folder / 'MisterZine Plex.rbf')
-        manager.core_launch_entry(self.root, folder)
-        self.assertEqual(ET.parse(entry).findtext('rbf'),
-                         'misterzine-plex/releases/alpha-1/MisterZine Plex')
+                         'misterzine-plex/releases/alpha-1/PlexH264')
 
-    def test_small_hdmi_framebuffer_is_enlarged_for_ring(self):
+    def test_run_core_selection_reloads_when_same_h264_name_is_from_another_release(self):
+        folder = self.root / 'releases/alpha-2'
+        folder.mkdir(parents=True)
+        (folder / 'PlexH264.rbf').write_bytes(b'new core')
+        old = {40: str(self.root / 'releases/alpha-1/PlexH264.rbf').encode()}
+        selected = {41: str(folder / 'PlexH264.rbf').encode()}
+        corename = self.base / 'CORENAME'
+        corename.write_text('PlexH264\n')
+        command = self.base / 'MiSTer_cmd'
+        with mock.patch.object(manager, 'mister_processes', side_effect=[old, old, selected]), \
+                mock.patch.object(manager.time, 'sleep'):
+            self.assertTrue(manager.ensure_selected_core(self.card, self.root, folder, wait=1,
+                                                         corename=corename, cmd=command))
+        self.assertEqual(command.read_text(), 'load_core ' + str(self.card / '.misterzine-plex-core.mgl') + '\n')
+
+    def test_run_core_selection_accepts_exact_release_without_reload(self):
+        folder = self.root / 'releases/alpha-2'
+        folder.mkdir(parents=True)
+        (folder / 'PlexH264.rbf').write_bytes(b'new core')
+        corename = self.base / 'CORENAME'
+        corename.write_text('PlexH264\n')
+        command = self.base / 'MiSTer_cmd'
+        proc = {41: str(folder / 'PlexH264.rbf').encode()}
+        with mock.patch.object(manager, 'mister_processes', return_value=proc):
+            self.assertTrue(manager.ensure_selected_core(self.card, self.root, folder, wait=0,
+                                                         corename=corename, cmd=command))
+        self.assertFalse(command.exists())
+
+    def test_framebuffer_is_left_for_the_go_app_and_mister(self):
         params = self.base / 'framebuffer'
         params.mkdir()
         mode = params / 'mode'
         mode.write_text('8888 1 640 480 2560')
-        manager.prepare_framebuffer(params)
-        self.assertEqual(mode.read_text(), '8888 1 1920 1080 7680\n')
+        self.assertFalse(manager.prepare_framebuffer(params))
+        self.assertEqual(mode.read_text(), '8888 1 640 480 2560')
 
     def test_large_framebuffer_is_left_alone(self):
         params = self.base / 'framebuffer'
@@ -259,57 +341,59 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(manager.linger_for_start_check('', sleep=self.fail), 0)
         self.assertEqual(manager.linger_for_start_check(str(self.base / 'missing'), sleep=self.fail), 0)
 
-    def test_decoder_fetch_failure_is_fixed_words_and_a_card_copy_needs_no_network(self):
-        # A synthetic archive stands in for the pinned FFmpeg build.
-        stream = io.BytesIO()
-        with tarfile.open(fileobj=stream, mode='w:xz') as tar:
-            for name in ('ffmpeg', 'GPLv3.txt', 'readme.txt'):
-                data = ('synthetic ' + name).encode()
-                info = tarfile.TarInfo('ffmpeg-7.0.2-armhf-static/' + name)
-                info.size = len(data)
-                tar.addfile(info, io.BytesIO(data))
-        archive = stream.getvalue()
+    def test_bundled_ffmpeg_is_required_and_no_second_network_fetch_occurs(self):
         self.root.mkdir(parents=True)
-        def offline(url, timeout):
-            raise urllib.error.URLError(socket.gaierror(-2, 'no https://secret.example.org/'))
-        with mock.patch.object(manager, 'FF_SHA', hashlib.sha256(archive).hexdigest()), \
-                mock.patch.object(manager.urllib.request, 'urlopen', offline):
-            with self.assertRaises(manager.DecoderFetchError) as caught:
-                manager.decoder(self.root)
-            self.assertEqual(str(caught.exception), 'Could not fetch the FFmpeg decoder')
-            self.assertIsInstance(caught.exception.__cause__, urllib.error.URLError)
-            self.assertFalse((self.root / 'decoder.json').exists())
-            # The archive copied onto the card by hand is used as it is.
-            (self.root / 'ffmpeg-7.0.2-armhf-static.tar.xz').write_bytes(archive)
+        ffmpeg = self.root / 'ffmpeg'
+        ffmpeg.write_bytes(b'ARM static decoder')
+        ffmpeg.chmod(0o755)
+        with mock.patch.object(manager.urllib.request, 'urlopen', side_effect=AssertionError('unexpected network fetch')):
             manager.decoder(self.root)
-        self.assertEqual((self.root / 'ffmpeg').read_bytes(), b'synthetic ffmpeg')
-        self.assertTrue((self.root / 'decoder.json').is_file())
+        ffmpeg.unlink()
+        with self.assertRaisesRegex(ValueError, 'bundled FFmpeg'):
+            manager.decoder(self.root)
 
-    def test_decoder_falls_back_to_the_copy_when_the_upstream_site_fails_or_lies(self):
-        stream = io.BytesIO()
-        with tarfile.open(fileobj=stream, mode='w:xz') as tar:
-            for name in ('ffmpeg', 'GPLv3.txt', 'readme.txt'):
-                data = ('synthetic ' + name).encode()
-                info = tarfile.TarInfo('ffmpeg-7.0.2-armhf-static/' + name)
-                info.size = len(data)
-                tar.addfile(info, io.BytesIO(data))
-        archive = stream.getvalue()
-        upstream, mirror = manager.FF_URLS
-        for first in (ConnectionRefusedError(111, 'refused'), b'<html>parked domain</html>'):
-            shutil.rmtree(self.root, ignore_errors=True)
-            self.root.mkdir(parents=True)
-            asked = []
-            def fetch(url, timeout):
-                asked.append(url)
-                if url == upstream and isinstance(first, Exception):
-                    raise first
-                return io.BytesIO(first if url == upstream else archive)
-            with mock.patch.object(manager, 'FF_SHA', hashlib.sha256(archive).hexdigest()), \
-                    mock.patch.object(manager.urllib.request, 'urlopen', fetch):
-                manager.decoder(self.root)
-            self.assertEqual(asked, [upstream, mirror])
-            self.assertEqual((self.root / 'ffmpeg').read_bytes(), b'synthetic ffmpeg')
-            self.assertEqual(json.loads((self.root / 'decoder.json').read_text())['url'], mirror)
+    def test_rollback_to_a_release_before_the_h264_core(self):
+        # The release before this one shipped the PlexCRT core and the Python
+        # player; a rollback right after the update must still select it.
+        self.package_version('alpha-1')
+        manager.install(self.card, self.package)
+        previous = self.root / 'releases/alpha-1'
+        files = {}
+        for name in manager.PAYLOAD:
+            (previous / name).unlink()
+        for name in manager.LEGACY_PAYLOAD:
+            (previous / name).write_bytes(name.encode())
+            files[name] = hashlib.sha256(name.encode()).hexdigest()
+        manager.write_json(previous / 'manifest.json', {'id': 'alpha-1', 'files': files})
+        self.package_version('alpha-2')
+        manager.install(self.card, self.package)
+        manager.rollback(self.root)
+        self.assertEqual(manager.read_state(self.root)['current'], 'alpha-1')
+        self.assertEqual(manager.core_file(self.root), previous / 'MisterZine Plex Core.rbf')
+
+    def test_downloaded_ffmpeg_goes_with_the_last_release_before_the_h264_core(self):
+        # A card updated from a release before the H.264 core: its release
+        # folder and the FFmpeg it downloaded beside the release folders.
+        legacy = self.root / 'releases/old-1'
+        legacy.mkdir(parents=True)
+        for name in manager.LEGACY_PAYLOAD:
+            (legacy / name).write_bytes(name.encode())
+        manager.write_json(self.root / 'active.json', {'current': 'old-1', 'previous': None})
+        for name in ('ffmpeg', 'decoder.json', 'ffmpeg-7.0.2-armhf-static.tar.xz', 'corresponding-source.zip'):
+            (self.root / name).write_bytes(b'fixture')
+        (self.root / 'decoder-notices').mkdir()
+        (self.root / 'decoder-notices/readme.txt').write_text('fixture')
+        self.package_version('new-1')
+        manager.install(self.card, self.package)
+        self.assertEqual(manager.prune_releases(self.root), [])
+        # Still the rollback target: its FFmpeg stays.
+        self.assertTrue((self.root / 'ffmpeg').is_file())
+        self.package_version('new-2')
+        manager.install(self.card, self.package)
+        self.assertEqual(manager.prune_releases(self.root), ['old-1'])
+        for name in manager.LEGACY_FILES:
+            self.assertFalse((self.root / name).exists(), name)
+        self.assertTrue((self.root / 'releases/new-2/ffmpeg').is_file())
 
     def test_reject_path_escape(self):
         self.root.mkdir(parents=True)
@@ -395,7 +479,7 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn(lan, text)
 
     def test_report_trims_long_logs_to_the_limit(self):
-        (self.tmp / 'plexplay.log').write_text('x' * 200 + '\n' + 'a line of playback\n' * 20000)
+        (self.tmp / 'jfplay.log').write_text('x' * 200 + '\n' + 'a line of playback\n' * 20000)
         text = self.report()
         self.assertLessEqual(len(text.encode()), manager.REPORT_MAX_BYTES)
         self.assertIn('a line of playback', text)
@@ -531,11 +615,11 @@ class ReportTests(unittest.TestCase):
         rollback = (self.card / 'Scripts/MisterZine-Plex-Rollback.sh').read_text()
         self.assertIn('if [ "$result" -ne 0 ]; then read -r -p', rollback)
 
-    def test_framebuffer_preparation_reports_a_write(self):
+    def test_framebuffer_preparation_does_not_write(self):
         params = self.base / 'params'
         params.mkdir()
         (params / 'mode').write_text('8888 1 640 480 2560\n')
-        self.assertTrue(manager.prepare_framebuffer(params))
+        self.assertFalse(manager.prepare_framebuffer(params))
         self.assertFalse(manager.prepare_framebuffer(params))
 
     def test_report_reads_the_active_alternative_ini_by_number(self):

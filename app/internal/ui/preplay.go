@@ -19,11 +19,41 @@ type Preplay struct {
 	item     *plex.Item
 	actions  []string
 	cw       continueList
-	cur      int         // -1: the synopsis
-	more     bool        // the synopsis was cut: it can be opened
-	page     *gfx.Canvas // the page is composed here (blending reads pixels,
-	// which must not happen on the write-combined frame), then copied
+	cur      int  // -1: the synopsis
+	more     bool // the synopsis was cut: it can be opened
+	// The page is composed here, then copied out: text and the logo blend
+	// over what is beneath, and the frame from Begin is only ever written.
+	page *gfx.Canvas
+	// What page holds outside the text column (pageStill), the column's
+	// corner of that still layer (under, from row column down), and the
+	// synopsis wrapped once (lines, for summary).
+	pageStill preplayKey
+	column    int
+	under     []byte
+	lines     []string
+	summary   string
 }
+
+// preplayKey is what the page's still layer shows: the backdrop, the logo
+// or title, the facts, and the poster with its badge. While it stays the
+// same only the text column (synopsis and actions) is drawn again.
+type preplayKey struct {
+	w, h                       int
+	back, logo, poster         *gfx.Image
+	logoPending                bool
+	title, facts, kind         string
+	offset, dur, views, leaves int
+	viewed                     int
+}
+
+// preplayStill is the still layer for one frame.
+type preplayStill struct {
+	key                   preplayKey
+	facts                 []string
+	backT, logoT, posterT int // how much of each picture still fades in (of 256)
+}
+
+func (st *preplayStill) fading() bool { return st.backT > 0 || st.logoT > 0 || st.posterT > 0 }
 
 const (
 	PreX        = SafeX
@@ -34,6 +64,9 @@ const (
 	PreLogoH    = 90
 	PreFocusGap = 6 // space between the movie-page selection bar and text
 	PreLines    = 2 // synopsis lines: short, so it never has to be read at length
+	// PreColX is the left edge of the text column's corner of the page, with
+	// room for the focus bar and any glyph that overhangs its origin.
+	PreColX = PreTextX - PreFocusGap - BarW - 8
 )
 
 // NewPreplay makes the page for a playable item. Hub listings omit the
@@ -45,6 +78,7 @@ func NewPreplay(app *App, it *plex.Item) *Preplay {
 			*it = *fresh
 		}
 	}
+	app.applyStreams(it)
 	p.rebuild()
 	p.cw.refetch(app)
 	return p
@@ -134,7 +168,7 @@ func (p *Preplay) play(offset int) {
 func (p *Preplay) refresh() {
 	p.periodic.reset()
 	if fresh, err := p.app.Plex.Item(p.item.RatingKey); err == nil {
-		*p.item = *fresh
+		p.app.takeFresh(p.item, fresh)
 	}
 	p.rebuild()
 	p.cw.refetch(p.app) // a play or a mark can move it in or out
@@ -151,15 +185,48 @@ func actionPitch(f *gfx.Font, top, n int) int {
 	return pitch
 }
 
-// Draw composes the page off-frame and copies it in.
+// Draw composes the page off-frame and copies it in. A Display Shape change
+// while the page is open resizes the output canvas (720 or 960 wide), so the
+// page follows it rather than being copied in at its old width.
 func (p *Preplay) Draw(out *gfx.Canvas, now time.Time) bool {
-	if p.page == nil {
+	if !canvasSizeIs(p.page, out.W, out.H) {
 		p.page = gfx.NewCanvas(out.W, out.H)
+		p.pageStill = preplayKey{}
 	}
-	c := p.page
-	anim := p.compose(c, now)
-	copy(out.Pix, c.Pix)
+	anim := p.composePage(now)
+	copy(out.Pix, p.page.Pix)
 	return anim
+}
+
+// composePage brings the page up to date. The still layer is drawn again
+// only when it changed or a picture in it is fading in; otherwise the text
+// column's corner is restored from under and the column drawn over it, so
+// a press (or the start sweep) does not refill and reblit the whole frame.
+func (p *Preplay) composePage(now time.Time) bool {
+	c := p.page
+	st := p.still(c.W, c.H)
+	if st.fading() {
+		y := p.drawStill(c, &st)
+		p.pageStill = preplayKey{}
+		p.drawColumn(c, y, now)
+		return true
+	}
+	x0, rw := PreColX*4, (c.W-PreColX)*4
+	if p.pageStill != st.key {
+		p.column = p.drawStill(c, &st)
+		p.under = p.under[:0]
+		for y := p.column; y < c.H; y++ {
+			o := y*c.W*4 + x0
+			p.under = append(p.under, c.Pix[o:o+rw]...)
+		}
+		p.pageStill = st.key
+	} else {
+		for y := p.column; y < c.H; y++ {
+			o, u := y*c.W*4+x0, (y-p.column)*rw
+			copy(c.Pix[o:o+rw], p.under[u:u+rw])
+		}
+	}
+	return p.drawColumn(c, p.column, now)
 }
 
 // sweep is the start indicator: the selection bar itself, dimmed, with a
@@ -209,19 +276,65 @@ func fadeT(age time.Duration) int {
 	return 256 - int(age*256/FadeIn)
 }
 
+// compose draws the whole page into c: the still layer, then the column.
 func (p *Preplay) compose(c *gfx.Canvas, now time.Time) bool {
+	st := p.still(c.W, c.H)
+	y := p.drawStill(c, &st)
+	return p.drawColumn(c, y, now) || st.fading()
+}
+
+// still looks up what the still layer shows this frame.
+func (p *Preplay) still(w, h int) preplayStill {
 	it := p.item
-	f := p.app.F
-	anim := false
+	var st preplayStill
+	k := &st.key
+	k.w, k.h = w, h
 	art := it.Art
 	if art == "" {
 		art = it.Thumb
 	}
-	c.Fill(0, 0, c.W, c.H, gfx.Bg)
-	if img, age := p.app.Art.GetBackdrop(art, c.W, c.H, BgBright, BgFade); img != nil {
-		if t := fadeT(age); t > 0 {
-			c.BlendSolidClip(0, 0, img, gfx.Bg, t, 0, 0, c.W, c.H)
-			anim = true
+	var age time.Duration
+	if k.back, age = p.app.Art.GetBackdrop(art, w, h, BgBright, BgFade); k.back != nil {
+		st.backT = fadeT(age)
+	}
+	if it.Logo != "" {
+		var failed bool
+		if k.logo, age, failed = p.app.Art.getLogoAge(it.Logo, PreLogoW, PreLogoH); k.logo != nil {
+			st.logoT = fadeT(age)
+		}
+		k.logoPending = k.logo == nil && !failed
+	}
+	if k.logo == nil && !k.logoPending {
+		k.title = it.Title
+	}
+	st.facts = heroFacts(it)
+	if len(it.Genres) > 0 {
+		g := it.Genres
+		if len(g) > 3 {
+			g = g[:3]
+		}
+		st.facts = append(st.facts, strings.Join(g, ", "))
+	}
+	k.facts = strings.Join(st.facts, "\x00")
+	if k.poster, age = p.app.Art.GetAge(it.Thumb, PosterW, PosterH); k.poster != nil {
+		st.posterT = fadeT(age)
+	}
+	k.kind, k.offset, k.dur, k.views = it.Type, it.ViewOffset, it.Duration, it.ViewCount
+	k.leaves, k.viewed = it.Leaves, it.Viewed
+	return st
+}
+
+// drawStill draws the backdrop, the title block, the facts and the poster,
+// and returns the top of the text column. Everything in it is drawn at
+// once (no cached text lines that land a frame later): the layer is kept.
+func (p *Preplay) drawStill(c *gfx.Canvas, st *preplayStill) int {
+	it, f, k := p.item, p.app.F, &st.key
+	if img := k.back; img == nil || img.W < c.W || img.H < c.H {
+		c.Fill(0, 0, c.W, c.H, gfx.Bg) // a backdrop, when there is one, covers it all
+	}
+	if img := k.back; img != nil {
+		if st.backT > 0 {
+			c.BlendSolidClip(0, 0, img, gfx.Bg, st.backT, 0, 0, c.W, c.H)
 		} else {
 			c.Blit(0, 0, img)
 		}
@@ -229,58 +342,49 @@ func (p *Preplay) compose(c *gfx.Canvas, now time.Time) bool {
 	// title block: the logo's space is held while it is on its way, so
 	// nothing below moves when it lands
 	y := SafeY + 12
-	var logo *gfx.Image
-	logoPending := false
-	if it.Logo != "" {
-		var failed bool
-		var age time.Duration
-		logo, age, failed = p.app.Art.getLogoAge(it.Logo, PreLogoW, PreLogoH)
-		logoPending = logo == nil && !failed
-		if logo != nil {
-			ly := y + PreLogoH - logo.H // sit on the box's baseline
-			if t := fadeT(age); t > 0 {
-				c.BlitOverT(PreX, ly, logo, 256-t)
-				anim = true
-			} else {
-				c.BlitOver(PreX, ly, logo)
-			}
-			y += PreLogoH + 8
-		}
-	}
-	if logo == nil {
-		if logoPending {
-			y += PreLogoH + 8
+	if logo := k.logo; logo != nil {
+		ly := y + PreLogoH - logo.H // sit on the box's baseline
+		if st.logoT > 0 {
+			c.BlitOverT(PreX, ly, logo, 256-st.logoT)
 		} else {
-			c.Text(PreX, y, f.Big, gfx.Grey, f.Big.Fit(it.Title, SafeW))
-			y += f.Big.Height() + 2
+			c.BlitOver(PreX, ly, logo)
 		}
+		y += PreLogoH + 8
+	} else if k.logoPending {
+		y += PreLogoH + 8
+	} else {
+		c.Text(PreX, y, f.Big, gfx.Grey, f.Big.Fit(it.Title, SafeW))
+		y += f.Big.Height() + 2
 	}
-	facts := heroFacts(it)
-	if len(it.Genres) > 0 {
-		g := it.Genres
-		if len(g) > 3 {
-			g = g[:3]
-		}
-		facts = append(facts, strings.Join(g, ", "))
-	}
-	dots(c, PreX, y, f.SmallBold, gfx.GreyHi, facts, SafeW)
+	dots(c, PreX, y, f.SmallBold, gfx.GreyHi, st.facts, SafeW)
 	y += f.SmallBold.Height() + 16
 	// below: the poster on the left, a short synopsis and the actions on
 	// the right, all above the safe bottom
-	py := y
-	if img, age := p.app.Art.GetAge(it.Thumb, PosterW, PosterH); img != nil {
-		if t := fadeT(age); t > 0 {
-			c.BlendSolidClip(PreX, py, img, gfx.Bg, t, 0, 0, c.W, c.H)
-			anim = true
+	if img := k.poster; img != nil {
+		if st.posterT > 0 {
+			c.BlendSolidClip(PreX, y, img, gfx.Bg, st.posterT, 0, 0, c.W, c.H)
 		} else {
-			c.Blit(PreX, py, img)
+			c.Blit(PreX, y, img)
 		}
-		p.app.badge(c, it, PreX, py, PosterW, PosterH)
+		p.app.badge(c, it, PreX, y, PosterW, PosterH)
 	} else {
-		c.Fill(PreX, py, PosterW, PosterH, gfx.Bar)
+		c.Fill(PreX, y, PosterW, PosterH, gfx.Bar)
 	}
+	return y
+}
+
+// drawColumn draws the synopsis and the actions from y down, right of the
+// poster: all of it inside the corner from PreColX across and y down.
+func (p *Preplay) drawColumn(c *gfx.Canvas, y int, now time.Time) bool {
+	it := p.item
+	f := p.app.F
+	anim := false
 	tw := SafeX + SafeW - PreTextX
-	lines := wrap(f.SmallBold, it.Summary, tw, PreLines)
+	if p.lines == nil || p.summary != it.Summary {
+		p.lines = wrap(f.SmallBold, it.Summary, tw, PreLines)
+		p.summary = it.Summary
+	}
+	lines := p.lines
 	p.more = len(lines) > 0 && strings.HasSuffix(lines[len(lines)-1], "...")
 	sy := y
 	col := gfx.GreyLo

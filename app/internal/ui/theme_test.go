@@ -7,8 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
 	"time"
+
+	"plexcrt/internal/plex"
 )
 
 // Helpers exercise real pipes/process ownership without opening the sound device.
@@ -106,5 +110,74 @@ func TestThemeFadeAndRelease(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Navigation does not wait for a theme's fade; the next theme waits for it
+// before it plays (ALSA has one client), one cancelled meanwhile never
+// plays, and Stop waits for them all.
+func TestThemeNavigationDoesNotWaitForTheFade(t *testing.T) {
+	file, play := themeFile, themePlay
+	t.Cleanup(func() { themeFile, themePlay = file, play })
+	themeFile = func(_ *plex.Client, _ context.Context, key, _ string) (string, error) { return key, nil }
+	const fade = 300 * time.Millisecond
+	var mu sync.Mutex
+	var playing, most int
+	var order []string
+	started := make(chan string, 4)
+	themePlay = func(ctx context.Context, file string) {
+		mu.Lock()
+		playing++
+		most = max(most, playing)
+		order = append(order, file)
+		mu.Unlock()
+		started <- file
+		<-ctx.Done()
+		time.Sleep(fade) // the fade, aplay draining and the reaping
+		mu.Lock()
+		playing--
+		mu.Unlock()
+	}
+	quick := func(what string, f func()) {
+		t.Helper()
+		t0 := time.Now()
+		f()
+		if d := time.Since(t0); d > fade/3 {
+			t.Fatalf("%s waited %v", what, d)
+		}
+	}
+	waitStarted := func(want string) {
+		t.Helper()
+		select {
+		case got := <-started:
+			if got != want {
+				t.Fatalf("%s played, want %s", got, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s did not play", want)
+		}
+	}
+	var th Theme
+	c := &plex.Client{}
+	th.Select(c, "a", "")
+	waitStarted("a")
+	quick("moving to another show", func() { th.Select(c, "b", "") })
+	quick("and on to a third", func() { th.Select(c, "c", "") })
+	select {
+	case got := <-started:
+		t.Fatalf("%s played during the last theme's fade", got)
+	case <-time.After(fade / 2):
+	}
+	waitStarted("c")
+	quick("leaving for a page without music", func() { th.Select(c, "", "") })
+	t0 := time.Now()
+	th.Stop()
+	if d := time.Since(t0); d < fade*9/10 {
+		t.Fatalf("Stop returned %v into a %v fade", d, fade)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if playing != 0 || most != 1 || !slices.Equal(order, []string{"a", "c"}) {
+		t.Fatalf("after Stop: %d playing, at most %d at once, played %q", playing, most, order)
 	}
 }

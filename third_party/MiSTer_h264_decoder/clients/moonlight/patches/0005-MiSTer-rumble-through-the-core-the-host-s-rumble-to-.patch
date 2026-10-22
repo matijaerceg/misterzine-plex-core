@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: MiSTer H264 core <noreply@example.invalid>
+Date: Sun, 4 Oct 2026 12:00:00 -0400
+Subject: [PATCH 5/5] MiSTer: rumble through the core -- the host's rumble to
+ Main's pads
+
+The host's rumble for each controller goes to the MiSTer H264 core (interface 0.13: program
+words 36-38), which hands it to Main; Main plays it on the user's pad. src/mister/mister_input.c
+(kept in the MiSTer H264 core's repository, clients/moonlight/src/) writes it from its 1 ms
+timer. The trigger handler is set too: connection.c's rumble_triggers() tests rumble_handler
+before calling rumble_triggers_handler, so setting the first alone would call a NULL pointer
+on a host's trigger rumble.
+---
+ src/main.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/main.c b/src/main.c
+index af9dc6f..eb56b61 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -378,6 +378,10 @@ int main(int argc, char* argv[]) {
+       if (system == MISTER) {
+         /* no evdev: while a core runs Main holds every input device (EVIOCGRAB), and the MiSTer
+          * H264 core hands this program Main's keyboard, mouse and pads (mister_input.c) */
++        /* the host's rumble back to Main's pads, through the core (interface 0.13). Both
++         * handlers: connection.c's rumble_triggers() tests rumble_handler, not its own */
++        rumble_handler = mister_rumble;
++        rumble_triggers_handler = mister_rumble_triggers;
+       } else
+       #endif
+       if (IS_EMBEDDED(system)) {

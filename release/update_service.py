@@ -561,20 +561,42 @@ def activate(card, launch=start_and_check):
             old = manager.read_state(root) if (root / 'active.json').exists() else None
             # A download left ready before a rollback, or before a script
             # installed the same release, must not select what already runs.
-            if old and old.get('current') == release['id']:
-                raise ValueError('This release is already installed. Check for updates again.')
-            # Copy runtime before activation so recovery does not depend on the new helper.
-            backups = {name: (root / name).read_bytes() for name in HELPERS if (root / name).exists()}
-            dropin = card / 'downloader_misterzine_plex.ini'
-            old_registration = dropin.read_bytes() if dropin.exists() else None
-            for name, sha in manifest.get('files', {}).items():
-                if name not in manager.PAYLOAD or manager.digest(package / 'payload' / name) != sha:
-                    raise ValueError('Prepared payload changed. Check for updates again.')
+            current = bool(old and old.get('current') == release['id'])
+            if not current:
+                # Copy runtime before activation so recovery does not depend on the new helper.
+                backups = {name: (root / name).read_bytes() for name in HELPERS if (root / name).exists()}
+                dropin = card / 'downloader_misterzine_plex.ini'
+                old_registration = dropin.read_bytes() if dropin.exists() else None
+                for name, sha in manifest.get('files', {}).items():
+                    if name not in manager.PAYLOAD or manager.digest(package / 'payload' / name) != sha:
+                        raise ValueError('Prepared payload changed. Check for updates again.')
         except Exception as exc:
             # Nothing has changed yet; the reason still belongs on the screen,
             # not only on the worker's stderr.
             failed(root, release, 'Could not restart Plex', exc)
             raise
+        if current:
+            # Nothing to install: put back the entries an install writes
+            # (`manager.py remove` says the installer restores them) and
+            # restart what already runs, as an install would.
+            (root / 'updates/ready.json').unlink(missing_ok=True)
+            status(root, 'activating', release, 'Restarting Plex...')
+            try:
+                stop_manager(root)
+                with manager.locked(root):
+                    manager.wrappers(card)
+                    if (root / 'menu_launcher.py').is_file():
+                        manager.menu_entries(card)
+                    register(card, release)
+                    manager.start_menu_launcher(card)
+                if not launch(root):
+                    raise RuntimeError('Plex did not start')
+            except Exception as exc:
+                failed(root, release, 'Could not restart Plex', exc)
+                raise
+            status(root, 'complete', release, 'MisterZine Plex Core ' + release['version']
+                   + ' is already installed and up to date')
+            return
         installed = False
         status(root, 'activating', release, 'Restarting Plex...')
         try:
@@ -622,13 +644,14 @@ def activate(card, launch=start_and_check):
                     manager.repair_menu_entry(card)
                     (root / 'updates/activation.json').unlink(missing_ok=True)
             except Exception as restore_exc:
-                # The journal stays: the next launch of Plex finishes the restore.
+                # The journal stays: the next launch finishes the restore.
                 restore_why, _ = record(root, 'Could not restore the previous release', restore_exc)
                 status(root, 'failed', release, cause + ' Restoring the previous release also failed: ' + restore_why
                        + '. Return to the MiSTer menu and open Plex again to finish restoring it.', detail)
                 raise
             status(root, 'failed', release, cause + (' The previous release was restored.' if old
-                   else ' No earlier release is installed. Run MisterZine-Plex-Install to retry.'), detail)
+                   else ' No earlier release is installed. Run ' + manager.installer_script(release.get('channel'))
+                   + ' from Scripts to retry.'), detail)
             if old:
                 if launch is start_and_check:
                     # Older releases do not emit a readiness marker. Restore them

@@ -13,56 +13,6 @@ import (
 	"time"
 )
 
-func TestTargetCodeDoesNotUnlockCurrentRelease(t *testing.T) {
-	a := betaTestApp(t)
-	r := updates.Release{Version: "0.3.0-beta.1", Channel: "beta", Access: &updates.Access{Batch: "next-fixture", SHA256: beta.CodeSHA256}}
-	u := &Updates{app: a, release: &r}
-	a.Push(u)
-	_, rows := u.view()
-	rows[0].do()
-	b := a.top().(*BetaAccess)
-	now := time.Now()
-	enterFixture(a, now)
-	if b.opened.IsZero() || r.Requirement().Check(a.betaDir()) != nil {
-		t.Fatal("target receipt was not saved")
-	}
-	if beta.Check(a.betaDir()) == nil {
-		t.Fatal("target code unlocked current access batch")
-	}
-	// Stop before completion; no update worker should be launched by this fixture.
-}
-func TestUpdateChoicesAndCancel(t *testing.T) {
-	a := betaTestApp(t)
-	u := &Updates{app: a}
-	if v, rows := u.view(); v != viewCurrent || len(rows) != 1 {
-		t.Fatal("unpublished channels shown")
-	}
-	r := updates.Release{ID: "next", Version: "0.3.0-beta.1", Channel: "beta", Access: &updates.Access{Batch: "next", SHA256: beta.CodeSHA256}}
-	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{"beta": r}}
-	if !a.updateAvailable() {
-		t.Fatal("new beta not indicated")
-	}
-	v, rows := u.shows()
-	if v != viewAvailable || rows[0].label != "Update now" {
-		t.Fatalf("an update is not the lead: %v %q", v, rows[0].label)
-	}
-	u.Key(input.Event{Key: input.Enter}, time.Now())
-	if u.release == nil {
-		t.Fatal("new code confirmation missing")
-	}
-	// a press before the code screen is drawn was meant for the screen before
-	u.Key(input.Event{Key: input.Enter}, time.Now())
-	if _, ok := a.top().(*BetaAccess); ok || u.release == nil {
-		t.Fatal("a press acted on a screen not yet drawn")
-	}
-	u.shows()
-	u.cur = 2
-	u.Key(input.Event{Key: input.Enter}, time.Now())
-	if u.release != nil || a.updates.status.Busy() {
-		t.Fatal("cancel started update")
-	}
-}
-
 // The running release, another build of its version and older releases are
 // never offered: there is no reinstall or downgrade from Updates.
 func TestUpdatesOffersOnlyNewerReleases(t *testing.T) {
@@ -91,7 +41,7 @@ func TestUpdatesOffersOnlyNewerReleases(t *testing.T) {
 
 func TestPublicBuildListsTheBetaQuietly(t *testing.T) {
 	a := betaTestApp(t)
-	beta.Channel = "public" // betaTestApp puts it back
+	updates.Channel = "public" // betaTestApp puts it back
 	a.Version = "0.2.0"
 	u := &Updates{app: a}
 	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{"beta": {ID: "next", Version: "0.3.0-beta.1", Channel: "beta"}}}
@@ -149,7 +99,7 @@ func TestUpdateFailureOutlivesTheCatalogue(t *testing.T) {
 	a := betaTestApp(t)
 	u := &Updates{app: a}
 	failed := updates.Release{ID: "a", Version: "0.3.0-beta.1", Channel: "beta"}
-	a.updates.status = updates.Status{Stage: "failed", Message: "Could not restart Plex. The previous release was restored.", Release: &failed}
+	a.updates.status = updates.Status{Stage: "failed", Message: "Could not restart Plex: The new release did not start. The previous release was restored.", Release: &failed}
 	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{"beta": {ID: "b", Version: "0.3.0-beta.2", Channel: "beta"}}}
 	if v, rows := u.shows(); v != viewFailed || rows[0].label != "Update to 0.3.0-beta.2" {
 		t.Fatalf("replaced: %v, %q", v, rows[0].label)
@@ -224,7 +174,7 @@ func TestCheckAgainEndsAFailureWithNothingToInstall(t *testing.T) {
 // the failure, not left to a second row; Options says it failed.
 func TestQuietBetaFailureOffersTryAgain(t *testing.T) {
 	a := betaTestApp(t)
-	beta.Channel = "public" // betaTestApp puts it back
+	updates.Channel = "public" // betaTestApp puts it back
 	a.Version = "0.2.0"
 	u := &Updates{app: a}
 	r := updates.Release{ID: "next", Version: "0.3.0-beta.1", Channel: "beta"}
@@ -344,11 +294,56 @@ func writeStatus(t *testing.T, a *App, data string) {
 		t.Fatal(err)
 	}
 }
-func readStatus(t *testing.T, a *App) {
+
+// readStatus reads the status file once, as the run loop does, and reports
+// whether the read was handed to the render thread (it changed something).
+func readStatus(t *testing.T, a *App) bool {
 	t.Helper()
 	a.updates.nextStatus = time.Time{}
 	a.pollUpdates(time.Now())
-	drain(t, a)
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		select {
+		case f := <-a.later:
+			f()
+			return true
+		default:
+		}
+		if !a.updates.reading.Load() {
+			return false
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the read did not finish")
+		}
+	}
+}
+
+// Reading a status file that says what is on screen already leaves the
+// render thread alone: it was woken, and drew a frame, every second.
+func TestUnchangedStatusDoesNotWakeTheRenderThread(t *testing.T) {
+	a := betaTestApp(t)
+	a.later = make(chan func(), 4)
+	a.Wake = make(chan struct{}, 1)
+	a.updates.nextCheck = time.Now().Add(time.Hour)
+	writeStatus(t, a, `{"stage":"ready","updated":50,"release":{"id":"next","version":"0.3.0-beta.1","channel":"beta"}}`)
+	if !readStatus(t, a) || a.updates.status.Stage != "ready" {
+		t.Fatalf("a new status was not taken: %+v", a.updates.status)
+	}
+	<-a.Wake
+	for i := 0; i < 3; i++ {
+		if readStatus(t, a) || len(a.Wake) > 0 {
+			t.Fatal("an unchanged status woke the render thread")
+		}
+	}
+	writeStatus(t, a, `{"stage":"failed","updated":60,"message":"no space"}`)
+	if !readStatus(t, a) || a.updates.status.Stage != "failed" {
+		t.Fatalf("a changed status was not taken: %+v", a.updates.status)
+	}
+	// an update launched: its updater has not written yet, and runs
+	a.updates.waiting, a.updates.before = true, 60
+	a.updates.exited = make(chan struct{})
+	if readStatus(t, a) {
+		t.Fatal("the file from before the launch woke the render thread")
+	}
 }
 
 // An updater's status counts once the file changes after the launch, whatever
@@ -388,7 +383,7 @@ func TestUpdaterLaunchErrorIsAFailure(t *testing.T) {
 	a.later = make(chan func(), 4)
 	a.updates.nextCheck = time.Now().Add(time.Hour)
 	file := filepath.Join(t.TempDir(), "catalogue.json")
-	if err := os.WriteFile(file, []byte(`{"schema":1,"releases":{"public":{"id":"pub","version":"0.3.0","channel":"public","notes":"","url":"https://example.org/p.zip","db_url":"https://example.org/p.json.zip","size":1,"sha256":"`+strings.Repeat("a", 64)+`"}}}`), 0600); err != nil {
+	if err := os.WriteFile(file, []byte(`{"schema":1,"releases":{"public":{"id":"pub","version":"0.3.0","channel":"public","notes":"","url":"https://example.org/p.zip","db_url":"https://example.org/p.json.zip","size":1,"sha256":"`+strings.Repeat("a", 64)+`","source":{"filename":"MisterZine-Plex-Core-Source-pub.zip","size":1,"sha256":"`+strings.Repeat("b", 64)+`","url":"https://example.org/p-source.zip"}}}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PLEXCRT_CATALOGUE_FILE", file)
@@ -398,7 +393,7 @@ func TestUpdaterLaunchErrorIsAFailure(t *testing.T) {
 	_, rows := u.view()
 	rows[0].do() // Update now
 	s := a.updates.status
-	if s.Stage != "failed" || s.Release == nil || s.Release.ID != "pub" || !strings.Contains(s.Message, "MisterZine-Plex-Install") {
+	if s.Stage != "failed" || s.Release == nil || s.Release.ID != "pub" || !strings.Contains(s.Message, "Run MisterZine-Plex-Install-Beta from Scripts") {
 		t.Fatalf("launch error: %+v", s)
 	}
 	readStatus(t, a)
@@ -416,5 +411,56 @@ func TestUpdaterLaunchErrorIsAFailure(t *testing.T) {
 	}
 	if label != "Updates - update failed" {
 		t.Fatalf("Options says %q", label)
+	}
+}
+
+func TestTargetCodeDoesNotUnlockCurrentRelease(t *testing.T) {
+	a := betaTestApp(t)
+	r := updates.Release{Version: "0.3.0-beta.1", Channel: "beta", Access: &updates.Access{Batch: "next-fixture", SHA256: beta.CodeSHA256}}
+	u := &Updates{app: a, release: &r}
+	a.Push(u)
+	_, rows := u.view()
+	rows[0].do()
+	b := a.top().(*BetaAccess)
+	now := time.Now()
+	enterFixture(a, now)
+	if b.opened.IsZero() || r.Requirement().Check(a.betaDir()) != nil {
+		t.Fatal("target receipt was not saved")
+	}
+	if beta.Check(a.betaDir()) == nil {
+		t.Fatal("target code unlocked current access batch")
+	}
+	// Stop before completion; no update worker should be launched by this fixture.
+}
+
+func TestUpdateChoicesAndCancel(t *testing.T) {
+	a := betaTestApp(t)
+	u := &Updates{app: a}
+	if v, rows := u.view(); v != viewCurrent || len(rows) != 1 {
+		t.Fatal("unpublished channels shown")
+	}
+	r := updates.Release{ID: "next", Version: "0.3.0-beta.1", Channel: "beta", Access: &updates.Access{Batch: "next", SHA256: beta.CodeSHA256}}
+	a.updates.catalogue = updates.Catalogue{Schema: 1, Releases: map[string]updates.Release{"beta": r}}
+	if !a.updateAvailable() {
+		t.Fatal("new beta not indicated")
+	}
+	v, rows := u.shows()
+	if v != viewAvailable || rows[0].label != "Update now" {
+		t.Fatalf("an update is not the lead: %v %q", v, rows[0].label)
+	}
+	u.Key(input.Event{Key: input.Enter}, time.Now())
+	if u.release == nil {
+		t.Fatal("new code confirmation missing")
+	}
+	// a press before the code screen is drawn was meant for the screen before
+	u.Key(input.Event{Key: input.Enter}, time.Now())
+	if _, ok := a.top().(*BetaAccess); ok || u.release == nil {
+		t.Fatal("a press acted on a screen not yet drawn")
+	}
+	u.shows()
+	u.cur = 2
+	u.Key(input.Event{Key: input.Enter}, time.Now())
+	if u.release != nil || a.updates.status.Busy() {
+		t.Fatal("cancel started update")
 	}
 }

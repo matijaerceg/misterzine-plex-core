@@ -10,7 +10,7 @@ import (
 	"plexcrt/internal/plex"
 )
 
-// Wall is a library browser: a grid of posters four across, scrolling by
+// Wall is a library browser: a grid of posters four or six across, scrolling by
 // row. The focused row is whole; the row above peeks in as a sliver and
 // the row below shows under a band carrying the focused item's title and
 // facts. Tabs above switch the view; L/R jump a letter in A to Z, a
@@ -31,6 +31,8 @@ type Wall struct {
 	holes   []gfx.Rect
 	tabs    bool        // the cursor is on the view tabs above the grid
 	fading  bool        // a poster faded in this frame: keep drawing
+	dim     *gfx.Image  // the focused poster dimmed while the cursor is on the tabs
+	dimFor  *gfx.Image  // the poster dim was made from
 	band    *gfx.Canvas // the info band is composed here (text over posters)
 	bandKey string
 	bandAt  time.Time
@@ -51,6 +53,7 @@ type Wall struct {
 	blobFor        [4]uint32
 	blobBusy       bool
 
+	azPager   *Pager    // the library's A to Z listing, for its total
 	collPager *Pager    // the library's collections listing, once asked for
 	collAsked time.Time // when a failed collections listing was last asked again
 }
@@ -196,10 +199,33 @@ func NewFolderWall(app *App, s plex.Section, folder *plex.Item) *Wall {
 
 func newWall(app *App, s plex.Section, coll *plex.Item) *Wall {
 	w := &Wall{app: app, section: s, coll: coll}
-	w.band = gfx.NewCanvas(WallBandW, WallBandH)
+	_, h := layoutCanvasSize(app)
+	w.band = gfx.NewCanvas(w.bandW(), max(1, h-WallBandY))
 	w.syncViews()
 	return w
 }
+
+func (w *Wall) canvasW() int {
+	if sized, ok := w.app.Out.(interface{ LayoutCanvasSize() (int, int) }); ok {
+		width, _ := sized.LayoutCanvasSize()
+		if width > 720 {
+			return width
+		}
+	}
+	return 720
+}
+
+func (w *Wall) cols() int {
+	if w.canvasW() > 720 {
+		return 6
+	}
+	return WallCols
+}
+
+func (w *Wall) safeW() int     { return w.canvasW() - 2*SafeX }
+func (w *Wall) bandW() int     { return w.cols()*WallPitch - WallGap }
+func (w *Wall) barX() int      { return SafeX + w.canvasW() - 2*SafeX - WallBarW }
+func (w *Wall) tabsRight() int { return w.barX() - WallGap }
 
 // syncViews keeps the library's views in step with the extras: made once,
 // and again when the extras offer other views (one turned on or off). The
@@ -314,7 +340,7 @@ func (w *Wall) findPlace() {
 	}
 	if i := w.pager.Find(w.seek); i >= 0 && i != w.cur {
 		w.cur = i
-		w.rowY.Set(float64(w.cur / WallCols * WallRowPitch))
+		w.rowY.Set(float64(w.cur / w.cols() * WallRowPitch))
 	}
 	w.seek = ""
 	w.keep()
@@ -345,7 +371,7 @@ func (w *Wall) load() {
 	path := strings.Replace(v.path, "%s", w.section.Key, 1)
 	if v.collections {
 		// the listing that decided the tab; collections have no picture of
-		// their own to judge, the 4:3 filter applies to their items
+		// their own to judge, the 4:3 filter leaves out those it would empty
 		filter = nil
 		w.pager = w.collections()
 	} else if v.order != nil {
@@ -373,7 +399,7 @@ func (w *Wall) load() {
 			p.last = ""
 		}
 	}
-	w.rowY.Set(float64(w.cur / WallCols * WallRowPitch))
+	w.rowY.Set(float64(w.cur / w.cols() * WallRowPitch))
 	w.bandKey = ""
 }
 
@@ -396,12 +422,25 @@ func (w *Wall) az() bool {
 
 // collections is the library's collections listing, kept for the session
 // like the views'; asking for it starts the fetch that decides the tab.
-// The wall holds on to it, so drawing does not look it up every frame.
+// Under the 4:3 filter it leaves out the collections the filter would
+// empty (collectionsPager). The wall holds on to it, so drawing does not
+// look it up every frame; turning the filter on or off makes it anew.
 func (w *Wall) collections() *Pager {
-	if w.collPager == nil {
-		w.collPager = w.app.pager("/library/sections/"+w.section.Key+"/collections", url.Values{}, nil)
+	fourThree := w.app.Cfg != nil && w.app.Cfg.FourThree
+	if w.collPager == nil || w.collPager.Filtered() != fourThree {
+		w.collPager = w.app.collectionsPager("/library/sections/"+w.section.Key+"/collections", url.Values{}, fourThree)
 	}
 	return w.collPager
+}
+
+// azListing is the library's A to Z listing, whose total the title shows
+// whichever view is on. The wall holds on to it, as to its collections, so
+// drawing does not look it up (encoding its query) every frame.
+func (w *Wall) azListing() *Pager {
+	if w.azPager == nil {
+		w.azPager = w.app.pager("/library/sections/"+w.section.Key+"/all", url.Values{"sort": {"titleSort"}}, nil)
+	}
+	return w.azPager
 }
 
 // tabCount is how many view tabs show: the collection's one, or the
@@ -491,16 +530,16 @@ func (w *Wall) Key(ev input.Event, now time.Time) {
 			w.cur++
 		}
 	case input.Up:
-		if w.cur < WallCols {
+		if w.cur < w.cols() {
 			// above the first row: the view tabs (a collection has none)
 			w.tabs = w.coll == nil
 			return
 		}
-		w.cur -= WallCols
+		w.cur -= w.cols()
 	case input.Down:
-		if w.cur+WallCols < n {
-			w.cur += WallCols
-		} else if w.cur/WallCols < (n-1)/WallCols {
+		if w.cur+w.cols() < n {
+			w.cur += w.cols()
+		} else if w.cur/w.cols() < (n-1)/w.cols() {
 			w.cur = n - 1
 		}
 	case input.JumpBack:
@@ -521,7 +560,7 @@ func (w *Wall) Key(ev input.Event, now time.Time) {
 	}
 	w.pager.Want(w.cur)
 	w.focusAt = now
-	w.rowY.Move(float64(w.cur/WallCols*WallRowPitch), now, ev.Repeat)
+	w.rowY.Move(float64(w.cur/w.cols()*WallRowPitch), now, ev.Repeat)
 	w.keep()
 }
 
@@ -567,7 +606,7 @@ func (w *Wall) jump(dir int) {
 	n := w.total()
 	letters := w.letterIndex()
 	if len(letters) == 0 {
-		w.cur += dir * WallCols * 2
+		w.cur += dir * w.cols() * 2
 		if w.cur < 0 {
 			w.cur = 0
 		}
@@ -602,23 +641,24 @@ func (w *Wall) jump(dir int) {
 // Refresh re-reads one item after playback.
 func (w *Wall) Refresh(it *plex.Item) {
 	if fresh, err := w.app.Plex.Item(it.RatingKey); err == nil {
-		*it = *fresh
+		w.app.takeFresh(it, fresh)
 	}
 }
 
 // Draw paints the wall.
 func (w *Wall) Draw(c *gfx.Canvas, now time.Time) bool {
+	w.matchCanvas(c)
 	w.syncViews()
 	w.findPlace()
 	n := w.total()
 	if n > 0 && w.cur >= n && w.pager.Done() {
 		// a remembered place in a listing that has shrunk since
 		w.cur = n - 1
-		w.rowY.Set(float64(w.cur / WallCols * WallRowPitch))
+		w.rowY.Set(float64(w.cur / w.cols() * WallRowPitch))
 		w.keep()
 	}
 	oy := round(w.rowY.At(now))
-	rows := (n + WallCols - 1) / WallCols
+	rows := (n + w.cols() - 1) / w.cols()
 	firstRow := max(0, (oy-WallRowPitch)/WallRowPitch)
 	w.holes = w.holes[:0]
 	w.fading = false
@@ -630,8 +670,8 @@ func (w *Wall) Draw(c *gfx.Canvas, now time.Time) bool {
 		if y > c.H {
 			break
 		}
-		for col := 0; col < WallCols; col++ {
-			i := r*WallCols + col
+		for col := 0; col < w.cols(); col++ {
+			i := r*w.cols() + col
 			if i >= n {
 				break
 			}
@@ -641,23 +681,23 @@ func (w *Wall) Draw(c *gfx.Canvas, now time.Time) bool {
 		}
 	}
 	c.Blit(WallBandX, WallBandY, &gfx.Image{W: w.band.W, H: w.band.H, Pix: w.band.Pix})
-	w.holes = append(w.holes, gfx.Rect{X: WallBandX, Y: WallBandY, W: WallBandW, H: WallBandH})
+	w.holes = append(w.holes, gfx.Rect{X: WallBandX, Y: WallBandY, W: w.bandW(), H: w.band.H})
 	c.BlitExcept(page, w.holes)
 	// a scrollbar down the right edge, the letter (or the count) beside its handle
 	if rows > 1 {
 		trackY, trackH := WallTop, SafeBottom-WallTop
 		thumbH := max(20, trackH/rows)
-		thumbY := trackY + (trackH-thumbH)*(w.cur/WallCols)/(rows-1)
-		c.Fill(WallBarX, trackY, WallBarW, trackH, gfx.Bar)
-		c.Fill(WallBarX, thumbY, WallBarW, thumbH, gfx.GreyLo)
+		thumbY := trackY + (trackH-thumbH)*(w.cur/w.cols())/(rows-1)
+		c.Fill(w.barX(), trackY, WallBarW, trackH, gfx.Bar)
+		c.Fill(w.barX(), thumbY, WallBarW, thumbH, gfx.GreyLo)
 		if s := w.marker(n); s != "" {
 			f := w.app.F.SmallBold
-			w.app.textOver(c, page, WallBarX-10-f.Width(s), min(max(thumbY+thumbH/2-f.Height()/2, trackY), SafeBottom-f.Height()), f, gfx.GreyLo, s)
+			w.app.textOver(c, page, w.barX()-10-f.Width(s), min(max(thumbY+thumbH/2-f.Height()/2, trackY), SafeBottom-f.Height()), f, gfx.GreyLo, s)
 		}
 	}
 	if err := w.pager.Err(); err != nil {
 		w.app.textOver(c, page, SafeX, WallY0, w.app.F.Body, gfx.GreyHi, "Cannot load this library.")
-		w.app.textOver(c, page, SafeX, WallY0+30, w.app.F.Small, gfx.GreyLo, w.app.F.Small.Fit(err.Error(), SafeW))
+		w.app.textOver(c, page, SafeX, WallY0+30, w.app.F.Small, gfx.GreyLo, w.app.F.Small.Fit(err.Error(), w.safeW()))
 	} else if w.pager.Total() < 0 {
 		w.app.textOver(c, page, SafeX, WallY0, w.app.F.Body, gfx.GreyLo, "Loading...")
 	} else if n == 0 {
@@ -669,17 +709,32 @@ func (w *Wall) Draw(c *gfx.Canvas, now time.Time) bool {
 	return w.rowY.Running(now) || w.fading || pageAnim
 }
 
+func (w *Wall) matchCanvas(c *gfx.Canvas) {
+	if canvasSizeIs(w.page, c.W, c.H) && (w.pagePrev == nil || canvasSizeIs(w.pagePrev, c.W, c.H)) &&
+		w.band != nil && w.band.W == w.bandW() && w.band.H == max(1, c.H-WallBandY) &&
+		(w.bandBase == nil || (w.bandBase.W == w.bandW() && w.bandBase.H == max(1, c.H-WallBandY))) &&
+		(w.bandPage == nil || canvasSizeIs(w.bandPage, c.W, c.H)) {
+		return
+	}
+	w.fade.Done()
+	w.page, w.pagePrev = nil, nil
+	w.pageKey, w.pageBg = "", ""
+	w.band = gfx.NewCanvas(w.bandW(), max(1, c.H-WallBandY))
+	w.bandBase, w.bandPage = nil, nil
+	w.bandKey, w.bandPageKey = "", ""
+}
+
 // Queue far rows first so the nearest missing rows are served first. Drawing
 // has already requested the visible posters, which have higher priority.
 func (w *Wall) prefetchRows() {
 	n := w.total()
-	row := w.cur / WallCols
+	row := w.cur / w.cols()
 	for distance := WallPrefetchRows; distance >= 1; distance-- {
 		for _, r := range []int{row - distance, row + distance} {
 			if r < 0 {
 				continue
 			}
-			for i := r * WallCols; i < (r+1)*WallCols && i < n; i++ {
+			for i := r * w.cols(); i < (r+1)*w.cols() && i < n; i++ {
 				if it := w.pager.Get(i); it != nil {
 					w.app.Art.Prefetch(it.Thumb, WallPW, WallPH)
 				}
@@ -721,7 +776,7 @@ func (w *Wall) drawPage(c *gfx.Canvas, now time.Time) (*gfx.Canvas, bool) {
 	if w.tabs {
 		key += "|tabs"
 	}
-	total := w.app.pager("/library/sections/"+w.section.Key+"/all", url.Values{"sort": {"titleSort"}}, nil).Total()
+	total := w.azListing().Total()
 	key += "|" + itoa(total)
 	if key != w.pageKey {
 		w.fade.Done()
@@ -756,9 +811,9 @@ func (w *Wall) compose(c *gfx.Canvas, img *gfx.Image, total, tabs int) {
 	f := w.app.F
 	title := w.app.libraryLabel(w.section)
 	tx := f.Body.Width(title)
-	c.Text(SafeX, SafeY-2, f.Body, gfx.GreyHi, f.Body.Fit(title, SafeW-80))
+	c.Text(SafeX, SafeY-2, f.Body, gfx.GreyHi, f.Body.Fit(title, w.safeW()-80))
 	if total > 0 && !w.app.Showcase {
-		c.Text(SafeX+min(tx, SafeW-80)+14, SafeY+2, f.SmallBold, gfx.GreyLo, itoa(total))
+		c.Text(SafeX+min(tx, w.safeW()-80)+14, SafeY+2, f.SmallBold, gfx.GreyLo, itoa(total))
 	}
 	// A clean underline identifies the active view. It brightens and thickens
 	// when navigation is on the tabs, without surrounding the label in a box.
@@ -768,7 +823,7 @@ func (w *Wall) compose(c *gfx.Canvas, img *gfx.Image, total, tabs int) {
 	for i := 0; i < tabs; i++ {
 		name := w.views[i].name
 		if w.coll != nil {
-			name = f.SmallBold.Fit(w.coll.Title, WallBandW)
+			name = f.SmallBold.Fit(w.coll.Title, w.bandW())
 		}
 		col := gfx.GreyLo
 		if i == w.view {
@@ -791,7 +846,7 @@ func (w *Wall) compose(c *gfx.Canvas, img *gfx.Image, total, tabs int) {
 }
 
 // tabGap is the space between the view tabs when tabs of them show:
-// WallTabGap, closed up evenly when they would run past WallTabsRight.
+// WallTabGap, closed up evenly when they would run past w.tabsRight().
 func (w *Wall) tabGap(tabs int) int {
 	if tabs < 2 || w.coll != nil {
 		return WallTabGap
@@ -800,7 +855,7 @@ func (w *Wall) tabGap(tabs int) int {
 	for _, v := range w.views[:tabs] {
 		width += w.app.F.SmallBold.Width(v.name)
 	}
-	return max(WallTabMinGap, min(WallTabGap, (WallTabsRight-SafeX-width)/(tabs-1)))
+	return max(WallTabMinGap, min(WallTabGap, (w.tabsRight()-SafeX-width)/(tabs-1)))
 }
 
 // marker is what rides beside the scrollbar handle: the letter in A to Z
@@ -829,14 +884,14 @@ func (w *Wall) marker(n int) string {
 // and the focused item's title and facts over them.
 func (w *Wall) composeBand(page *gfx.Canvas, now time.Time, oy int) {
 	if w.bandBase == nil {
-		w.bandBase = gfx.NewCanvas(WallBandW, WallBandH)
+		w.bandBase = gfx.NewCanvas(w.bandW(), page.H-WallBandY)
 	}
 	if w.bandPage != page || w.bandPageKey != w.pageKey {
-		for yy := 0; yy < WallBandH; yy++ {
+		for yy := 0; yy < w.bandBase.H; yy++ {
 			so := ((WallBandY+yy)*page.W + WallBandX) * 4
-			copy(w.bandBase.Pix[yy*WallBandW*4:(yy+1)*WallBandW*4], page.Pix[so:so+WallBandW*4])
+			copy(w.bandBase.Pix[yy*w.bandW()*4:(yy+1)*w.bandW()*4], page.Pix[so:so+w.bandW()*4])
 		}
-		w.bandBase.FillAlpha(0, 0, WallBandW, WallBandH, gfx.Bg, 215)
+		w.bandBase.FillAlpha(0, 0, w.bandW(), w.bandBase.H, gfx.Bg, 215)
 		w.bandPage, w.bandPageKey = page, w.pageKey
 		w.bandKey = ""
 	}
@@ -853,11 +908,11 @@ func (w *Wall) composeBand(page *gfx.Canvas, now time.Time, oy int) {
 			continue
 		}
 		y := WallY0 + r*WallRowPitch - oy - WallBandY
-		if y >= WallBandH || y+WallPH <= 0 {
+		if y >= w.band.H || y+WallPH <= 0 {
 			continue
 		}
-		for col := 0; col < WallCols; col++ {
-			i := r*WallCols + col
+		for col := 0; col < w.cols(); col++ {
+			i := r*w.cols() + col
 			if i >= n {
 				break
 			}
@@ -882,8 +937,8 @@ func (w *Wall) composeBand(page *gfx.Canvas, now time.Time, oy int) {
 		if y >= b.H || y+WallPH <= 0 {
 			continue
 		}
-		for col := 0; col < WallCols; col++ {
-			i := r*WallCols + col
+		for col := 0; col < w.cols(); col++ {
+			i := r*w.cols() + col
 			if i >= n {
 				break
 			}
@@ -931,11 +986,11 @@ func (w *Wall) drawPoster(c *gfx.Canvas, it *plex.Item, x, y int, focus bool) {
 	// peeking rows may run into the overscan: only the tabs bound them above
 	cy0, cy1 := WallPeekTop, c.H
 	// the band covers part of the next row
-	if y < WallBandY+WallBandH && y+WallPH > WallBandY {
+	if y < WallBandY+w.band.H && y+WallPH > WallBandY {
 		if y < WallBandY {
 			cy1 = min(cy1, WallBandY)
 		} else {
-			cy0 = max(cy0, WallBandY+WallBandH)
+			cy0 = max(cy0, WallBandY+w.band.H)
 		}
 	}
 	hy0, hy1 := max(y, cy0), min(y+WallPH, cy1)
@@ -947,8 +1002,13 @@ func (w *Wall) drawPoster(c *gfx.Canvas, it *plex.Item, x, y int, focus bool) {
 	var age time.Duration
 	if it != nil {
 		img, age = w.app.Art.GetAge(it.Thumb, WallPW, WallPH)
-		if focus && w.tabs && img != nil && img.Dim != nil {
-			img = img.Dim // reuse the loader's shaded copy; no per-frame dimming
+		if focus && w.tabs && img != nil {
+			// shaded once for the one poster that needs it, not per frame
+			// and not by the loader for every poster
+			if w.dimFor != img {
+				w.dim, w.dimFor = img.Dimmed(WatchedBright), img
+			}
+			img = w.dim
 		}
 	}
 	w.holes = append(w.holes, gfx.Rect{X: x, Y: hy0, W: WallPW, H: hy1 - hy0})
@@ -971,7 +1031,7 @@ func (w *Wall) drawPoster(c *gfx.Canvas, it *plex.Item, x, y int, focus bool) {
 				c.Fill(x+FolderTabX, y+FolderTabY, FolderTabW, FolderTabH, gfx.GreyLo)
 				c.Fill(x+FolderTabX, y+FolderTabY+FolderTabH, WallPW-2*FolderTabX, FolderLineH, gfx.GreyLo)
 			}
-			lines := wrap(f, it.Title, WallPW-16, 4)
+			lines := wrapped(f, it.Title, WallPW-16, 4)
 			ty := y + WallPH/2 - len(lines)*f.Height()/2
 			for _, l := range lines {
 				w.app.textCenterOn(c, x+WallPW/2, ty, f, col, gfx.Bar, l)

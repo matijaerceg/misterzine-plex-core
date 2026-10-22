@@ -66,6 +66,56 @@ func TestOKReleasesAndKeyboardRepeat(t *testing.T) {
 	}
 }
 
+// A reader that stalls while a key is held gets at most the one repeat
+// waiting for it, then the release: the repeats due meanwhile are dropped
+// rather than played out after the key is let go.
+func TestStalledReaderGetsNoBackedUpRepeats(t *testing.T) {
+	s := &testSource{}
+	stop := make(chan struct{})
+	defer close(stop)
+	events := Poll(s, stop)
+	time.Sleep(10 * time.Millisecond)
+	s.joy.Store(1 << Down)
+	select {
+	case e := <-events:
+		if e.Key != Down || e.Repeat || e.Release {
+			t.Fatal(e)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("missing press")
+	}
+	// held through about six repeats, nothing read
+	time.Sleep(repeatDelay + 6*repeatRate)
+	s.joy.Store(0)
+	time.Sleep(50 * time.Millisecond)
+	var got []Event
+	for len(events) > 0 {
+		got = append(got, <-events)
+	}
+	if len(got) != 2 || !got[0].Repeat || got[0].Key != Down || !got[1].Release || got[1].Key != Down {
+		t.Fatalf("after the stall: %+v, want one repeat then the release", got)
+	}
+	if got[1].Count != 1 {
+		t.Fatalf("the release counts %d repeats, 1 was delivered", got[1].Count)
+	}
+}
+
+func TestSendDropsOnlyRepeatsBehindAnEvent(t *testing.T) {
+	out := make(chan Event, 4)
+	if !Send(out, Event{Key: Up, Repeat: true}) {
+		t.Fatal("a repeat into an empty channel was dropped")
+	}
+	if Send(out, Event{Key: Up, Repeat: true}) {
+		t.Fatal("a repeat behind an unread one was sent")
+	}
+	if !Send(out, Event{Key: Up, Release: true}) || !Send(out, Event{Key: Down}) {
+		t.Fatal("a release or a press was dropped")
+	}
+	if len(out) != 3 {
+		t.Fatalf("%d events queued, want 3", len(out))
+	}
+}
+
 func TestHeldBackspaceCadenceAndRelease(t *testing.T) {
 	s := &testSource{}
 	stop := make(chan struct{})

@@ -1,7 +1,0 @@
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/crt480i.v
-set_global_assignment -name SDC_FILE PlexCRT.sdc
-set_global_assignment -name SYSTEMVERILOG_FILE PlexCRT.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/ddr_scanout.v
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/ui_tap.v
-
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/crt_profile_guard.v

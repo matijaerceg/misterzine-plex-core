@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -30,7 +32,7 @@ func drainSeason(t *testing.T, a *App, d *seasonData) {
 func TestSeasonRetainsAllThumbsBeyondSharedCache(t *testing.T) {
 	a := NewArt(nil, 0, nil)
 	s := &Season{app: &App{Art: a}}
-	for i := 0; i < ArtCap+20; i++ {
+	for i := 0; i < 116; i++ { // a long season; eviction is simulated below
 		s.eps = append(s.eps, &plex.Item{Thumb: fmt.Sprintf("thumb-%d", i)})
 	}
 	for batch := 0; len(s.thumbs) < len(s.eps) && batch < 40; batch++ {
@@ -50,7 +52,7 @@ func TestSeasonRetainsAllThumbsBeyondSharedCache(t *testing.T) {
 		}
 		s.preloadThumbs()
 		// Simulate shared-cache eviction; season-owned images must survive.
-		a.have = map[string]*artEntry{}
+		a.have = map[artKey]*artEntry{}
 	}
 	if len(s.thumbs) != len(s.eps) {
 		t.Fatalf("retained %d of %d thumbnails", len(s.thumbs), len(s.eps))
@@ -69,7 +71,7 @@ func TestSeasonPrefetchReuseAndExpiry(t *testing.T) {
 		fmt.Fprint(w, `<MediaContainer><Video ratingKey="1" type="episode" title="First" viewCount="1"/><Video ratingKey="2" type="episode" title="Next"/></MediaContainer>`)
 	}))
 	defer server.Close()
-	a := &App{Plex: plex.New(server.URL, "", t.TempDir(), "test"), later: make(chan func(), 32), Art: NewArt(nil, 0, nil)}
+	a := &App{Plex: testClient(server.URL, "", t.TempDir()), later: make(chan func(), 32), Art: NewArt(nil, 0, nil)}
 	sea := &plex.Item{Key: "/children"}
 	a.prefetchSeason(sea, &plex.Item{})
 	d := a.seasonData
@@ -86,7 +88,7 @@ func TestSeasonPrefetchReuseAndExpiry(t *testing.T) {
 	if fresh == d || requests.Load() != 2 {
 		t.Fatal("expired listing was not refreshed")
 	}
-	a.Plex = plex.New(server.URL, "another-account", t.TempDir(), "test")
+	a.Plex = testClient(server.URL, "another-account", t.TempDir())
 	other := a.seasonEpisodes(sea, true)
 	drainSeason(t, a, other)
 	if other == fresh || requests.Load() != 3 {
@@ -174,6 +176,53 @@ func TestSeasonStaleLoadDoesNotOverwriteReturn(t *testing.T) {
 	}
 	if s.focused().RatingKey != "second" || s.loading {
 		t.Fatal("stale request replaced the latest episode selection")
+	}
+}
+
+// Stepping to another season and back lists the first one again as new
+// items; their tracks must be asked for again, not skipped as already asked.
+func TestSeasonTracksReturnAfterSteppingBack(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/children"):
+			n := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/library/metadata/s"), "/children")
+			plexPage(w, r, `<Video ratingKey="e`+n+`" type="episode" title="Pilot"/>`)
+		case strings.HasPrefix(r.URL.Path, "/library/metadata/"):
+			id := strings.TrimPrefix(r.URL.Path, "/library/metadata/")
+			fmt.Fprintf(w, `<MediaContainer size="1"><Video ratingKey=%q type="episode"><Media><Part id="src">`+
+				`<Stream id="1" streamType="2"/><Stream id="2" streamType="2"/><Stream id="3" streamType="3"/>`+
+				`</Part></Media></Video></MediaContainer>`, id)
+		default:
+			fmt.Fprint(w, `<MediaContainer size="0"/>`)
+		}
+	}))
+	defer server.Close()
+	a := &App{Plex: testClient(server.URL, "", t.TempDir()), later: make(chan func(), 32),
+		Art: NewArt(nil, 0, nil), F: Fonts{Body: gfx.Load("med18")}}
+	one := &plex.Item{Key: "/library/metadata/s1/children"}
+	two := &plex.Item{Key: "/library/metadata/s2/children"}
+	s := &Season{app: a, seasons: []*plex.Item{one, two}}
+	hasTracks := func() bool {
+		deadline := time.After(2 * time.Second)
+		for {
+			if it := s.focused(); it != nil && len(it.Audio) > 0 {
+				return slices.ContainsFunc(s.actions, func(a string) bool { return strings.HasPrefix(a, "Audio") })
+			}
+			select {
+			case f := <-a.later:
+				f()
+			case <-deadline:
+				return false
+			}
+		}
+	}
+	for step, si := range []int{0, 1, 0} {
+		s.si = si
+		s.load("")
+		drainSeason(t, a, a.seasonData)
+		if !hasTracks() {
+			t.Fatalf("step %d (season %d): episode has no Audio action", step, si+1)
+		}
 	}
 }
 

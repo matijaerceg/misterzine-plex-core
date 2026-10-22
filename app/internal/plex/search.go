@@ -3,7 +3,6 @@ package plex
 import (
 	"context"
 	"encoding/xml"
-	"fmt"
 	"io"
 	"net/url"
 	"strings"
@@ -25,7 +24,7 @@ func (c *Client) Search(ctx context.Context, query string) ([]*Item, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("search: HTTP %d", resp.StatusCode)
+		return nil, c.failed("search", resp.StatusCode)
 	}
 	var mc xmlContainer
 	if err := xml.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&mc); err != nil {

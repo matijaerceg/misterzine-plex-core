@@ -8,8 +8,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"plexcrt/internal/plex"
 )
 
 func TestArtworkSwitchDiscardsOldDownloadsAndQueue(t *testing.T) {
@@ -22,14 +20,14 @@ func TestArtworkSwitchDiscardsOldDownloadsAndQueue(t *testing.T) {
 	}))
 	defer server.Close()
 	defer once.Do(func() { close(release) })
-	art := NewArt(plex.New(server.URL, "old-profile", t.TempDir(), "client"), 1, make(chan struct{}, 1))
-	art.Get("old-picture", 4, 4)
+	art := NewArt(testClient(server.URL, "old-profile", t.TempDir()), 1, make(chan struct{}, 1))
+	art.Get("old", 4, 4)
 	select {
 	case <-started:
 	case <-time.After(3 * time.Second):
 		t.Fatal("artwork request did not start")
 	}
-	art.Prefetch("queued-picture", 4, 4)
+	art.Prefetch("queued", 4, 4)
 	art.SetClient(nil)
 	once.Do(func() { close(release) })
 	// The same worker can service this sentinel only after completing the old

@@ -1,0 +1,47 @@
+# tools/p1/moonlight_dump.patch -- moonlight-embedded (f32e415, GPL-3.0) + a "dump" video sink on
+# -platform fake: every decode unit Sunshine sends, written to $MOONLIGHT_DUMP as Annex-B.
+# Apply: git -C moonlight-embedded apply tools/p1/moonlight_dump.patch (see capture_sunshine.sh).
+diff --git a/src/platform.c b/src/platform.c
+index fab3057..2db470d 100644
+--- a/src/platform.c
++++ b/src/platform.c
+@@ -1,3 +1,5 @@
++#include <stdio.h>
++#include <stdlib.h>
+ /*
+  * This file is part of Moonlight Embedded.
+  *
+@@ -138,8 +140,33 @@ void platform_stop(enum platform system) {
+   }
+ }
+ 
++/* MiSTer H264 Phase 1: "-platform fake" writes the video stream to $MOONLIGHT_DUMP
++ * (default moonlight_dump.h264), every buffer of every decode unit in arrival order:
++ * exactly the Annex-B bytes the host sent (SPS, PPS, slices; the depacketizer has
++ * already stripped a leading AUD / SEI and a stray PPS, moonlight-common-c
++ * VideoDepacketizer.c). No capability bits: 1 slice per frame requested, no RFI. */
++static FILE* dump_fp;
++static int dump_setup(int videoFormat, int width, int height, int redrawRate, void* context, int drFlags) {
++  const char* path = getenv("MOONLIGHT_DUMP");
++  dump_fp = fopen(path ? path : "moonlight_dump.h264", "wb");
++  fprintf(stderr, "dump: format 0x%x %dx%d@%d -> %s\n", videoFormat, width, height, redrawRate,
++          path ? path : "moonlight_dump.h264");
++  return dump_fp ? 0 : -1;
++}
++static void dump_cleanup(void) { if (dump_fp) fclose(dump_fp); dump_fp = NULL; }
++static int dump_submit(PDECODE_UNIT du) {
++  for (PLENTRY e = du->bufferList; e != NULL; e = e->next)
++    fwrite(e->data, 1, e->length, dump_fp);
++  return DR_OK;
++}
++static DECODER_RENDERER_CALLBACKS decoder_callbacks_dump = {
++  .setup = dump_setup, .cleanup = dump_cleanup, .submitDecodeUnit = dump_submit, .capabilities = 0,
++};
++
+ DECODER_RENDERER_CALLBACKS* platform_get_video(enum platform system) {
+   switch (system) {
++  case FAKE:
++    return &decoder_callbacks_dump;
+   #ifdef HAVE_X11
+   case X11:
+     return &decoder_callbacks_x11;

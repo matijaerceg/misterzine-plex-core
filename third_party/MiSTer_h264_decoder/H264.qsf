@@ -1,0 +1,575 @@
+# H264.qsf -- Quartus 17.0.2 project for the MiSTer H264 core.
+#
+# THE FILE LIST BELOW GATES MORE THAN THE COMPILE. tools/lint_undriven.sh lints exactly
+# the files named here, and tools/netlist_canary.sh reads the map report this project
+# writes. A new h264/*.sv that is not named here is invisible to Quartus AND to both
+# gates: the compile fails on an undefined entity, or worse, elaborates without it.
+# Add the SYSTEMVERILOG_FILE line in the same commit as the module.
+#
+# Do NOT hand-edit the pin/HPS assignments: they come from `source sys/sys.tcl` and
+# `source sys/sys_analog.tcl`, which Quartus expands into this file on open. If it
+# writes the expansion back, revert it (build_release.sh restores a rewritten qsf;
+# tools/seed_sweep.sh restores its own snapshot).
+#
+# SEED LEDGER (append one line per fit that ships or teaches something; never delete):
+#   date (branch/slug): SEED n, clk_dec 100C/-40C MHz, ALM %, M10K, DSP, build name, commit
+#   -- the fitter SEED is tied to the EXACT synthesis netlist. ANY change to the
+#      netlist, including a CONF_STR row or the CORE_VERSION string, re-rolls it.
+#      tools/seed_sweep.sh finds a passing seed; tools/fmax_check.sh gates BOTH corners.
+#   2026-09-27 (feature/scaffold, dev-scaffold): SEED 1, clk_dec 297.62/291.89 (one 24-bit
+#     counter: says nothing about the decoder to come), ALM 6,779 (16 %), M10K 60, DSP 33
+#     (ascal's), H264_scaffold_20260927_1219.rbf, 021682d, first roll, every gate PASS.
+#     emu: hps_io 287 (video_calc 236), idle_bars 32, sync_gen 27, dec_stub 12 -- 411 ALM
+#     less than UMD's P0 (7,190: xmb_wave 232, block_streamer 101, its 3 tint DSPs).
+#   2026-09-27 (feature/p2-harvest, dev-p2harvest): SEED 1, clk_dec 91.43/88.67, ALM 23,331
+#     (56 %), M10K 230, DSP 69, H264_p2harvest_20260927_1801.rbf, cf2851a, first roll, every
+#     gate PASS (fmax, lint, canary incl. vidfeed_cdc's head: the ioctl stand-in keeps the
+#     decoder). emu 16,937: recon_top 11,453 (recon_mb 6,983, recon_dpb 2,042), h264_top
+#     3,798 (mb_syntax 1,773), disp_ctl 467, disp_reader 466, hps_io 301, ddr_mux2 171.
+#     STA: every core-PLL clock (general[0] clk_sys, [1] clk_mem, [3] clk_dec) positive setup /
+#     hold / recovery at both slow corners (worst setup clk_mem 1.025 / clk_dec 1.067 at -40C);
+#     only pll_hdmi negative (-0.078 / -0.178 setup: framework). h264.sdc applied; unmatched:
+#     the cdc_snap bounds (none until P3) and disp_reader fetch_changes (pruned).
+#   2026-09-27 (feature/p3-ring, dev-p3ring, P3i: the HPS interface wired, before P3d-f):
+#     SEED 1, clk_dec 87.94/87.19, ALM 25,965 (62 %), M10K 235, DSP 71,
+#     H264_p3ring_20260927_2029.rbf, 3db8aba, first roll, every gate PASS (fmax, lint, canary
+#     with ring_rd's word and ring_stat's st_word). emu 19,582 (+2,645): the interface
+#     1,385 (ring_rd 764, ring_stat 296, ring_words_dec 160 / mem 48 / sys 10, ddr_probe 108)
+#     and ~1,200 of counters P2 left unconnected and Quartus pruned, now live (h264_top
+#     +431, recon_top +535, disp_ctl +208); ddr_mux2 +60 (B live). h264.sdc: every ring_rd /
+#     cdc_snap_ix bound matched (plain cdc_snap unused: its three lines match nothing).
+#   2026-09-27 (feature/p3-ring, dev-p3ring, P3 complete: + P3d early output, P3f low
+#     latency, P3h): SEED 1, clk_dec 88.21/88.24, ALM 26,112 (62 %), M10K 235, DSP 71,
+#     H264_p3ring_20260927_2129.rbf, 264a38d, first roll, every gate PASS; +147 ALM on the
+#     P3i fit (recon_dpb's early output, disp_ctl's skip, recon_out's END flag); every
+#     ring_rd / cdc_snap_ix / recon_out end_q bound matched.
+#   2026-09-28 (feature/p5-high, dev-p5high, High profile first fit): SEED 1, clk_dec
+#     75.25/74.63 -- MARGINAL (target 86), ALM 27,395 (65 %), M10K 315, DSP 75,
+#     H264_p5high_MARGINAL_20260928_0447.rbf, 7b433c6; lint / canary PASS. Three new
+#     single-cycle cones: intra_pred's Intra_8x8 index analysis + 33:1 tap mux (-1.05 ns),
+#     dequant_itrans8's M10K normAdjust ROM -> multiply -> shift (-0.97), the 4x4 weighted
+#     normAdjust lookup (-0.29): retimed in 890c13f, not re-seeded. +1,283 ALM, +80 M10K
+#     (the scaling store is 63 of them, docs/high_profile.md S3) on P3.
+#   2026-09-28 (feature/p5-high, dev-p5high, the retimed High core): SEED 1, clk_dec
+#     87.60/87.37, ALM 27,318 (65 %), M10K 315, DSP 75, H264_p5high_20260928_0459.rbf,
+#     890c13f, first roll, every gate PASS (fmax both corners, lint, canary).
+#   2026-09-28 (feature/p5-throughput, dev-p5tput, after the bS pre-pass + the residual
+#     engine overlap): SEED 1, clk_dec 81.91/80.22 -- MARGINAL, ALM 27,424 (65 %), M10K 318,
+#     DSP 75, H264_p5tput_MARGINAL_20260928_1102.rbf, 8884ccb. Taught: intra_pred's stage-I
+#     register did not cut the path while the tap muxes took a STATE-selected index (the
+#     registered stream index or the combinational prep one): the case analysis stayed a
+#     static path in front of the 33:1 mux; P5a's 87.37 on the same structure was placement.
+#   2026-09-28 (the same, intra_pred's stream / prep tap muxes separated): SEED 1, clk_dec
+#     88.68/86.78, ALM 27,615 (66 %), M10K 318, DSP 75, H264_p5tput_20260928_1108.rbf, 289f764.
+#   2026-09-28 (the same, + dequant_itrans product, mv_pred partition constants, recon_inter
+#     copy stage x0, the writeback plane bases): SEED 1, clk_dec 88.77/89.06, ALM 27,530
+#     (66 %), M10K 318, DSP 75, H264_p5tput_20260928_1157.rbf, d6e7b69, every gate PASS.
+#     Binding next: recon_dpb's marking logic (dec_b / cur_store -> ref_b / ref_t / nw_q,
+#     10.3-10.9 ns, ~1,000 paths) and mb_syntax's mvd context sum (11.0 ns).
+#   2026-09-28 (the same, + recon_dpb's open / counts in two stages, mb_syntax's mvd context
+#     in two): SEED 1, clk_dec 90.65/90.02, ALM 27,473 (66 %), M10K 318, DSP 75,
+#     H264_p5tput_20260928_1310.rbf, 9d3fc16.
+#   2026-09-28 (the same, + residual add byte select, mv_pred S_PREP2, dequant output
+#     product, recon_inter row length, recon_slice_tab POCs): SEED 1, clk_dec 89.16/86.49,
+#     ALM 27,439 (65 %), M10K 318, DSP 75, H264_p5tput_20260928_1344.rbf, cd5b485. Taught:
+#     -3.5 MHz on a netlist with no longer path than 9d3fc16's: fitter variance at this
+#     density; judge a retime by the endpoint census under the target, not one fmax.
+#   2026-09-28 (the same, + the parsers' registered range predicates, sei_pt, recon_dpb
+#     POC 0, mc_interp S6b, wpred S2a, mv_pred S_MVP_Q0, recon_inter's motion copy): SEED 1,
+#     clk_dec 97.90/94.49, ALM 27,397 (65 %), M10K 318, DSP 75,
+#     H264_p5tput_20260928_1428.rbf, 3b00642, fmax gate PASS (target 86.0).
+#   2026-09-28 (the same, clk_dec moved to 96.43 MHz -- VCO 1,350, M 54 / N 2, C 14 --
+#     gate 101.4; + CABAC rLPS rows, mb_intake mvd mask, intra_pred geometry, recon_dpb
+#     D_OUT_PRE, recon_lists marking, recon_mb I4 rem, mb_syntax row base): SEED 1,
+#     clk_dec 98.11/101.42 -- MARGINAL (the HOT corner binds now), ALM 27,527 (66 %),
+#     M10K 319, DSP 74, H264_p5tput_MARGINAL_20260928_1502.rbf, 35fbe54.
+#   2026-09-28 (the same + recon_dpb's window scan: resets unconditional, a candidate stage):
+#     SEED 1, clk_dec 106.02/103.79 at 96.43 MHz -- PASS at both corners (gate 101.4),
+#     ALM 27,577 (66 %), M10K 319, DSP 74, H264_p5tput_20260928_1612.rbf, d47fc98. Two
+#     cross-clock synchroniser inputs at -2.5 / -1.6 ns (vidfeed_cdc fl_q1, dec_stub
+#     sync_q[0]: the 27 / 96.43 edge pair is 1.48 ns on the shared VCO) -- bounded in
+#     h264/h264.sdc after this fit (STA re-run on it: no negative slack at either corner).
+#   2026-09-28 (the same + the streaming start, 4a): SEED 1, clk_dec 104.69/101.46 -- PASS,
+#     but 0.06 MHz over the gate at -40 C (placement: the netlist gained ~20 registers),
+#     ALM 27,560 (66 %), M10K 319, DSP 74, H264_p5tput_20260928_1717.rbf, 183c339.
+#   2026-09-28 (feature/p5-throughput-2, dev-p5tput2: + the two interpolation lanes, 4b):
+#     SEED 1, clk_dec 103.82/101.0 -- MARGINAL (0.4 MHz under the gate at -40 C), ALM 28,219
+#     (67 %), M10K 328, DSP 79, H264_p5tput2_MARGINAL_20260928_1934.rbf, d9f1bcc.
+#   2026-09-28 (the same + the fetch run-ahead 4c', the co-located product registered): SEED 1,
+#     clk_dec 100.07/99.15 -- MARGINAL, ALM 28,337 (68 %), M10K 328, DSP 79,
+#     H264_p5tput2_MARGINAL_20260928_2048.rbf, 4be9d2c. Not the new logic: 16 endpoints,
+#     recon_dpb's MMCO scan (the FrameNumWrap RAM -> 32-bit compare -> the matched store's
+#     marking enables, 9.9 ns) and 2 of mb_syntax's eng_req_ctx -- placement at 68 % ALM;
+#     the MMCO scan gets a z stage after this fit.
+#   2026-09-28 (the same + the writeback's row setup overlapped, the MMCO scan's z stage):
+#     SEED 1, clk_dec 102.74/102.90 -- PASS at both corners, ALM 28,118 (67 %), M10K 328,
+#     DSP 79, H264_p5tput2_20260928_2148.rbf, 3ec031c, lint / canary PASS.
+#   2026-09-28 (feature/p6-analog, dev-p6analog: the 480i raster, csync_smpte, Video Output):
+#     SEED 1, clk_dec 97.50/98.93 -- MARGINAL, ALM 28,355 (68 %), M10K 327, DSP 81,
+#     H264_p6analog_MARGINAL_20260928_2254.rbf, f185319. Not the new logic (clk_sys): 13-14
+#     endpoints in mv_pred (sub_mb_type -> the partition's list select -> the motion RAM's
+#     write data, 9.7 ns) and two in mc_interp's output -- placement re-rolled by CONF_STR;
+#     the mv_pred decode is registered for S_APPLY after this fit.
+#   2026-09-29 (feature/p6-analog: step 2, field selection at 480i + the mv_pred retime):
+#     SEED 1, clk_dec 100.22/98.85 -- MARGINAL, ALM 28,412 (68 %), DSP 81,
+#     H264_p6analog_MARGINAL_20260929_0228.rbf, c3c364b, lint / canary PASS. mv_pred gone
+#     from the census; 11 endpoints a corner, different at each: -40 C recon_dpb (8: the
+#     C.4.4 dropped count + its 32-bit add in one cycle) + mb_syntax (2) + one mv_pred RAM
+#     input; 100 C recon_lists fp (9) + mb_syntax (2) -- placement. recon_dpb split after.
+#   2026-09-29 (feature/p6-analog: + the recon_dpb dropped-count retime):
+#     SEED 1, clk_dec 104.57/105.53 -- PASS at both corners, ALM 28,488 (68 %), M10K 327,
+#     DSP 81, H264_p6analog_20260929_0319.rbf, 8f7ba3c, lint / canary PASS.
+#   2026-09-29 (feature/p6-analog: step 3, the fitting reader + disp_fit + Analog Aspect):
+#     SEED 1, clk_dec 105.92/104.23 -- PASS at both corners, ALM 30,478 (73 %), M10K 333,
+#     DSP 93, H264_p6analog_20260929_0654.rbf, 17862b2, lint / canary PASS. pll_hdmi -2.143
+#     at -40 C (TNS -61.9): every endpoint inside ascal (o_vacpt -> o_adrs_pre, the
+#     polyphase o_poly_lum) -- the framework's 148.5 MHz scaler under a denser placement,
+#     no path of ours; validated on the rig (HDMI). This build's exact aspect let bit 12
+#     through (sys_top reads it as a pixel size): fixed after, W47.
+#   2026-09-29 (feature/p6-analog: + the 12-bit exact aspect): SEED 1, clk_dec
+#     103.96/103.56 -- PASS at both corners, ALM 30,471 (73 %), M10K 333, DSP 93,
+#     H264_p6analog_20260929_0709.rbf, 63081ca, lint / canary PASS; pll_hdmi -2.325 (ascal
+#     again, TNS -107.6) -- validated on the rig.
+#   2026-09-29 (feature/p6-analog: + Analog Aspect in both modes, the pre-merge fit): SEED
+#     1, clk_dec 108.91/107.14 -- PASS at both corners, ALM 30,539 (73 %), M10K 333, DSP 93,
+#     H264_p6analog_20260929_1126.rbf, dd92b6d, lint / canary PASS; pll_hdmi -3.010 (ascal,
+#     placement-dependent: -2.1 / -2.3 / -3.0 over three fits).
+#   2026-09-29 (feature/p6-part2: anti-twitter, Refresh Rate 59.94 / 60 / 50 Hz, 576p / 576i):
+#     SEED 1, clk_dec 105.30/103.06 -- PASS at both corners, ALM 30,471 (73 %), M10K 333,
+#     DSP 93, H264_p6part2_20260929_1355.rbf, 00f305d, lint / canary PASS; clk_mem -0.356 /
+#     -0.089: ONE path, disp_fit's slide (clk_sys) -> disp_reader's m_slide (clk_mem), a
+#     quasi-static capture missing from h264.sdc's reader bound -- added; flashed for the
+#     functional round (history §9). (A refit then died: H264.qsf edited while it ran --
+#     the lesson in CLAUDE.md, broken; the build restored the file.)
+#   2026-09-29 (feature/p6-part2: + the slide crossing bounded): SEED 1, clk_dec
+#     105.45/106.13 -- PASS at both corners, no negative slack on any core clock, ALM
+#     30,466 (73 %), M10K 333, DSP 93, H264_p6part2_20260929_1501.rbf, c2aa76f, lint /
+#     canary PASS.
+#   2026-09-29 (feature/graphics-flag: interface 0.4 -- GRAPHICS, Anti-Twitter Auto, the OSD
+#     mirror, the settings request): SEED 1, clk_dec 102.59/104.00 -- PASS at both corners, no
+#     negative slack, ALM 30,843 (74 %), M10K 333, H264_graphics_20260929_1849.rbf, 4cb395b,
+#     lint / canary PASS.
+#   2026-09-29 (feature/p4-audio: interface 0.5 -- audio through the ring, aud_play, the pause
+#     word, status words 40-47): SEED 1, clk_dec 103.35/100.83 -- MARGINAL (the -40 C corner
+#     below the 101.4 gate; the netlist re-rolled the seed: audio is all on clk_sys), ALM 31,782
+#     (76 %, +939), M10K 341 (+8), DSP 95 (+2), H264_p4audio_MARGINAL_20260929_2118.rbf,
+#     62c299f, lint / canary PASS. A rig build for the audio round; a seed sweep before merge.
+#   2026-09-29 (feature/p4-audio): a sweep's first seed, SEED 7, clk_dec 109.06/105.78 -- PASS
+#     at both corners, ALM 31,771 (76 %), M10K 341, DSP 95, H264_p4audio_20260929_2149.rbf.
+#     ⚠ ITS NETLIST IS 62c299f's, NOT 8f5ec6a's (the manifest's): seed_sweep.sh re-runs only
+#     the fitter, and it ran after disp_frz's RTL change without a new synthesis -- the rig
+#     then counted the pause's store alarm (rc_err code 6, ~7 a second). The sweep now refuses
+#     when a source is newer than the synthesis. A rig build for the audio path (unchanged by
+#     disp_frz) only; SEED 7 stays pinned for the next compile, which re-rolls it anyway.
+#   2026-09-29 (feature/p4-audio, a fresh synthesis with disp_frz): SEED 7, clk_dec 102.80/102.07
+#     -- PASS at both corners, ALM 31,810 (76 %), M10K 341, DSP 95, H264_p4audio_20260929_2240.rbf,
+#     086f174, lint / canary PASS. The rig build of docs/history.md §11 (the pause: rc_err 0).
+#   2026-09-30 (feature/moonlight, no RTL change: CORE_VERSION dev-moonlight re-rolls the
+#     netlist): SEED 7 first roll, clk_dec 108.12/104.32 -- PASS at both corners, ALM 31,736
+#     (76 %), M10K 341, DSP 95, H264_moonlight_20260930_0247.rbf, bead6c1, lint / canary PASS.
+#   2026-09-30 (feature/moonlight-input: interface 0.6, ring_in + ring_stat's second job, the J
+#     line): SEED 7 first roll, clk_dec 104.07/104.08 -- PASS at both corners, ALM 32,528 (78 %,
+#     +792), M10K 341, DSP 95, H264_mlinput_20260930_0429.rbf, f37d1fd, lint / canary PASS.
+#   2026-09-30 (fix/lone-pts: UMD's lone-PTS rules A and B, disp_sched's fourth stage, disp_lone):
+#     SEED 7 first roll, clk_dec 105.49/106.0 -- PASS at both corners, ALM 32,523 (78 %), M10K 341,
+#     DSP 95, H264_lonepts_20260930_1453.rbf, 1024e47, lint / canary PASS.
+#   2026-09-30 (feature/pad-home: the OSD's actions R[17]/R[18], ring_in's action events, interface
+#     0.8): SEED 7 first roll, clk_dec 109.59/108.46 -- PASS at both corners, ALM 32,527 (78 %),
+#     M10K 341, DSP 95, H264_padhome_20260930_1641.rbf, 9d80689, lint / canary PASS.
+#   2026-09-30 (feature/clk-dec-up, dev-clkup: clk_dec 96.43 -> 103.85 MHz, VCO 1,350 / 13; the gate
+#     108.8; docs/throughput.md S7). SEED 7 throughout the rounds, then a sweep:
+#     879fc91 (the clock alone): clk_dec 105.8/104.23 -- MARGINAL, ALM 32,526, H264_clkup_MARGINAL_20260930_1818.rbf.
+#     c63a195 (retime round 1): 106.6/109.59 -- MARGINAL (hot), ALM 32,500, ..._1915.rbf.
+#     7340353 (round 2): 102.3/102.92 -- negative slack at 103.85 (recon_dpb D_POC1_RD2), ..._1938.rbf.
+#     e125f75 (round 3): 106.92/107.81 -- MARGINAL, ALM 32,457, ..._2000.rbf; census spread thin.
+#     e125f75 seed sweep (fitter only, stop at first PASS): SEED 9 first try, clk_dec 111.77/110.41
+#     -- PASS at both corners, ALM 32,469 (77 %), M10K 341, DSP 95, H264_clkup_20260930_2013.rbf,
+#     lint / canary PASS. SEED 9 pinned below.
+#   2026-09-30 (feature/p6b-overlay, dev-p6bovl, the overlay plane: ovl_plane + ovl_blend, a second
+#     ddr_mux2 on ram2, the output stage LAT 6): SEED 9 (inherited) clk_dec 103.8/102.24 -- MARGINAL
+#     (-0.005 / -0.152 ns at 103.85: placement; the overlay's clk_sys / clk_mem clean), ALM 33,493
+#     (80 %), RAM 355, DSP 103, H264_p6bovl_MARGINAL_20261001_0002.rbf, a1052cf. Seed sweep (fitter
+#     only, the same netlist): SEED 7 first try, clk_dec 110.74/110.25 -- PASS at both corners, ALM
+#     33,501 (80 %), RAM 355, DSP 103, H264_p6bovl_20261001_0013.rbf (manifest 5cecf6f: hps / docs
+#     only since a1052cf), lint / canary PASS. SEED 7 pinned below. +1,032 ALM, +14 RAM, +8 DSP.
+#   2026-09-30 (the same, bf951cf: ovl_plane's signed line address): SEED 7 re-rolled, clk_dec
+#     105.81/104.0 -- MARGINAL at the 108.8 gate (positive at 103.85), ALM 33,493 (80 %), RAM 355,
+#     DSP 103, H264_p6bovl_MARGINAL_20261001_0054.rbf; a sweep stopped at SEED 9 (the maintainer:
+#     test the marginal build), clean on the rig (history.md S17). A passing seed is still owed.
+#   2026-09-30 (exp/mb-pipeline, now feature/mb-pipeline; on e125f75, pre-rebase SHAs; clk_dec 103.85,
+#     gate 108.8; docs/mb_pipeline.md): the two front stages, SEED 7 first roll, clk_dec
+#     100.97/101.12 -- MARGINAL, ALM 33,134 (79 %), M10K 356, DSP 95,
+#     H264_mbpipe_MARGINAL_20260930_2031.rbf, 6314ba1, lint / canary PASS. Steps 1-4, SEED 7
+#     first roll, 104.28/103.36 -- MARGINAL, ALM 33,869 (81 %), M10K 364, DSP 95,
+#     H264_mbpipe_MARGINAL_20260930_2120.rbf, 75f1f1e, lint / canary PASS.
+#   2026-10-01 (feature/mb-pipeline, rebased on main e1b59de = + the overlay; the review's fixes):
+#     SEED 7 first roll, clk_dec 102.98/101.35 -- MARGINAL and NEGATIVE at 103.85 (-0.082 /
+#     -0.238 ns: 6 endpoints in mc_interp, fx -> fmem, untouched; placement), clk_mem -0.071 at
+#     -40 C (4 endpoints f2sdram -> disp_reader p_stg, untouched), ALM 34,953 (83 %), RAM 378,
+#     DSP 103, H264_mbpipe_MARGINAL_20261001_0446.rbf, 91ea8fa, lint / canary PASS. Not loadable;
+#     a seed sweep next. The sweep (fitter only, the same netlist; stopped after seed 5 to free the
+#     machine): SEED 1 104.25/103.24, 2 89.9/92.42, 3 95.37/95.67, 4 97.01/96.81, **5 109.06/108.18**
+#     (the hot corner over the gate, the cold 0.6 MHz short; +4.3 MHz over the 103.85 clock) --
+#     a ~20 MHz spread across seeds at 83 % ALM. SEED 5 pinned and compiled (16923d6): 109.06 /
+#     108.18, ALM 34,943 (83 %), RAM 378, DSP 103, H264_mbpipe_MARGINAL_20261001_0620.rbf, lint /
+#     canary PASS; clean on the rig (history.md S18).
+#   2026-10-01 (feature/mb-pipeline 2cc0690: top3 / top7 retimed off the bank mux -- SEED 5's only
+#     cold paths under the gate): SEED 5 re-rolled, clk_dec 102.85/101.01 -- MARGINAL (negative at
+#     103.85 by -0.094 / -0.271 ns), ALM 34,962 (83 %), RAM 378, DSP 103,
+#     H264_mbpipe_MARGINAL_20261001_0816.rbf, lint / canary PASS. The census (-40 C, under the
+#     gate): sps_pps 39, deblock_filter 11 (the worst, -0.271), recon_inter 5, recon_mb 4, ... --
+#     modules the pipeline does not touch: placement at 83 % ALM. The sweep (fitter only, this
+#     netlist), EXHAUSTED: SEED 1 104.99/103.21, 2 95.22/99.97, 3 104.95/104.42, 4 104.74/102.87,
+#     6 107.19/106.94, 7 102.7/102.08, 8 104.66/104.16, 9 106.0/103.5, **10 106.97/107.56**,
+#     11 105.44/106.22, 12 108.77/106.56 (its census: 6 endpoints, deblock_filter 5 + recon_lists 1).
+#     None closes 108.8; all but SEED 2 positive at 103.85. SEED 10 pinned (the best worst corner).
+#   2026-10-01 (feature/mb-pipeline a8e7a6d: clk_dec back to 96.43, gate 101.4 -- the
+#     maintainer's call on the recommendation, docs/mb_pipeline.md S4f): SEED 10 re-rolled,
+#     103.55/101.12 -- MARGINAL by 0.28 MHz cold, ALM 34,953 (83 %), RAM 378, DSP 103,
+#     H264_mbpipe_MARGINAL_20261001_1146.rbf, lint / canary PASS. The sweep (fitter only):
+#     SEED 1 101.4/100.93, 3 100.34/103.46, **6 105.71/103.22 -- PASS** (stopped there), ALM
+#     35,112 (84 %), RAM 378, DSP 103, H264_mbpipe_20261001_1223.rbf (fcbd409). SEED 6 pinned.
+#   2026-10-01 (feature/hdmi-raster 3c6cfdc: A' in disp_fit, interface 0.10's word 80, dev-hdmi-raster):
+#     SEED 6 first roll, 107.83/106.16 -- PASS at 101.4, ALM 35,483 (85 %, +371), RAM 378, DSP 103,
+#     H264_hdmi-raster_20261001_2310.rbf, lint / canary PASS.
+#   2026-10-02 (feature/hdmi-raster fb27e4c: F8, the exact aspect held between streams): SEED 6,
+#     104.67/105.99 -- PASS at 101.4, ALM 35,475 (85 %), RAM 378, DSP 103,
+#     H264_hdmi-raster_20261002_0004.rbf, lint / canary PASS.
+#   2026-10-02 (feature/hdmi-raster 9c46b4d: stage 2, the native raster + Video Output Native (HDMI),
+#     CONF_STR changed): SEED 6 first roll, 106.0/104.73 -- PASS at 101.4, ALM 35,896 (86 %, +421),
+#     RAM 378, DSP 103, H264_hdmi-raster_20261002_0245.rbf, lint / canary PASS.
+#   2026-10-02 (feature/cavlc 7bdabcb, before its rebase onto hdmi-raster: no RTL change, CORE_VERSION dev-cavlc re-rolled SEED 6):
+#     104.8/104.52 PASS at 101.4, ALM 35,087 (84 %), RAM 378, DSP 103, lint / canary PASS,
+#     H264_cavlc_20261002_0001.rbf.
+#   2026-10-02 (feature/720p 56d247b: 2 MiB stores above the ring, the 3,600 bound decided before
+#     recon_dpb, interface 0.11's word 81; CORE_VERSION dev-720p): SEED 6 first roll, 105.62/101.4 --
+#     PASS at 101.4 (the cold corner exactly at the gate), ALM 36,109 (86 %, +213 on hdmi-raster's),
+#     RAM 378, DSP 103, H264_720p_20261002_2329.rbf, lint / canary PASS.
+#   2026-10-03 (feature/res-overlap 9131e29: dequant_itrans8 a pipeline over blocks, the window
+#     rectangle narrowed, interpolation items overlapped + weights read ahead -- mb_pipeline.md
+#     S4j / S4k; CORE_VERSION dev-resovlp): SEED 6 first roll, 104.32/102.05 -- PASS at 101.4,
+#     ALM 36,709 (88 %, +600 on 720p's), RAM 377, DSP 103, H264_resovlp_20261003_2016.rbf,
+#     lint / canary PASS.
+#   2026-10-03 (feature/hd-raster e145a75, stage A: the raster side on clk_vid 81 MHz, a second PLL,
+#     every register on the dot -- docs/hd_raster.md S12; CORE_VERSION dev-hd-raster): SEED 6 first
+#     roll, clk_dec 94.68/96.49 -- FAIL at 101.4; clk_vid 60.46/59.92 -- FAIL at 86.0 (596 endpoints:
+#     the reader's read-out and line control, the overlay's read-out and checks, the composite;
+#     ascal / pll_hdmi_adj's input side 24); crossings with clk_vid -1 to -4 ns on the 8 ns bounds
+#     (the two PLLs' skew); ALM 36,857 (88 %), RAM 376, DSP 103, H264_hd-raster_MARGINAL_20261003_2256.rbf.
+#     The retime round follows (LAT 9 read-outs, the composite registered, 12 ns bounds).
+#   2026-10-03 (feature/hd-raster 20f47ff, stage A retime round 1: LAT 9 read-outs, the composite
+#     registered, the line control / checks split, 12 ns bounds across the PLLs): SEED 6, clk_dec
+#     101.86/100.54 -- FAIL at 101.4 (the cold corner by 0.9); clk_vid 85.26/81.86 -- FAIL at 86.0,
+#     ONE cluster left (disp_reader stage 5, the vertical blend: 14 endpoints); no negative slack in
+#     any other domain; ALM 36,649 (87 %), RAM 375, H264_hd-raster_MARGINAL_20261003_2358.rbf.
+#   2026-10-04 (feature/hd-raster d09514e, stage A retime round 2: the vertical blend as two
+#     products, luma's kernel in stage 6): SEED 6, clk_vid 92.76/93.63 -- PASS at 86.0; clk_dec
+#     100.64/102.55 -- FAIL at 101.4 (the hot corner by 0.76: the seed); ALM 36,703 (88 %), RAM 375,
+#     DSP 102, H264_hd-raster_MARGINAL_20261004_0040.rbf. A seed sweep follows.
+#     Sweep (SEEDS 7 9 11 5 1 13 8) EXHAUSTED on clk_dec: best SEED 1 101.24/102.56; one cluster,
+#     mc_interp t7_s -> fmem (10.0 ns) -- retimed (S7's parameters registered from t6's set).
+#   2026-10-04 (feature/hd-raster 35e72b7, stage A + the mc_interp retime): SEED 6 first roll, clk_dec
+#     104.30/103.71 -- PASS at 101.4; clk_vid 92.16/92.05 -- PASS at 86.0; clk_mem -0.126 at -40 C
+#     (dpb_mem -> ram1's f2sdram terminator: the infrastructure domain, ungated); ALM 36,639 (87 %),
+#     RAM 375, DSP 102, H264_hd-raster_20261004_0243.rbf, lint / canary PASS.
+#   2026-10-04 (feature/hd-raster d994590, stage B: the native raster on 81 MHz, 2,048-sample lines,
+#     interface 0.12): SEED 6, clk_vid 95.33/91.57 -- PASS; clk_dec 96.60/98.63 -- FAIL at 101.4 (40
+#     endpoints in four small clusters: recon_mb dc_nz, recon_lists, sps_pps, intra_pred -- placement);
+#     ALM 36,671 (87 %), RAM 411 (+36: the 2,048-sample slots), DSP 102,
+#     H264_hd-raster_MARGINAL_20261004_1449.rbf. A seed sweep follows.
+#     Sweep (SEEDS 1 7 9 3): SEED 1 99.87/101.07, 7 100.11/101.52, 9 97.89/97.86, **SEED 3 105.21/103.79
+#     PASS**, clk_vid 98.86/96.39 PASS; ALM 36,736 (88 %), RAM 411, H264_hd-raster_20261004_1539.rbf. SEED 3
+#     pinned.
+#   2026-10-04 (feature/rumble 5d40c2d, interface 0.13: program words 36-38 -> hps_io's rumble, the poll
+#     a burst of seven, words 82-83): SEED 3 first roll, clk_dec 104.11/104.8 PASS (101.4), clk_vid
+#     92.77/94.46 PASS (86.0); ALM 36,988 (88 %, +252), RAM 411, DSP 102, H264_rumble_20261004_2256.rbf.
+#   2026-10-05 (feature/fit-filter 0c18319: Auto -> Native, interface 0.14, the Downscale Filter): SEED 3
+#     first roll, clk_dec 101.73/100.57 MARGINAL (101.4; above the 96.43 it runs at), clk_vid 91.31/89.35 PASS;
+#     ALM 37,263 (89 %, +275), RAM 412, **DSP 112/112** (+10: the fetch's weight products took the last DSPs --
+#     rewritten as shift-adds next), H264_fitfilter_MARGINAL_20261005_0431.rbf (for the rig only).
+#   2026-10-05 (feature/fit-filter ff4b85a: the weight products as shift-adds): SEED 3 re-rolled 96.91/99.1
+#     MARGINAL, ALM 37,959 (91 %), DSP 103 (back). Sweep (SEEDS 1 5 6): SEED 1 99.9/99.49, 5 101.42/101.15,
+#     **SEED 6 103.62/102.8 PASS**, clk_vid 90.65/89.39 PASS; ALM 37,826 (90 %, +838 on main), RAM 412, DSP 103,
+#     H264_fitfilter_20261005_0528.rbf. SEED 6 pinned. (The shift-adds cost ~700 ALM for the nine DSPs.)
+#   2026-10-05 (feature/fit-filter f4a0875: the Area pre-filter always, Smooth and the option removed): SEED 6
+#     first roll, clk_dec 103.49/102.79 PASS, clk_vid 93.0/87.12 PASS; ALM 37,549 (90 %, -277 on the three
+#     modes, +561 on main), RAM 412, DSP 102, H264_fitfilter_20261005_1611.rbf.
+#   2026-10-05 (fix/cleanup a16f501: ring_stat waits for room instead of skipping a frame): SEED 6 first roll,
+#     clk_dec 103.7/102.99 PASS, clk_vid 92.41/89.92 PASS; ALM 37,567 (90 %), RAM 412, DSP 102,
+#     H264_cleanup_20261005_1734.rbf.
+#   2026-10-05 (feature/arm-codecs dbde1a0: interface 0.15, pic_in + ring_rd's PICTURE path, word 84): SEED 6
+#     first roll, clk_dec 102.95/102.9 PASS (101.4), clk_vid 96.23/95.43 PASS; ALM 37,923 (90 %, +356), RAM 412,
+#     DSP 102, H264_arm-codecs_20261005_1936.rbf. clk_mem's -7.2 ns was raster_dn_xing -> disp_reader m_hpf / m_vpf
+#     (6d's pre-filter factors, missing from h264.sdc's reader bound since PR fj#32): named there, STA re-run on this
+#     fit -- the worst clk_mem path is then the f2sdram bridge's -0.83 (framework).
+#   2026-10-06 (feature/arm-codecs 7a62ccf: 480i / 576i field order -- UMD's V6 in disp_ctl, word 85): SEED 6
+#     re-rolled, clk_dec 98.83/99.27 MARGINAL (101.4; above the 96.43 it runs at), clk_vid 95.16/95.73 PASS,
+#     clk_mem -0.57/-0.82 (the framework's f2sdram bridge, as before); ALM 37,977 (91 %, +54), RAM 412, DSP 102,
+#     H264_arm-codecs_MARGINAL_20261006_0043.rbf (for the rig only). A seed sweep follows.
+#     Sweep (SEEDS 3 ...): **SEED 3 first try 102.48/102.35 PASS**, clk_vid 91.65/88.0 PASS; ALM 37,832 (90 %), RAM
+#     412, DSP 102, H264_arm-codecs_20261006_0058.rbf. SEED 3 pinned. clk_mem (ungated) -0.714/-1.078: NOT the
+#     framework's bridge this time -- disp_reader's fetch, hp[*] -> lb_wdata (6d's Area pre-filter on clk_mem, PR fj#32's
+#     logic, unchanged here; seed-dependent placement). Validate on the rig (the reader's output bit-exact) or retime it.
+#   2026-10-06 (feature/arm-codecs 0078de6: the pre-filter's horizontal stage retimed): SEED 3 re-rolled, clk_dec
+#     100.69/101.96 MARGINAL, clk_vid 90.87/88.9 PASS, clk_mem 91.42/88.4 (-0.20: f2sdram -> p_stg, next),
+#     H264_arm-codecs_MARGINAL_20261006_0147.rbf (installed on .201 for the maintainer's composite test).
+#   2026-10-06 (feature/arm-codecs 63ca27d: the bridge's read data registered + Analog Dither, O[19]): SEED 3,
+#     clk_dec 98.15/97.2 MARGINAL, clk_vid 92.93/91.98 PASS, clk_mem -0.023 at -40 C (both retimes: was -1.08);
+#     H264_arm-codecs_MARGINAL_20261006_0245.rbf. A seed sweep follows.
+#     Sweep (SEEDS 1 5 ...): SEED 1 99.41/94.87, **SEED 5 103.11/103.46 PASS**, clk_vid 96.87/96.14 PASS, clk_mem
+#     98.47/97.0 -- every clock positive (no negative slack anywhere); ALM 37,944 (91 %), RAM 412, DSP 102,
+#     H264_arm-codecs_20261006_0327.rbf. SEED 5 pinned.
+#   2026-10-06 (fix/dither-latin a5cd75b: dac_dither's Latin-square matrix, CORE_VERSION dev-ditherlatin): SEED 5
+#     first roll, **clk_dec 103.61/102.79 PASS**, clk_vid 99.21/93.9 PASS, clk_mem 92.72/89.21 (-0.099 at -40 C,
+#     ungated: disp_reader pm_r[13..14] -> row_base[25], 3 paths -- not the bridge; on .201 the reader's output
+#     pixel-exact against main's build, chart480 at 480i, 2 shots each); ALM 37,938 (91 %), RAM 412, DSP 102, H264_ditherlatin_20261006_2313.rbf.
+#   2026-10-07 (feature/colour-matrix d01997d: interface 0.16, the colour -- disp_reader's six coefficient sets, the
+#     decoder's VUI colour, recon_out's table 232 bits, ring_rd's header code; CORE_VERSION dev-colour): SEED 5 first
+#     roll, clk_dec 94.3/95.76 MARGINAL -- intra-clk_dec only recon_inter kb -> LN[0].q_n (-0.23 at 96.43, untouched
+#     here: placement at 91 %), and ring_rd h_col -> pic_in d_pcol at -2.1 (the PICTURE's colour, missing from the
+#     descriptor's h264.sdc bound: added); clk_vid 97.07/96.32 PASS; ALM 38,034 (91 %), RAM 413, DSP 103,
+#     H264_colour_MARGINAL_20261007_0758.rbf. A seed sweep follows.
+#     Sweep 1 (h264.sdc's h_col bound added; SEEDS 6 3 7 1 9 2 4 8 10 11): none at 101.4 on both corners -- SEED 6
+#     99.22/102.85, 3 97.08/97.69, 7 98.55/96.96, 1 100.29/101.1, 9 100.86/102.38, 2 101.33/102.62, 4 101.93/101.06,
+#     8 98.16/99.31, 10 100.89/103.11, 11 96.99/97.48. Sweep 2 (12-16 of 12-21, stopped): 12 103.3/101.17, 13
+#     101.07/102.85, 14 101.27/102.27, 15 98.59/99.6, 16 101.1/100.08. SEED 2 re-fitted for a census at the gate: 4
+#     endpoints at 100 C, sfifo dout -> is_nal (fanout 50) -> recon_hdr's slice-header enables -- the colour
+#     description's reset and table write on is_nal; retimed (recon_hdr: the description a clock behind the word
+#     decode). The retimed netlist (e3c6434 + the retime, committed after): SEED 5 101.05/100.64 MARGINAL (left:
+#     recon_inter kb -> q_n, 4 / 8 endpoints, 0.08 ns); sweep 3: SEED 2 98.35/98.15, 12 101.32/100.12, 4 99.35/98.57,
+#     **SEED 13 103.52/101.71 PASS**, clk_vid 96.84/93.28 PASS, clk_sys / clk_mem positive (1.21 / 0.54 at -40 C:
+#     only pll_hdmi negative, the framework's); ALM 37,888 (90 %), RAM 413, DSP 103, H264_colour_20261007_1245.rbf.
+#     SEED 13 pinned.
+#   2026-10-07 (feature/fit-word 6146d2d: interface 0.17, word 30's fit_valid, the fit status gated by sh_valid;
+#     CORE_VERSION dev-fitword): SEED 13 first roll 98.42/101.02 MARGINAL (H264_fitword_MARGINAL_20261007_2330.rbf);
+#     sweep: **SEED 2 102.18/102.35 PASS**, clk_vid PASS, clk_mem -0.371 at -40 C (ungated: ovl_plane cmd_a1 ->
+#     i_addr, the overlay's line command under h264.sdc's 12 ns protocol bound -- captured >= 2 destination cycles
+#     after its toggle; untouched here); ALM 38,044 (91 %), RAM 413, DSP 103, H264_fitword_20261007_2343.rbf. SEED 2 pinned.
+#   2026-10-08 (feature/iface-1.0 adc3465: interface 1.0, frozen -- RI_VERSION 0x0100, nothing else in the RTL;
+#     CORE_VERSION dev-iface1): SEED 2 first roll, **clk_dec 104.68/104.28 PASS**, clk_vid 92.17/90.51 PASS, clk_mem
+#     -0.093 at -40 C (ungated: disp_reader pm_r[13..14] -> row_base[23 / 25], the path fix/dither-latin's fit carried
+#     at -0.099 -- seed placement); ALM 38,043 (91 %), RAM 413, DSP 103, H264_iface1_20261008_0042.rbf.
+#   2026-10-09 (release 1.0.0 4abe1d3: CORE_VERSION v1.0.0, BUILD_DATE 261009 -- nothing else in the RTL): SEED 2 first
+#     roll 98.73/98.76 MARGINAL (--release refused); sweep (SEEDS 13 5 6 3 7 1 9 4 8 10 11 12 14 15 16): 13 99.37/100.39,
+#     5 101.25/100.58, 6 99.0/100.81, 3 98.3/99.48, 7 102.29/101.36, 1 100.99/102.5, 9 102.33/100.39, 4 100.75/99.29,
+#     8 99.1/100.46, 10 100.42/101.36, 11 100.1/101.29, **SEED 12 103.15/102.38 PASS**, 14 99.48/99.63, 15 101.74/102.69
+#     PASS, 16 100.06/96.31; ALM 37,932 (91 %), RAM 413, DSP 103. SEED 12 pinned; the release built by --release --compile.
+#     (The sweep's monitor was killed at seed 7: its EXIT trap deleted the qsf snapshot and continue / break stopped
+#     working -- the "PASS" lines after a FAIL are that, not passes; H264.qsf restored from git.)
+#     --release --compile with SEED 12 pinned reproduced 103.15/102.38, clk_vid 93.62/94.43 PASS; ungated: clk_sys ->
+#     clk_vid analog_want_l / status[6] -> ary[7] -0.206 / -0.086 at 100 C (quasi-static settings flags; seed placement);
+#     H264_20261009.rbf, smoke-tested on .201 (docs/history.md S42).
+#   2026-10-10 (feature/chroma-interp 8be5f1e: chroma interpolated at the identity fit, docs/display.md "Chroma at
+#     the identity"; CORE_VERSION dev-chroma): SEED 12 first roll 94.17/95.05 MARGINAL, clk_vid 81.61/82.52 FAIL (gate 86)
+#     -- clk_vid's worst paths the new ahead index ((x_k0 + 1) >> 1 vs kmax >> 1) into the chroma RAMs' address;
+#     replaced by the second tap (x_k1 >> 1), same index; ALM 37,980 (91 %), RAM 413, DSP 103,
+#     H264_chroma_MARGINAL_20261010_0524.rbf.
+#     20783a8 (the second tap as the ahead index): SEED 12 100.1/96.1 MARGINAL, clk_vid 95.82/93.39 PASS (fixed),
+#     H264_chroma_MARGINAL_20261010_0618.rbf; sweep (detached: setsid, never under a killable task): **SEED 5 first,
+#     103.33/104.01 PASS**, clk_vid 96.31/95.39 PASS, clk_mem 94.02/91.07 (ungated); ALM 38,139 (91 %), RAM 413, DSP 103,
+#     H264_chromasweep_20261010_0632.rbf (00cb7e2). SEED 5 pinned.
+#   2026-10-10 (the full version, docs/chroma.md: the siting from the SPS, chroma in its own 8 slots, bilinear
+#     on every output): d9220af SEED 5 first roll clk_dec PASS but clk_vid 62.51/61.11 and clk_mem -7.17 ns --
+#     the chroma allocation's running minimum over 8 slots (made parallel) and the chroma command's crossing
+#     unbounded in h264.sdc (ccmd_* -> m_c*: bounded), H264_chroma_MARGINAL_20261010_1633.rbf; a83a388 SEED 5
+#     99.98/96.79 MARGINAL, clk_vid 94.53/93.59 PASS (H264_chroma_MARGINAL_20261010_1710.rbf); sweep (detached):
+#     12 100.51/100.35, 13 102.3/100.92, **SEED 2 102.15/102.45 PASS**, clk_vid 96.94/91.46 PASS; ALM 39,040 (93 %),
+#     RAM 421, DSP 109, H264_chromafull_20261010_1752.rbf (a83a388). SEED 2 pinned.
+#   2026-10-11 (interface 1.1, feature/aud-clock: aud_play's aud_lead -> disp_sched, a late picture never anchors
+#     behind leading audio; clk_sys logic): 30a71bf SEED 2 first roll 102.32/99.05 MARGINAL (the cold corner),
+#     clk_vid 99.31/94.49 PASS, clk_mem 96.2/95.95 (ungated); ALM 39,024 (93 %), RAM 421, DSP 109,
+#     H264_audclock_MARGINAL_20261011_0249.rbf. Sweep (detached), all MARGINAL: 5 100.74/101.85, 13 98.17/97.64,
+#     6 99.93/98.94, 3 100.41/98.31, 12 99.97/101.17, 7 100.66/100.98, 9 102.0/100.98, 1 95.75/95.79 -- the census
+#     (SEED 1, -40 C, slack < 0.51): recon_inter 28 (kb -> q_n: a 5x5 product in LUTs), recon_hdr 16, recon_mb 10,
+#     recon_dpb 2 -- the decoder's own paths, re-placed by the netlist change. Second sweep (detached): **SEED 4
+#     first, 103.8/102.73 PASS**, clk_vid 92.04/88.43 PASS; ALM 39,014 (93 %), RAM 421, DSP 109,
+#     H264_audclocksweep_20261011_0503.rbf (30a71bf). SEED 4 pinned.
+#   2026-10-11 (fix/hdmi480-black: pll_hdmi + its output counter pinned in sys/sys.tcl, docs/history.md S47;
+#     CORE_VERSION dev-hdmi480): 48935fa SEED 4 first roll 98.12/98.72 MARGINAL, clk_vid 91.65/90.58 PASS, clk_mem
+#     94.67/92.17 (ungated); hdmi_pll_check PASS (X0_Y5_N1); ALM 39,055 (93 %), RAM 421, DSP 109,
+#     H264_hdmi480_MARGINAL_20261011_1924.rbf. A sweep follows.
+#     Sweep (detached): 2 100.67/101.55, **SEED 5 101.77/101.58 PASS**, clk_vid 91.65/87.57 PASS; hdmi_pll_check
+#     PASS (X0_Y5_N1); ALM 39,047 (93 %), RAM 421, DSP 109, H264_hdmi480sweep_20261011_1951.rbf (a02caba). SEED 5 pinned.
+#   2026-10-11 (the same pins on a83a388, the chroma build, SEED 2, BUILD_DATE pinned 261010 -- a test, not
+#     shipped): MARGINAL on clk_dec; output counter X0_Y5_N1; on .201 HDMI 27.000 / 74.250 / 148.500 MHz (was 135 /
+#     148.5 / 148.5 without the pins). Kept in .sim/hdmi480/seed2fix.
+#   2026-10-11 fix/fit-anamorphic (issue #11, Fit the anamorphic 16:9 fit; f66d842 + roadmap): SEED 5 first roll
+#     MARGINAL, clk_dec 100.45 / 98.98 (gate 101.4), clk_vid 94.23 / 90.98 PASS, HDMI gate PASS (X0_Y5_N1);
+#     ALM 39,074 (93 %), RAM 421, DSP 109, H264_fit169_MARGINAL_20261011_2117.rbf. Sweep follows.
+#   2026-10-11 fix/fit-anamorphic sweep: SEED 1 first tried PASS, clk_dec 101.91 / 102.68, clk_vid 93.94 / 90.42, HDMI
+#     gate PASS (X0_Y5_N1); ALM 39,079 (93 %), RAM 421, DSP 109, H264_fit169sweep_20261011_2130.rbf. SEED 1 pinned.
+#   2026-10-12 fix/fit-anamorphic + fit_fill (the SD HDMI modes filled under Fit): SEED 1 first roll PASS, clk_dec 102.99 /
+#     101.87, clk_vid 94.23 / 89.61, HDMI gate PASS (X0_Y5_N1); ALM 39,076 (93 %), H264_fit169_20261012_0103.rbf.
+#   2026-10-13 fix/chroma-field (a field store's chroma at Figure E-1's field siting; f0c378b): SEED 1 first roll
+#     MARGINAL, clk_dec 99.58 / 97.82 (gate 101.4), clk_vid 90.37 / 87.24 PASS, HDMI gate PASS (X0_Y5_N1);
+#     H264_chromafield_MARGINAL_20261013_0049.rbf. Sweep follows.
+#   2026-10-13 fix/chroma-field sweep (2 3 4 5 ...): 2 96.47/96.4, 3 99.96/99.6, 4 96.18/98.63, **SEED 5 105.24/102.18 PASS**,
+#     clk_vid 92.95/89.47 PASS, HDMI gate PASS (X0_Y5_N1); ALM 39,135 (93 %), RAM 421, DSP 109,
+#     H264_chromafieldsweep_20261013_0155.rbf. SEED 5 pinned. (A retime of the decoder's paths is next: every branch
+#     since 93 % ALM has needed a sweep.)
+#   2026-10-13 perf/retime round 1 (a7a3bf1: recon_top's size check in three steps, mc_interp S8, recon_inter's
+#     per-bank count, the header words registered into recon_hdr): SEED 5 first roll PASS, clk_dec 103.22 / 102.17,
+#     clk_vid 93.74 / 90.74, HDMI gate PASS; ALUTs +276, registers +229, ALM 41,158 (98 %: packing), DSP 110,
+#     H264_retime_20261013_0338.rbf. Census below 105 MHz: 16 / 15 endpoints (was 30-75 on main's seeds 5 / 4 / 2).
+#   2026-10-13 perf/retime round 2 (69cc881: recon_mb's QP in two steps, recon_inter's setup fields latched): SEED 5
+#     first roll PASS, clk_dec 104.2 / 103.21, clk_vid 91.92 / 90.57, HDMI gate PASS; ALUTs 60,631, registers 56,049,
+#     ALM 40,994 (98 %: packing), DSP 110, H264_retime_20261013_0435.rbf. Census below 105 MHz: 5 / 7, scattered.
+#   2026-10-13 perf/retime seeds of round 2's netlist: 1 95.33/93.08, 2 95.77/96.83, 4 99.54/99.93 -- the spread unchanged.
+#   2026-10-13 perf/retime round 3 (88235c8: mb_intake's uses registered, mv_pred's entry select, recon_mb's DC clears):
+#     5 93.33/93.37, 1 103.31/101.0, 2 98.33/100.53, 4 95.85/94.23 (all MARGINAL). Then h264/h264_fit.sdc (a1cb7d4: the
+#     fitter aims clk_dec at ~104.5 MHz, quartus_sta unaffected): 5 98.6/99.21, **SEED 1 102.28/102.79 PASS**, 2
+#     102.47/99.26, 4 98.02/96.79; HDMI gate PASS; H264_retimeoc_20261013_0846.rbf. SEED 1 pinned. (docs/throughput.md
+#     S8: at 93-98 % ALM placement decides; the retime moved the clusters, not the seed spread.)
+#   2026-10-14 Release 1.1.0 (30c5f44: CORE_VERSION v1.1.0): SEED 1 first roll PASS, clk_dec 102.84 / 104.12,
+#     clk_vid 91.69 / 91.99, HDMI gate PASS, lint / canary PASS; ALM 40,943 / 41,910, RAM 421, DSP 110,
+#     H264_20261014.rbf (--release).
+#   2026-10-16 dev-calibration (interface 1.2 geometry, before availability retime):
+#     SEED 1 clk_dec 100.75 / 100.08, clk_vid 88.18 / 85.00 -- MARGINAL;
+#     ALM 41,130 / 41,910, RAM 421, DSP 110. SEED 2 clk_dec 97.03 / 96.78,
+#     clk_vid 90.84 / 87.32 -- decoder MARGINAL; ALM 41,175, RAM 421, DSP 110.
+#     Neither fit deployed. Cold decoder census: external neighbour availability
+#     through C/D selection into mv_pred.nb_sel_q; geometry is not a limiting path.
+#   2026-10-16 dev-calibration (external availability captured in S_PREP2): SEED 2,
+#     clk_dec 97.39 / 99.06 -- MARGINAL; clk_vid 93.52 / 89.58 PASS;
+#     ALM 41,158 / 41,910, RAM 421, DSP 110. Not deployed; decoder and
+#     cross-clock hold paths require another timing census before qualification.
+#   2026-10-16 dev-calibration (resolved availability captured in S_PREP2): SEED 2,
+#     clk_dec 100.82 / 99.47 -- MARGINAL; clk_vid 94.11 / 89.92 PASS;
+#     ALM 41,101 / 41,910, RAM 421, DSP 110. Strict release refused; not deployed.
+#   2026-10-16 dev-calibration (CABAC fixed-width initialization specialization):
+#     SEED 2 clk_dec 92.71 / 94.59 -- FAIL; clk_vid 91.73 / 88.91 PASS;
+#     ALM 41,250 / 41,910, RAM 421, DSP 110. Strict release refused; not deployed.
+#     Same synthesis SEED 1: clk_dec 100.86 / 98.34 -- FAIL;
+#     clk_vid 90.51 / 86.84 PASS; ALM 41,210 / 41,910, RAM 421, DSP 110.
+#     Cold limiter: serial dropped-store population count; hot: SPS return-state mux.
+#   2026-10-16 dev-calibration (DPB balanced dropped-store count + qualified seed 1):
+#     clk_dec 102.65 / 102.17 PASS (101.4 MHz gate); clk_vid 91.53 / 88.15 PASS
+#     (86 MHz gate); ALM 41,180 / 41,910, registers 56,960, RAM 421, DSP 110.
+#     H264_calibration_20261016_2357.rbf, SHA-256
+#     09d868ebfc75412a18c1bad2527d5787a89372c94c4c5f034b777e95111ae968; 4,421,120 bytes.
+#     Strict build gates PASS; Mister Pi fit/crop telemetry PASS with DeFlicker
+#     off/on. Physical CRT picture validation remains pending.
+
+set_global_assignment -name TOP_LEVEL_ENTITY sys_top
+set_global_assignment -name ORIGINAL_QUARTUS_VERSION 17.0
+set_global_assignment -name PROJECT_CREATION_TIME_DATE "08:00:00  SEPTEMBER 27, 2026"
+set_global_assignment -name LAST_QUARTUS_VERSION "17.0.2 Lite Edition"
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
+set_global_assignment -name MIN_CORE_JUNCTION_TEMP "-40"
+set_global_assignment -name MAX_CORE_JUNCTION_TEMP 100
+set_global_assignment -name ERROR_CHECK_FREQUENCY_DIVISOR 256
+
+# ---- core sources (h264/) -------------------------------------------------------------
+set_global_assignment -name SEARCH_PATH h264
+set_global_assignment -name SYSTEMVERILOG_FILE h264/emu.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/sys_pll.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/vid_pll.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/sync_gen.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/display_policy.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/csync_smpte.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/idle_bars.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/vid_out.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec_stub.sv
+# P2: the decoder (h264/dec/, forked from MiSTer_UMD_Video cc595c6: docs/harvest.md) and
+# the display path, in UMD.qsf's order (h264_pkg before every module that imports it)
+set_global_assignment -name SEARCH_PATH h264/dec
+set_global_assignment -name SYSTEMVERILOG_FILE h264/fifo_dc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/vidfeed_cdc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/cdc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/h264_pkg.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/high_tables.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/nal_parser.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/rbsp_reader.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/sps_pps.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/slice_hdr.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/cabac_ctx.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/cabac_engine.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/mb_syntax.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/au_pts.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/sei_pt.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/h264_top.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/sfifo.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/dpb_mem.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/dsf_calc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/recon_hdr.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/recon_dpb.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/recon_lists.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/recon_slice_tab.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/mb_intake.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/mv_pred.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/mc_interp.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/wpred.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/recon_inter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/intra_pred.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/dequant_itrans.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/dequant_itrans8.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/deblock_bs.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/deblock_filter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/recon_deblock.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/recon_mb.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/dec/recon_top.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/recon_out.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/pic_in.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/ddr_mux2.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/disp_fit.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/raster_geom.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/disp_reader.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/ovl_plane.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/ovl_blend.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/disp_sched.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/disp_ctl.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/aspect_vui.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/ring_rd.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/osd_req.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/ring_stat.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/aud_play.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/aud_gain.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/ring_words_sys.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/ring_words_mem.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/ring_words_dec.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/ring_words_in.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/ring_in.sv
+set_global_assignment -name SYSTEMVERILOG_FILE h264/ddr_probe.sv
+set_global_assignment -name SDC_FILE h264/h264.sdc
+
+# ---- MiSTer framework (sys/) ------------------------------------------------------------
+source sys/sys.tcl
+set_global_assignment -name PRE_FLOW_SCRIPT_FILE "quartus_sh:sys/build_id.tcl"
+set_global_assignment -name CDF_FILE jtag.cdf
+set_global_assignment -name QIP_FILE sys/sys.qip
+# (perf/retime) the fitter's own clk_dec target: after sys.qip, whose sys_top.sdc derives the PLL clocks
+set_global_assignment -name SDC_FILE h264/h264_fit.sdc
+source sys/sys_analog.tcl
+
+# ---- build settings ---------------------------------------------------------------------
+set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
+set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
+set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
+set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
+# QUARTUS=1: h264/sys_pll.sv wraps its altera_pll in `ifdef QUARTUS (sim gets a pass-through).
+set_global_assignment -name VERILOG_MACRO "QUARTUS=1"
+# No HPS audio mixing: frees the f2sdram ram2 port for the core (docs/hw_budget_and_lessons.md),
+# and audio plays against the core's own clock, not Linux's (docs/architecture.md "Audio").
+set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
+set_global_assignment -name FITTER_AGGRESSIVE_ROUTABILITY_OPTIMIZATION ALWAYS
+set_global_assignment -name ROUTER_TIMING_OPTIMIZATION_LEVEL NORMAL
+# 2026-10-17 (dev-steady, c550d9a): SEED 7, clk_dec 102.38/103.11 MHz,
+# clk_vid 95.93/95.45 MHz, ALM 41,031 (98%), M10K 421, DSP 107.
+# H264_steady_20261017_2025.rbf; seed 1 missed decoder margin at 100.49/100.02 MHz.
+# 2026-10-17 (film48 qualified): SEED 9, clk_dec 102.77/102.70 MHz (101.4 MHz gate),
+# clk_vid 91.02/88.33 MHz (86 MHz gate), ALM 41,334/41,910, M10K 421, DSP 107.
+# 2026-10-18 (dev-crt, b235ca0): SEED 9 failed decoder gate at 100.40/100.98 MHz;
+# clk_vid 91.68/93.34 MHz, ALM 41,172/41,910. No release image packed.
+# 2026-10-18 (dev-crt, b235ca0): SEED 7 qualified at clk_dec 103.67/103.77 MHz,
+# clk_vid 97.12/90.98 MHz; ALM 41,107/41,910, M10K 421, DSP 107.
+# H264_crt_20261018_1542.rbf; decoder/video gates 101.4/86 MHz at both corners.
+# 2026-10-18 (dev-startup, be16a11): SEED 7 failed decoder 84.93/88.66 MHz;
+#   SEED 1 passed decoder 104.18/103.46 but failed video 80.36/84.57 MHz.
+#   SEED 12 qualified: decoder 102.13/101.44 MHz, video 87.64/87.40 MHz;
+#   41,239 ALMs, 421 M10K, 107 DSP; H264_startup_20261018_2145.rbf.
+#   Idle pattern animation removed by synthesis; idle RGB tied to ground.
+# 2026-10-18 (dev-buttons, 43adbea): SEED 12 failed decoder 99.85/99.91 MHz
+#   and video 84.79/81.77 MHz. SEED 7 failed decoder 99.27/100.62 MHz.
+#   SEED 9 qualified: decoder 102.16/104.16 MHz, video 91.49/89.10 MHz;
+#   40,985 ALMs, 421 M10K, 107 DSP; H264_buttons_20261019_0322.rbf.
+set_global_assignment -name SEED 9

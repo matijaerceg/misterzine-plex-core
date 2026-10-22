@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"plexcrt/internal/input"
+	"plexcrt/internal/plex"
 )
 
 // keyAt presses a key on the controller at a time and lets the overlay
@@ -21,7 +22,7 @@ func TestBackRestsAfterTheOverlayGoes(t *testing.T) {
 	p := waitPlaying(t)
 	c := &coreOSD{}
 	now := time.Now()
-	p.framed(now, c)
+	p.framed(now)
 	p.Tick(now, c, true)
 	keyAt(p, c, input.Enter, now) // the controls come up
 	if !p.visible {
@@ -39,31 +40,29 @@ func TestBackRestsAfterTheOverlayGoes(t *testing.T) {
 	}
 }
 
-func TestBackRestsAfterTheOverlayTimesOut(t *testing.T) {
+// The rest is only after a Back of the user's own: what goes away by itself
+// leaves the next Back free to stop the playback.
+func TestBackStopsRightAfterTheOverlayTimesOut(t *testing.T) {
 	p := waitPlaying(t)
 	c := &coreOSD{}
 	now := time.Now()
-	p.framed(now, c)
+	p.framed(now)
 	keyAt(p, c, input.Enter, now)
 	now = now.Add(OsdHide + 100*time.Millisecond)
 	p.Tick(now, c, true) // it hides itself
 	if p.visible {
 		t.Fatal("the controls did not time out")
 	}
-	if keyAt(p, c, input.Back, now.Add(200*time.Millisecond)) {
-		t.Fatal("Back just as the controls timed out stopped the playback")
-	}
-	// a press long after anything was on screen stops at once
-	if !keyAt(p, c, input.Back, now.Add(5*time.Second)) {
-		t.Fatal("Back with nothing on screen did not stop the playback")
+	if !keyAt(p, c, input.Back, now.Add(200*time.Millisecond)) {
+		t.Fatal("Back just as the controls timed out did not stop the playback")
 	}
 }
 
-func TestBackRestsAfterTheSeekStripGoes(t *testing.T) {
+func TestBackStopsRightAfterTheSeekStripGoes(t *testing.T) {
 	p := waitPlaying(t)
 	c := &coreOSD{}
 	now := time.Now()
-	p.framed(now, c)
+	p.framed(now)
 	keyAt(p, c, input.Right, now) // a tap: the strip peeks
 	now = now.Add(50 * time.Millisecond)
 	p.Key(input.Event{Key: input.Right, Release: true}, now)
@@ -79,8 +78,8 @@ func TestBackRestsAfterTheSeekStripGoes(t *testing.T) {
 		}
 		now = now.Add(16683 * time.Microsecond)
 	}
-	if keyAt(p, c, input.Back, now.Add(100*time.Millisecond)) {
-		t.Fatal("Back just as the strip went stopped the playback")
+	if !keyAt(p, c, input.Back, now.Add(100*time.Millisecond)) {
+		t.Fatal("Back just as the strip went did not stop the playback")
 	}
 }
 
@@ -96,7 +95,7 @@ func TestDownStepsOutOfTheControls(t *testing.T) {
 		p := waitPlaying(t)
 		c := &coreOSD{}
 		now := time.Now()
-		p.framed(now, c)
+		p.framed(now)
 		keyAt(p, c, tc.open, now)
 		if !p.visible {
 			t.Fatalf("%s: the controls did not open", tc.name)
@@ -133,7 +132,7 @@ func TestDownFromTheTimelineKeepsTheScrubAndBackDropsIt(t *testing.T) {
 		p.send = func(s string) { sent = append(sent, s) }
 		c := &coreOSD{}
 		now := time.Now()
-		p.framed(now, c)
+		p.framed(now)
 		keyAt(p, c, input.Up, now) // the timeline, at 600 s
 		keyAt(p, c, input.Right, now.Add(100*time.Millisecond))
 		p.Key(input.Event{Key: input.Right, Release: true}, now.Add(150*time.Millisecond)) // a tap: 610, in its grace
@@ -152,13 +151,25 @@ func TestDownMovesInAList(t *testing.T) {
 	p := waitPlaying(t)
 	c := &coreOSD{}
 	now := time.Now()
-	p.framed(now, c)
+	p.framed(now)
 	keyAt(p, c, input.Enter, now)
-	p.openMore()
-	p.openCrop()
+	p.item.Audio = []plex.Stream{{ID: "1", Title: "First"}, {ID: "2", Title: "Second"}}
+	p.openList("Audio")
 	p.list.cur = 0
 	keyAt(p, c, input.Down, now.Add(100*time.Millisecond))
 	if p.list == nil || !p.visible || p.list.cur != 1 {
 		t.Fatalf("Down in a list did not move its cursor: list %+v, visible %v", p.list, p.visible)
+	}
+}
+
+func TestDownMovesInCropList(t *testing.T) {
+	p := waitPlaying(t)
+	p.item.Aspect = 1.78
+	p.openMore()
+	p.openCrop()
+	p.list.cur = 0
+	p.Key(input.Event{Key: input.Down}, time.Now())
+	if p.list == nil || p.list.cur != 1 {
+		t.Fatalf("Down in crop list did not move its cursor: %+v", p.list)
 	}
 }

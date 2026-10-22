@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"plexcrt/internal/beta"
 	"plexcrt/internal/gfx"
 	"plexcrt/internal/input"
 	"plexcrt/internal/updates"
+	"reflect"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,7 +18,7 @@ type updateState struct {
 	checkFailed bool      // the last check could not read the catalogue
 	nextCheck   time.Time // of the automatic check
 	nextStatus  time.Time
-	reading     bool
+	reading     atomic.Bool // a status read is out (it ends off the render thread when nothing changed)
 	status      updates.Status
 	message     string    // a choice was not saved, or the updater's lock is taken
 	messageAt   time.Time // shown for a while, as the cause passes
@@ -86,12 +87,13 @@ func (a *App) pollUpdates(now time.Time) {
 	}
 	a.checkUpdates(false, now)
 	a.checkSupporters(now)
-	if a.updates.reading || now.Before(a.updates.nextStatus) {
+	if a.updates.reading.Load() || now.Before(a.updates.nextStatus) {
 		return
 	}
-	a.updates.reading = true
+	a.updates.reading.Store(true)
 	a.updates.nextStatus = now.Add(time.Second)
 	root, launch, exited := a.betaDir(), a.updates.launch, a.updates.exited
+	shown, waiting, before := a.updates.status, a.updates.waiting, a.updates.before
 	go func() {
 		// the exit is looked at before the file: an updater writes, then exits
 		gone := false
@@ -103,8 +105,15 @@ func (a *App) pollUpdates(now time.Time) {
 			}
 		}
 		s := updates.ReadStatus(root)
+		// A read that would change nothing on screen is not handed to the
+		// render thread: that would draw and publish a frame every second.
+		// Should the state have moved meanwhile, the next read compares with it.
+		if waiting && s.Updated == before && (!gone || shown.Stage == "failed") || !waiting && reflect.DeepEqual(s, shown) {
+			a.updates.reading.Store(false)
+			return
+		}
 		a.Later(func() {
-			a.updates.reading = false
+			a.updates.reading.Store(false)
 			if launch != a.updates.launch {
 				return // begun before the latest launch
 			}
@@ -146,7 +155,7 @@ func (a *App) fail(r *updates.Release, message string) {
 // ownChannel is the channel whose releases come first: a development build
 // is told about releases as a public one is.
 func ownChannel() string {
-	if beta.Channel == "beta" {
+	if updates.Channel == "beta" {
 		return "beta"
 	}
 	return "public"
@@ -190,7 +199,7 @@ func (a *App) offers(r updates.Release) bool {
 	return ok && newer > 0 || a.notifies(r)
 }
 func (a *App) notifies(r updates.Release) bool {
-	return a.Cfg != nil && updates.Notify(r, a.Version, beta.Channel, a.Cfg.EarlyAccessUpdates)
+	return a.Cfg != nil && updates.Notify(r, a.Version, updates.Channel, a.Cfg.EarlyAccessUpdates)
 }
 
 // nextUpdate is the release Updates leads with and the UPDATE mark is about.
@@ -284,7 +293,7 @@ func (a *App) startUpdate(action string, r *updates.Release) {
 	exited, err := updates.Start(root, action, r)
 	a.updates.exited = exited
 	if err != nil {
-		a.fail(shown, "Could not start the updater. Run MisterZine-Plex-Install to repair update support.")
+		a.fail(shown, "Could not start the updater. Run "+updates.Installer()+" from Scripts to repair update support.")
 		return
 	}
 	a.updates.status = updates.Status{Stage: stage, Release: shown}
@@ -389,7 +398,7 @@ func (u *Updates) view() (updateView, []updateAction) {
 		}
 		rows = append(rows, updateAction{"Install " + channelName(r.Channel) + " " + r.Version, func() { u.install(r) }})
 	}
-	if beta.Channel != "beta" {
+	if updates.Channel != "beta" {
 		label := "Beta notifications: Off"
 		if a.Cfg.EarlyAccessUpdates {
 			label = "Beta notifications: On"
@@ -472,7 +481,7 @@ func (u *Updates) Draw(c *gfx.Canvas, now time.Time) bool {
 	a.text(c, MenuX, SafeY, f.Title, gfx.Grey, "Updates")
 	v, rows := u.shows()
 	s := a.updates.status
-	installed := "Installed: " + a.Version + " - " + channelName(beta.Channel)
+	installed := "Installed: " + a.Version + " - " + channelName(updates.Channel)
 	y := updateHeadY
 	head := func(text string, col gfx.Color) {
 		a.text(c, MenuX, y, f.Big, col, f.Big.Fit(text, MenuWidth))
@@ -529,7 +538,7 @@ func (u *Updates) Draw(c *gfx.Canvas, now time.Time) bool {
 		line(f.SmallBold, gfx.GreyLo, installed)
 	case viewCurrent:
 		head("You're up to date", gfx.Grey)
-		line(f.Body, gfx.GreyHi, a.Version+" - "+channelName(beta.Channel))
+		line(f.Body, gfx.GreyHi, a.Version+" - "+channelName(updates.Channel))
 	}
 	y = max(y, updateRowsY)
 	for i, it := range rows {

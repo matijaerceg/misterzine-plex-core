@@ -14,7 +14,7 @@ func TestLockedPlayerDoesNotLaunchOrTouchLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := &Player{LogTo: path, Script: "must-not-launch", Access: func() error { return beta.ErrLocked }}
-	if session, err := p.Start("123", 0); session != nil || err != beta.ErrLocked {
+	if session, err := p.Start(&plex.Item{RatingKey: "123"}, 0); session != nil || err != beta.ErrLocked {
 		t.Fatal(session, err)
 	}
 	got, err := os.ReadFile(path)

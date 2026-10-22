@@ -41,7 +41,56 @@ func TestLockHolderTellsAnUpdaterFromAQuickCheck(t *testing.T) {
 }
 
 func fixture() Release {
-	return Release{ID: "fixture", Version: "1.2.0", Channel: "public", URL: "https://example.org/package.zip", DBURL: "https://example.org/public.json.zip", Size: 123, SHA256: strings.Repeat("a", 64)}
+	return Release{ID: "fixture", Version: "1.2.0", Channel: "public", URL: "https://example.org/package.zip", DBURL: "https://example.org/public.json.zip", Size: 123, SHA256: strings.Repeat("a", 64), Source: &SourceAsset{Filename: "MisterZine-Plex-Source-fixture.zip", Size: 456, SHA256: strings.Repeat("b", 64), URL: "https://example.org/source.zip"}}
+}
+
+func TestReleaseRoundTripRetainsBetaAccessAndSourceForWorker(t *testing.T) {
+	r := fixture()
+	r.Version, r.Channel = "1.3.0-beta.1", "beta"
+	r.Access = &Access{Batch: "misterzine-2026-10", SHA256: strings.Repeat("d", 64)}
+	r.Source = &SourceAsset{Filename: "MisterZine-Plex-Source-beta-1.zip", Size: 135363852,
+		SHA256: strings.Repeat("c", 64), URL: "https://example.org/MisterZine-Plex-Source-beta-1.zip"}
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Release
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got.Access == nil || *got.Access != *r.Access || got.Source == nil || *got.Source != *r.Source {
+		t.Fatalf("worker request lost release contract: %s", data)
+	}
+}
+
+// A beta release names its batch and code; a public one asks for nothing.
+func TestBetaAccessRequirementIsCompleteOrAbsent(t *testing.T) {
+	r := fixture()
+	r.Channel, r.Version = "beta", "1.2.0-beta.1"
+	if r.Validate() == nil {
+		t.Fatal("incomplete beta accepted")
+	}
+	r.Access = &Access{Batch: "fixture"}
+	if r.Validate() == nil {
+		t.Fatal("beta without a code accepted")
+	}
+	r.Access.SHA256 = strings.Repeat("a", 64)
+	if err := r.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	r = fixture()
+	r.Access = &Access{Batch: "fixture", SHA256: strings.Repeat("a", 64)}
+	if r.Validate() == nil {
+		t.Fatal("public access metadata accepted")
+	}
+	r = fixture()
+	r.Source = nil
+	if r.Validate() == nil {
+		t.Fatal("release without corresponding source accepted")
+	}
 }
 func TestReleasePrecedenceAndNotifications(t *testing.T) {
 	for _, tc := range []struct {
@@ -104,16 +153,6 @@ func TestCatalogueValidationAndHTTPS(t *testing.T) {
 	if _, err := Parse(data); err == nil {
 		t.Fatal("channel mismatch accepted")
 	}
-	r := fixture()
-	r.Channel = "beta"
-	if r.Validate() == nil {
-		t.Fatal("incomplete beta accepted")
-	}
-	r = fixture()
-	r.Access = &Access{Batch: "fixture", SHA256: strings.Repeat("a", 64)}
-	if r.Validate() == nil {
-		t.Fatal("public access metadata accepted")
-	}
 }
 func TestWorkerStatusAfterInterruption(t *testing.T) {
 	root := t.TempDir()
@@ -134,7 +173,7 @@ func TestWorkerStatusAfterInterruption(t *testing.T) {
 }
 
 func TestWorkerDoesNotInheritPlaybackCleanupOwnership(t *testing.T) {
-	t.Setenv("MISTERZINE_PLEX_OWNER", "/synthetic/plexplay.py")
+	t.Setenv("MISTERZINE_PLEX_OWNER", "/synthetic/jfplay")
 	t.Setenv("MISTERZINE_PLEX_READY_FILE", "/synthetic/started")
 	root := filepath.Join(t.TempDir(), "misterzine-plex")
 	os.Mkdir(root, 0700)

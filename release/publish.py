@@ -20,9 +20,10 @@ def run(*args, cwd=None):
     return subprocess.run(args, cwd=cwd, check=True, text=True, stdout=subprocess.PIPE).stdout
 
 
-def publish(package, tag, notes, out, perform=False, previous=None):
+def publish(package, tag, notes, out, perform=False, previous=None, source_archive=None):
     package = package.resolve()
-    release = build_distribution.build(package, tag, notes, out, previous)
+    release = build_distribution.build(package, tag, notes, out, previous, source_archive)
+    source_asset = Path(source_archive).resolve() if source_archive else package.parent / release['source']['filename']
     with tempfile.TemporaryDirectory(prefix='plex-verify-') as tmp:
         update_service.unpack(package, Path(tmp), release)
     if not perform:
@@ -42,13 +43,13 @@ def publish(package, tag, notes, out, perform=False, previous=None):
         previous = catalogue.catalogue(json.loads(old.read_text())) if old.exists() else None
         if previous and any(r['id'] == release['id'] for r in previous['releases'].values()):
             raise ValueError('This release ID is already published')
-        build_distribution.build(package, tag, notes, out, previous)
+        build_distribution.build(package, tag, notes, out, previous, source_asset)
         note_file = checkout / 'release-notes.txt'
         note_file.write_text(notes)
         checksum = out / (package.name + '.sha256')
         checksum.write_text(release['sha256'] + '  ' + package.name + '\n')
         # Upload everything before making either the release or catalogue visible.
-        run('gh', 'release', 'create', tag, str(package), str(checksum),
+        run('gh', 'release', 'create', tag, str(package), str(source_asset), str(checksum),
             str(out/'release-db.json.zip'), str(out/'MisterZine-Plex-Uninstall.sh'),
             *[str(out / ('MisterZine-Plex-Install-' + c.title() + '.sh'))
               for c in ('public', 'beta') if c in json.loads((out/'catalogue.json').read_text())['releases']],
@@ -75,7 +76,8 @@ if __name__ == '__main__':
     p.add_argument('--notes',type=Path,required=True)
     p.add_argument('--out',type=Path,default=Path(__file__).parent/'dist/distribution')
     p.add_argument('--previous',type=Path)
+    p.add_argument('--source-archive',type=Path)
     p.add_argument('--publish',action='store_true')
     a=p.parse_args()
     publish(a.package,a.tag,a.notes.read_text(),a.out,a.publish,
-            json.loads(a.previous.read_text()) if a.previous else None)
+            json.loads(a.previous.read_text()) if a.previous else None, a.source_archive)

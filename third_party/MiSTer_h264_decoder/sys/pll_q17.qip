@@ -1,0 +1,6 @@
+# UMD-FORK: the stock line `QIP_FILE rtl/pll.qip` is removed. Nothing instantiates the
+# Template's generated `pll` IP; every core clock comes from umd/sys_pll.sv (altera_pll,
+# hand-parameterised), so there is no rtl/ directory in this repository.
+set_global_assignment -name QIP_FILE           [file join $::quartus(qip_path) pll_hdmi.qip ]
+set_global_assignment -name QIP_FILE           [file join $::quartus(qip_path) pll_audio.qip ]
+set_global_assignment -name QIP_FILE           [file join $::quartus(qip_path) pll_cfg.qip ]

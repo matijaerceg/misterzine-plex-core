@@ -30,7 +30,7 @@ type option struct {
 	// show as live.
 	at func() (i, n int)
 	do func() // an action: OK runs it, on a stepped row too
-	// after runs once a change is saved: Home refetched, the theme player
+	// after runs once a change is made: Home refetched, the theme player
 	// told, or nothing. Bitrate and the sound toggles change nothing on
 	// screen, so stepping them must not refetch Home.
 	after func()
@@ -77,51 +77,42 @@ func (o *Options) items() []option {
 		{label: "Only show 4:3 media", get: func() bool { return cfg.FourThree }, set: func(v bool) { cfg.FourThree = v }, after: o.app.Reconfigured, busy: o.app.homeUpdating},
 		{label: "Autoplay next episode", get: func() bool { return !cfg.NoAutoplay }, set: func(v bool) { cfg.NoAutoplay = !v }},
 		{label: "Skip intro and credits buttons", get: func() bool { return !cfg.NoSkipButtons }, set: func(v bool) { cfg.NoSkipButtons = !v }},
+		{label: "Playback controls", val: func() string { return PlaybackLooks[cfg.playbackLookIndex()].Label }, step: func(d int) {
+			cfg.PlaybackLook = PlaybackLooks[max(0, min(len(PlaybackLooks)-1, cfg.playbackLookIndex()+d))].Value
+		}, at: func() (int, int) { return cfg.playbackLookIndex(), len(PlaybackLooks) }},
 		{label: "Video bitrate", val: func() string {
 			return Bitrates[cfg.bitrateIndex()].Label
 		}, step: func(d int) {
 			i := max(0, min(len(Bitrates)-1, cfg.bitrateIndex()+d))
 			cfg.Bitrate = Bitrates[i].Kbps
 		}, at: func() (int, int) { return cfg.bitrateIndex(), len(Bitrates) }},
+	}
+	items = o.app.libraryOptions(items)
+	items = append(items, []option{
+		optionGap(),
+		{label: o.app.calibrationLabel(), do: func() { o.app.Push(NewCalibrate(o.app)) }},
+		{label: "Video crop", val: func() string { return cfg.Crop.Label() }, step: func(d int) {
+			cfg.Crop = Crops[max(0, min(len(Crops)-1, cfg.Crop.index()+d))].Mode
+		}, at: func() (int, int) { return cfg.Crop.index(), len(Crops) }},
+	}...)
+	for _, w := range o.app.Display.Warnings(o.app.coreOutput()) {
+		items = append(items, option{label: w.label, val: func() string { return w.value }, do: func() { o.app.Push(NewDisplayNote(o.app, w)) }})
+	}
+	items = append(items, []option{
+		optionGap(),
 		{label: "Surround downmix boost", val: func() string {
 			if i := cfg.audioBoostIndex(); i >= 0 {
 				return AudioBoosts[i].Label
 			}
 			return itoa(cfg.AudioBoostValue()) + "%"
 		}, step: func(d int) {
-			i := max(0, min(len(AudioBoosts)-1, max(0, cfg.audioBoostIndex())+d))
+			i := max(0, min(len(AudioBoosts)-1, cfg.audioBoostIndex()+d))
 			cfg.AudioBoost = AudioBoosts[i].Value
-		}, at: func() (int, int) {
-			// a gain set by hand is none of the choices: both ways step
-			return cfg.audioBoostIndex(), len(AudioBoosts)
-		}},
+		}, at: func() (int, int) { return cfg.audioBoostIndex(), len(AudioBoosts) }},
 		{label: "Subtitle size", val: func() string { return SubtitleSizes[cfg.subtitleSizeIndex()].Label }, step: func(d int) {
 			i := max(0, min(len(SubtitleSizes)-1, cfg.subtitleSizeIndex()+d))
 			cfg.SubtitleSize = SubtitleSizes[i].Value
 		}, at: func() (int, int) { return cfg.subtitleSizeIndex(), len(SubtitleSizes) }},
-	}
-	items = o.app.libraryOptions(items)
-	items = append(items, []option{
-		optionGap(),
-		{label: "Video output", val: func() string {
-			if o.app.videoLocked() {
-				return "480i (CRT profile)"
-			}
-			if cfg.Progressive {
-				return "480p (HDMI)"
-			}
-			return "480i (CRT)"
-		}, do: o.app.chooseVideo},
-		{label: "Video geometry", do: func() { o.app.Push(NewCalibrate(o.app)) }},
-		{label: "Video crop", val: func() string { return cfg.Crop.Label() }, step: func(d int) {
-			cfg.Crop = Crops[max(0, min(len(Crops)-1, cfg.Crop.index()+d))].Mode
-		}, at: func() (int, int) { return cfg.Crop.index(), len(Crops) }},
-	}...)
-	for _, w := range o.app.Display.Warnings() {
-		items = append(items, option{label: w.label, val: func() string { return w.value }, do: func() { o.app.Push(NewDisplayNote(o.app, w)) }})
-	}
-	items = append(items, []option{
-		optionGap(),
 		{label: "Theme music", get: func() bool { return !cfg.NoTheme }, set: func(v bool) { cfg.NoTheme = !v }, after: o.app.syncTheme},
 		{label: "Navigation sounds", get: func() bool { return !cfg.NoTaps }, set: func(v bool) { cfg.NoTaps = !v }},
 		optionGap(),
@@ -205,7 +196,7 @@ func (a *App) loadAccountName() {
 			if err != nil || name == "" {
 				return
 			}
-			next := *cfg
+			next := cfg.snapshot()
 			next.AccountName = name
 			if err := next.Save(); err != nil {
 				a.Log.Printf("could not save account name")
@@ -295,7 +286,6 @@ func (o *Options) Key(ev input.Event, now time.Time) {
 			}
 			return
 		}
-		before := o.app.Cfg.snapshot()
 		switch {
 		case toggle:
 			it.set(!it.get())
@@ -304,12 +294,9 @@ func (o *Options) Key(ev input.Event, now time.Time) {
 		default:
 			it.step(1)
 		}
-		if err := o.app.Cfg.Save(); err != nil {
-			o.app.Log.Printf("config: %v", err)
-			*o.app.Cfg = before
-			o.app.Notice, o.app.NoticeAt = "Could not save settings. Check free space and retry.", now
-			return
-		}
+		// written once the steps stop, and at the latest on leaving
+		// Options: a sync to the SD card per step held the key up
+		o.app.saveSettings()
 		if it.after != nil {
 			it.after()
 		}

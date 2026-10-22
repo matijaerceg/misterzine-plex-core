@@ -3,12 +3,16 @@
 package ui
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"log"
 	"math/rand/v2"
 	"net/url"
 	"os"
 	"runtime"
 	"runtime/debug"
+	"runtime/metrics"
 	"strings"
 	"syscall"
 	"time"
@@ -53,6 +57,45 @@ type Presenter interface {
 type cadencePresenter interface {
 	EndEvery(uint32) bool
 	ResetCadence()
+}
+
+// publishTimer is a Presenter that can say where its last End spent its time.
+type publishTimer interface {
+	PublishTimes() (ack, fill time.Duration)
+}
+
+// timing is one quantity of the pacing report: avg/worst in ms.
+type timing struct {
+	sum, worst time.Duration
+	n          int
+}
+
+func (t *timing) add(d time.Duration) {
+	t.sum += d
+	t.n++
+	t.worst = max(t.worst, d)
+}
+
+func (t timing) String() string {
+	if t.n == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%.1f/%.1f", float64(t.sum)/float64(t.n)/1e6, float64(t.worst)/1e6)
+}
+
+// gcTotals reads the GC cycles completed so far and their total pause, as
+// wall time (the runtime counts a pause once per P).
+func gcTotals(s []metrics.Sample) (uint64, time.Duration) {
+	metrics.Read(s)
+	var n uint64
+	var pause time.Duration
+	if s[0].Value.Kind() == metrics.KindUint64 {
+		n = s[0].Value.Uint64()
+	}
+	if s[1].Value.Kind() == metrics.KindFloat64 {
+		pause = time.Duration(s[1].Value.Float64() / float64(runtime.GOMAXPROCS(0)) * 1e9)
+	}
+	return n, pause
 }
 
 // Screen is one page of the UI.
@@ -102,11 +145,13 @@ type App struct {
 	later       chan func()
 	seasonData  *seasonData // one selected season, shared with its opening page
 	scr         *gfx.Canvas
-	osd         OSD  // the playback overlay: the core's plane
-	crop        Crop // the playback's crop: Options' at the start, then the playback menu's
+	osd         OSD            // the playback overlay: the core's plane
+	crop        Crop           // the playback's crop: Options' at the start, then the playback menu's
+	subtitles   subtitleMemory // text tracks found undrawable this run (subtitles.go)
 	dim         idleDim
-	playing     bool // a playback has the screen (playLoop), paused or not
-	memoChecked bool // Home has been reached this run and the memos looked at (memo.go)
+	playing     bool            // a playback has the screen (playLoop), paused or not
+	playReports <-chan struct{} // the latest session's stopped report, for ordered refreshes
+	memoChecked bool            // Home has been reached this run and the memos looked at (memo.go)
 
 	stack  []Screen
 	dirty  bool
@@ -132,6 +177,9 @@ func (a *App) SetCacheDir(dir string) { a.cacheDir = dir; a.aspects.load(dir) }
 // New builds the app around a client and a presenter.
 func New(c *plex.Client, out Presenter, player *Player, lg *log.Logger) *App {
 	a := &App{Plex: c, Out: out, Player: player, Log: lg, Wake: make(chan struct{}, 1), Connected: make(chan struct{}, 1), later: make(chan func(), 32)}
+	if player != nil && player.DrawsSubtitle == nil {
+		player.DrawsSubtitle = a.drawsSubtitle
+	}
 	// more Ps than cores so a decoding worker can never hold the drawing
 	// loop off the scheduler; the OS then arbitrates by thread priority
 	runtime.GOMAXPROCS(4)
@@ -149,7 +197,7 @@ func New(c *plex.Client, out Presenter, player *Player, lg *log.Logger) *App {
 		Small: gfx.Load("reg16"), SmallBold: gfx.Load("med16"), Big: gfx.Load("bold28"), Mark: gfx.Load("condit24"),
 		MarkZ: gfx.Load("blackit26"), MarkM: gfx.Load("blackit17")}
 	a.Mark = NewWordmark()
-	warmFades(720, 480)
+	warmFades(layoutCanvasSize(a)) // 960 wide on a 16:9 display
 	return a
 }
 
@@ -177,6 +225,9 @@ func (a *App) Pop() bool {
 	a.stack = a.stack[:len(a.stack)-1]
 	if l, ok := gone.(leaver); ok {
 		l.left()
+	}
+	if _, ok := gone.(*Options); ok {
+		a.flushSettings() // its changes are written as they stop (saveSettings)
 	}
 	a.syncTheme()
 	a.dirty = true
@@ -209,7 +260,7 @@ func (a *App) Open(it *plex.Item, direct bool) {
 		}
 		if it.Logo == "" || it.Summary == "" {
 			if fresh, err := a.Plex.Item(it.RatingKey); err == nil {
-				*it = *fresh
+				a.takeFresh(it, fresh)
 			}
 		}
 		if len(seasons) == 1 {
@@ -222,7 +273,7 @@ func (a *App) Open(it *plex.Item, direct bool) {
 	case "episode":
 		if it.GrandKey == "" || it.ParentKey == "" {
 			if fresh, err := a.Plex.Item(it.RatingKey); err == nil {
-				*it = *fresh
+				a.takeFresh(it, fresh)
 			}
 		}
 		a.openSeason(it.GrandKey, it.ParentKey, it.RatingKey)
@@ -273,6 +324,15 @@ func (a *App) openSeason(showKey, seasonKey, at string) {
 // pager returns the listing for a path and query, kept for the session
 // so a library reopens where its count and pages already are.
 func (a *App) pager(path string, q url.Values, filter func(*plex.Item) bool) *Pager {
+	var prepare func([]*plex.Item)
+	if filter != nil {
+		prepare = a.measureShows // shows need a probe before the filter can judge them
+	}
+	return a.preparedPager(path, q, filter, prepare)
+}
+
+// preparedPager is pager with the caller's prepare for a filtered listing.
+func (a *App) preparedPager(path string, q url.Values, filter func(*plex.Item) bool, prepare func([]*plex.Item)) *Pager {
 	key := path + "?" + q.Encode()
 	if filter != nil {
 		key += "|filtered"
@@ -280,11 +340,9 @@ func (a *App) pager(path string, q url.Values, filter func(*plex.Item) bool) *Pa
 	if p := a.pagers[key]; p != nil {
 		return p
 	}
-	var prepare func([]*plex.Item)
-	if filter != nil {
-		prepare = a.measureShows // shows need a probe before the filter can judge them
-	}
-	p := NewPager(a.Plex, path, q, a.Wake, filter, prepare)
+	p := newPager(a.Plex, path, q, a.Wake, filter, prepare)
+	p.Failed = func(err error) { a.SessionEnded(err) }
+	p.Want(0)
 	a.pagers[key] = p
 	return p
 }
@@ -380,6 +438,8 @@ func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 	if a.Player == nil {
 		return
 	}
+	// Check before playback setup. Player.Start and StartAsync also check so
+	// direct worker calls cannot bypass the beta gate.
 	if a.Player.Access != nil {
 		if err := a.Player.Access(); err != nil {
 			if err == beta.ErrLocked {
@@ -418,38 +478,41 @@ func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 			a.osd = r.Overlay()
 		}
 	}
-	a.theme.Stop() // ALSA is single-client: wait for aplay before the launcher
+	a.flushSettings() // a track just chosen, say: on the card before the play
+	a.theme.Stop()    // ALSA is single-client: wait for aplay before the launcher
 	defer a.syncTheme()
 	a.Player.Reap()
-	// each playback starts with Options' crop; one changed in the playback
-	// menu holds through the queue (autoplay, Prev, Next) and ends with it
 	a.crop = a.Cfg.Crop.valid()
 	for {
 		last, finished = it, false
 		a.Log.Printf("play %s (%s) at %d", it.Title, it.RatingKey, offset)
 		a.Starting = time.Now()
 		a.blank()
-		sess, err := a.Player.Start(it.RatingKey, offset)
+		if backdrop, ok := a.osd.(interface{ SetOpaque(bool) }); ok {
+			backdrop.SetOpaque(true)
+		}
+		sess, err := a.Player.StartAsync(it, offset)
 		if err != nil {
+			if backdrop, ok := a.osd.(interface{ SetOpaque(bool) }); ok {
+				backdrop.SetOpaque(false)
+			}
 			a.Log.Printf("play: %v", err)
 			a.Notice, a.NoticeAt = err.Error(), time.Now()
 			break
 		}
-		ctl := NewPlaying(a, it, queue, idx, sess.Send)
+		ctl := NewPlaying(a, it, queue, idx, sess.SendUI)
 		ctl.pos = float64(offset)
 		if offset < 0 {
 			ctl.pos = float64(it.ViewOffset)
 		}
 		ctl.starting, ctl.waitSpec = a.osd != nil, os.Getenv("PLEXCRT_WAIT_DOT")
 		next, ended := a.playLoop(sess, ctl)
+		a.playReports = sess.ReportsDone()
+		a.refreshPlayedItem(it, a.playReports)
 		finished = ctl.finished()
-		if msg, err := os.ReadFile("/tmp/plexplay.stat.err"); err == nil && len(msg) > 0 {
-			a.Notice = plex.Fold(strings.TrimSpace(string(msg)))
+		if msg := readPlayerStatus(a.Player.Status)["error"]; msg != "" {
+			a.Notice = plex.Fold(strings.TrimSpace(msg))
 			a.NoticeAt = time.Now()
-			os.Remove("/tmp/plexplay.stat.err")
-		}
-		if fresh, err := a.Plex.Item(it.RatingKey); err == nil {
-			*it = *fresh
 		}
 		if next == 0 && ended && queue != nil && idx+1 < len(queue) && a.runsOn(shuffled) {
 			// ran to the end: count down to the next episode
@@ -468,11 +531,43 @@ func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 	a.dirty = true
 }
 
+// refreshPlayedItem waits off-thread for the final report before refreshing resume state.
+func (a *App) refreshPlayedItem(it *plex.Item, reports <-chan struct{}) {
+	client, key := a.Plex, it.RatingKey
+	go func() {
+		if reports != nil {
+			<-reports
+		}
+		fresh, err := client.Item(key)
+		if err != nil {
+			return
+		}
+		a.Later(func() {
+			if a.Plex == client && a.playReports == reports && !a.playing {
+				a.takeFresh(it, fresh)
+			}
+		})
+	}()
+}
+
 // blank presents a black frame: the menu is gone the moment Play is pressed.
 func (a *App) blank() {
 	c := a.Out.Begin()
 	c.Fill(0, 0, c.W, c.H, gfx.Black)
 	a.Out.End()
+}
+
+// updateOverlay lets presenters that support batching publish a group of
+// related sprite and panel changes in one framebuffer flip.
+func updateOverlay(osd OSD, fn func()) {
+	if batch, ok := osd.(interface {
+		BeginUpdate()
+		EndUpdate()
+	}); ok {
+		batch.BeginUpdate()
+		defer batch.EndUpdate()
+	}
+	fn()
 }
 
 // playLoop runs one playback: the wait dot until the picture is up, then
@@ -481,8 +576,8 @@ func (a *App) blank() {
 // to stop) and whether the stream ran to its end.
 func (a *App) playLoop(sess *Session, ctl *Playing) (int, bool) {
 	// The overlay is drawn once per field, right after the core's field
-	// counter moves, and at once after a key. The dot's run and the
-	// focus bar are sprites the core draws from single word stores.
+	// counter moves, and at once after a key. The dot and focus bar are
+	// software-composited into the framebuffer.
 	//
 	// The decoder has the machine: this loop wakes every half field and
 	// no thread here outranks ffmpeg. Waking at 500 Hz from a raised
@@ -496,12 +591,22 @@ func (a *App) playLoop(sess *Session, ctl *Playing) (int, bool) {
 	}
 	frames, _ := a.Out.(interface{ Published() (uint32, bool) })
 	var lastFrame uint32
+	setOpaque := func(on bool) {
+		if backdrop, ok := a.osd.(interface{ SetOpaque(bool) }); ok {
+			backdrop.SetOpaque(on)
+		}
+	}
 	// two cores: more Ps only spin looking for work against the decoder
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(2))
+	defer playbackPriority()() // Run's thread, raised for the menus
 	a.playing = true
 	defer func() { a.playing = false }()
+	defer setOpaque(false)
+	// Finish the old renderer before any returned menu can publish a frame.
+	defer func() { <-ctl.closePainter(a.osd) }()
 	up := false
 	stopped := false
+	events := a.events
 	var lastPlayFocus playFocus
 	selectionPresented := func() {
 		f := ctl.selection()
@@ -515,20 +620,29 @@ func (a *App) playLoop(sess *Session, ctl *Playing) (int, bool) {
 		case err := <-sess.Done:
 			if err != nil {
 				a.Log.Printf("play: %v", err)
+				a.Notice, a.NoticeAt = plex.Fold(err.Error()), time.Now()
 			}
 			if a.osd != nil {
 				// the menus use neither the plane nor the sprites, and the
 				// wait dot may still be running
-				a.osd.Hide()
-				ctl.end(a.osd)
-				a.osd.Dot(0, 0, 0, false)
-				a.osd.Bar(0, 0, 0, 0, 0, false)
+				updateOverlay(a.osd, func() {
+					a.osd.Hide()
+					ctl.end()
+					a.osd.Dot(0, 0, 0, false)
+					a.osd.Bar(0, 0, 0, 0, 0, false)
+				})
 			}
 			ended := !stopped && ctl.finished()
 			return ctl.Next, ended
-		case ev, ok := <-a.events:
+		case ev, ok := <-events:
 			if !ok {
-				sess.Stop()
+				events = nil
+				stopped = true
+				ctl.closePainter(a.osd)
+				sess.StopUI()
+				continue
+			}
+			if stopped {
 				continue
 			}
 			if a.wake(ev, time.Now()) {
@@ -537,24 +651,32 @@ func (a *App) playLoop(sess *Session, ctl *Playing) (int, bool) {
 			if !up {
 				if ev.Key == input.Back && !ev.Release && !ev.Repeat {
 					if a.osd != nil {
-						ctl.end(a.osd) // the dot goes with the press
+						updateOverlay(a.osd, func() { ctl.end() }) // the dot goes with the press
 					}
-					sess.Stop() // gave up waiting
+					stopped = true
+					ctl.closePainter(a.osd)
+					sess.StopUI() // gave up waiting
 				}
 				continue
 			}
 			if ctl.Key(ev, time.Now()) {
 				if a.osd != nil {
-					a.osd.Hide()
-					ctl.end(a.osd)
+					updateOverlay(a.osd, func() {
+						a.osd.Hide()
+						ctl.end()
+					})
 				}
 				stopped = true
-				sess.Stop()
+				ctl.closePainter(a.osd)
+				sess.StopUI()
 			} else if a.osd != nil {
-				ctl.Tick(time.Now(), a.osd, false) // the overlay answers the key at once
+				updateOverlay(a.osd, func() { ctl.Tick(time.Now(), a.osd, false) }) // the overlay answers the key at once
 				selectionPresented()
 			}
 		case <-tick.C:
+			if stopped {
+				continue
+			}
 			if fields != nil {
 				f := fields.Field()
 				if f == lastField {
@@ -567,14 +689,18 @@ func (a *App) playLoop(sess *Session, ctl *Playing) (int, bool) {
 				// Up is the presenter's first frame, not its launch: it starts
 				// long before the stream gives it a picture. Without the ring
 				// there is no frame to see, only the presenter's status file.
-				if a.Out.Foreign() || a.osd == nil && a.Player.Started(a.Starting) {
+				foreign := a.Out.Foreign()
+				if foreign || a.osd == nil && a.Player.Started(a.Starting) {
+					if foreign {
+						setOpaque(false)
+					}
 					up = true // the dot goes; the strip runs out over the picture
 					a.Starting = time.Time{}
 					if frames != nil {
 						lastFrame, _ = frames.Published()
 					}
 					if a.osd != nil {
-						ctl.framed(time.Now(), a.osd)
+						ctl.framed(time.Now())
 					}
 					continue
 				}
@@ -582,20 +708,22 @@ func (a *App) playLoop(sess *Session, ctl *Playing) (int, bool) {
 					// black under, the title and the bar over, the dot in the
 					// middle, until the picture
 					ctl.peekAt, ctl.peekFor = time.Now(), OsdLinger
-					ctl.Tick(time.Now(), a.osd, true)
+					updateOverlay(a.osd, func() { ctl.Tick(time.Now(), a.osd, true) })
 				}
 				continue
 			}
 			if a.osd != nil {
 				// a frame from the presenter (a wiped header is none): the
 				// picture is moving, so no wait dot
-				if frames != nil {
-					if seq, ok := frames.Published(); ok && seq != lastFrame {
-						lastFrame = seq
-						ctl.framed(time.Now(), a.osd)
+				updateOverlay(a.osd, func() {
+					if frames != nil {
+						if seq, ok := frames.Published(); ok && seq != lastFrame {
+							lastFrame = seq
+							ctl.framed(time.Now())
+						}
 					}
-				}
-				ctl.Tick(time.Now(), a.osd, true)
+					ctl.Tick(time.Now(), a.osd, true)
+				})
 				selectionPresented()
 			}
 		}
@@ -681,6 +809,7 @@ func (a *App) loadSections() {
 	secs, err := a.Plex.Sections()
 	if err != nil {
 		a.Log.Printf("sections: %v", err)
+		a.SessionEnded(err)
 		return
 	}
 	a.secs = secs
@@ -694,6 +823,7 @@ func (a *App) loadSectionsFor(client *plex.Client) {
 	secs, err := client.Sections()
 	if err != nil {
 		a.Log.Printf("sections: %v", err)
+		a.SessionEnded(err)
 		return
 	}
 	a.Later(func() {
@@ -803,12 +933,9 @@ func (a *App) runLater() {
 // Start shows the first screen: home when a server is on record (or a
 // client was given), the sign-in otherwise.
 func (a *App) Start() {
-	// the core keeps its overlay plane and sprites across a restart of
-	// this process: take them down before anything is on screen
+	// New controls start hidden; preserve any existing frame until the first menu.
 	if r, ok := a.Out.(*ring.Ring); ok && a.osd == nil {
 		a.osd = r.Overlay()
-		a.osd.Dot(0, 0, 0, false)
-		a.osd.Bar(0, 0, 0, 0, 0, false)
 	}
 	a.loadAccess()
 	a.premiumStart()
@@ -836,7 +963,7 @@ func (a *App) Connect() {
 	a.seasonData, a.lastSection = nil, ""
 	a.lastFocus, a.focusReady = focusPosition{}, false
 	if a.Player != nil {
-		a.Player.Env = []string{"PLEX_HOST=" + cfg.ServerURL, "PLEX_TOKEN=" + cfg.ServerToken, "PLEX_CLIENT_ID=" + cfg.ClientID}
+		a.Player.Client = a.Plex
 	}
 	a.stack = nil
 	a.Push(NewHome(a))
@@ -848,14 +975,7 @@ func (a *App) SwitchUser() {
 	if a.Cfg.Token == "" {
 		return
 	}
-	a.Plex = nil
-	a.Art.SetClient(nil)
-	a.secs = nil
-	a.pagers = map[string]*Pager{}
-	a.places = nil
-	a.seasonData, a.lastSection = nil, ""
-	a.lastFocus, a.focusReady = focusPosition{}, false
-	a.stack = nil
+	a.signedOut()
 	a.Push(NewHomeUsers(a, a.Cfg.Token))
 }
 
@@ -866,13 +986,51 @@ func (a *App) SignOut() {
 		a.Notice, a.NoticeAt = "Could not save sign-out. Check free space and retry.", time.Now()
 		return
 	}
+	a.signedOut()
+	a.Push(NewLogin(a))
+}
+
+// signedOut drops the client and everything listed through it.
+func (a *App) signedOut() {
 	a.Plex = nil
 	a.Art.SetClient(nil)
 	a.secs = nil
 	a.pagers = map[string]*Pager{}
 	a.places = nil
+	a.seasonData, a.lastSection = nil, ""
+	a.lastFocus, a.focusReady = focusPosition{}, false
 	a.stack = nil
-	a.Push(NewLogin(a))
+}
+
+// SessionEnded reports whether err is the server refusing the token (access
+// removed, the token revoked, or the server briefly unable to check it with
+// plex.tv) and, when it is, opens the server picker. The plex.tv account
+// stays signed in: only this server's token is in doubt. Safe from any
+// goroutine.
+func (a *App) SessionEnded(err error) bool {
+	if !errors.Is(err, plex.ErrUnauthorized) {
+		return false
+	}
+	a.Later(func() {
+		if a.Plex == nil {
+			return // already signed out
+		}
+		if !a.Plex.Refused() || len(a.Connected) > 0 {
+			// a client replaced (Switch user, another server), or saved to
+			// replace it: the refusal was of the old one, answering screens
+			// on their way out
+			return
+		}
+		if len(a.stack) > 0 {
+			if l, up := a.top().(*Login); up && l.picker {
+				return
+			}
+		}
+		a.Log.Printf("token refused by the server: choosing a server again")
+		a.Push(NewServerPicker(a))
+		a.Notice, a.NoticeAt = "The server no longer accepts this sign-in. Choose a server again.", time.Now()
+	})
+	return true
 }
 
 // streamLabel is the action text for the chosen audio or subtitle stream.
@@ -891,36 +1049,84 @@ func streamLabel(kind string, streams []plex.Stream) string {
 	return ""
 }
 
+// streamChoiceKey is where an item's track choice is kept: by show for an
+// episode (a show's episodes share their tracks), by item otherwise.
+func streamChoiceKey(it *plex.Item) string {
+	if it.Type == "episode" && it.GrandKey != "" {
+		return it.GrandKey
+	}
+	return it.RatingKey
+}
+
+// applyStreams marks the tracks chosen for the item's movie or show, if
+// the item has them; the server's default stays marked otherwise.
+func (a *App) applyStreams(it *plex.Item) {
+	if a.Cfg == nil || it == nil {
+		return
+	}
+	ch, ok := a.Cfg.Streams[streamChoiceKey(it)]
+	if !ok {
+		return
+	}
+	mark := func(streams []plex.Stream, id string) {
+		if id == "" {
+			return
+		}
+		found := false
+		for _, s := range streams {
+			found = found || s.ID == id
+		}
+		if !found && id != "-1" {
+			return // another file's track: keep the server's default
+		}
+		for k := range streams {
+			streams[k].Selected = streams[k].ID == id
+		}
+	}
+	mark(it.Audio, ch.Audio)
+	mark(it.Subs, ch.Subtitle)
+}
+
+// takeFresh replaces an item with its fresh record, which marks the
+// server's default tracks, and marks the chosen ones again.
+func (a *App) takeFresh(it, fresh *plex.Item) {
+	*it = *fresh
+	a.applyStreams(it)
+}
+
 // selectStream makes stream i of an item's audio or subtitle tracks the
-// part's default on the server (-1: no subtitles) and marks it in the item.
+// chosen one (-1: no subtitles), marks it in the item and keeps the choice
+// in the settings for its movie or show. The choice goes with each play,
+// and the server makes it the part's default then (plex PlaybackInfo).
 func (a *App) selectStream(it *plex.Item, kind string, i int) {
 	streams := it.Audio
 	if kind == "Subtitles" {
 		streams = it.Subs
 	}
-	if it.PartID == "" {
-		return
-	}
-	var err error
-	if kind == "Subtitles" {
-		id := "0"
-		if i >= 0 && i < len(streams) {
-			id = streams[i].ID
-		}
-		err = a.Plex.SelectSubtitle(it.PartID, id)
-	} else {
-		if i < 0 || i >= len(streams) {
-			return
-		}
-		err = a.Plex.SelectAudio(it.PartID, streams[i].ID)
-	}
-	if err != nil {
-		a.Log.Printf("select %s: %v", kind, err)
+	id := "-1"
+	if i >= 0 && i < len(streams) {
+		id = streams[i].ID
+	} else if kind != "Subtitles" {
 		return
 	}
 	for k := range streams {
 		streams[k].Selected = k == i
 	}
+	if a.Cfg == nil {
+		return
+	}
+	key := streamChoiceKey(it)
+	ch := a.Cfg.Streams[key]
+	if kind == "Subtitles" {
+		ch.Subtitle = id
+	} else {
+		ch.Audio = id
+	}
+	if a.Cfg.Streams == nil {
+		a.Cfg.Streams = map[string]StreamChoice{}
+	}
+	a.Cfg.Streams[key] = ch
+	a.saveSettings() // written before the play starts at the latest
 }
 
 // chooseStream opens the chooser for an item's audio or subtitle tracks
@@ -993,6 +1199,7 @@ func (a *App) homeUpdating() bool {
 // menu's Exit sets ToMenu.
 func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
 	defer a.theme.Stop()
+	defer a.flushSettings()
 	if r, ok := a.Out.(*ring.Ring); ok {
 		mode := uint32(0)
 		if a.Cfg.Progressive {
@@ -1009,8 +1216,29 @@ func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
 	var worst, total time.Duration
 	frames, late := 0, 0
 	lastStat := time.Now()
+	var draw, wait, ack, fill timing // the pacing report's breakdown
+	timer, _ := a.Out.(publishTimer)
+	gcs := []metrics.Sample{{Name: "/gc/cycles/total:gc-cycles"}, {Name: "/cpu/classes/gc/pause:cpu-seconds"}}
+	gcN, gcPause := gcTotals(gcs)
 	idle := time.NewTicker(time.Second) // re-present when idle: another
 	defer idle.Stop()                   // process may have blanked the ring
+	drain := func() bool {
+		for {
+			select {
+			case ev, ok := <-events:
+				if !ok {
+					return false
+				}
+				a.key(ev, time.Now())
+			case <-a.Wake:
+				a.dirty = true
+			case <-a.Connected:
+				a.Connect()
+			default:
+				return true
+			}
+		}
+	}
 	for {
 		select {
 		case <-stop:
@@ -1018,28 +1246,21 @@ func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
 		default:
 		}
 		cadenced := a.pacedTransition()
+		fieldWait := time.Duration(-1) // the WaitField before this frame, if any
 		if animating {
 			// one frame per field while something moves; drain input meanwhile
 			// Show layout transitions instead render ahead and publish every
 			// vsync, using the complete field drawing budget.
-			if !cadenced {
-				a.Out.WaitField(20 * time.Millisecond)
+			if !drain() {
+				return
 			}
-		drain:
-			for {
-				select {
-				case ev, ok := <-events:
-					if !ok {
-						return
-					}
-					a.key(ev, time.Now())
-				case <-a.Wake:
-					a.dirty = true
-				case <-a.Connected:
-					a.Connect()
-				default:
-					break drain
-				}
+			if !cadenced {
+				w := time.Now()
+				a.Out.WaitField(20 * time.Millisecond)
+				fieldWait = time.Since(w)
+			}
+			if !drain() {
+				return
 			}
 			a.dirty = true
 		} else {
@@ -1080,6 +1301,7 @@ func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
 			t0 := time.Now()
 			a.Art.Frame()
 			c := a.Out.Begin()
+			warmFadesFor(c.W, c.H)
 			animating = a.drawScreen(c, t0)
 			if a.Notice != "" {
 				if time.Since(a.NoticeAt) > 6*time.Second {
@@ -1104,6 +1326,7 @@ func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
 			} else {
 				a.Out.End()
 			}
+			ended := time.Now()
 			a.selectionPresented()
 			if v, ok := a.top().(*Show); ok {
 				v.tracePublished()
@@ -1116,6 +1339,18 @@ func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
 			total += d
 			if d > worst {
 				worst = d
+			}
+			draw.add(drawn.Sub(t0))
+			var ackD, fillD time.Duration
+			if timer != nil {
+				ackD, fillD = timer.PublishTimes()
+				ack.add(ackD)
+				fill.add(fillD)
+			}
+			if cadenced {
+				wait.add(max(0, ended.Sub(drawn)-ackD-fillD)) // EndEvery's wait for its field
+			} else if fieldWait >= 0 {
+				wait.add(fieldWait)
 			}
 			if cadenceMissed {
 				late++
@@ -1133,8 +1368,13 @@ func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
 				}
 			}
 			if frames++; frames%600 == 0 || (frames >= 60 && time.Since(lastStat) > 5*time.Second) {
-				a.Log.Printf("frames %d: avg %.1f ms, worst %.1f ms, missed fields %d", frames, float64(total)/float64(frames)/1e6, float64(worst)/1e6, late)
+				n, pause := gcTotals(gcs)
+				a.Log.Printf("frames %d: avg %.1f ms, worst %.1f ms, missed fields %d; fps=%.1f draw=%v wait=%v ack=%v copy=%v gc=%d gcpause=%.2f",
+					frames, float64(total)/float64(frames)/1e6, float64(worst)/1e6, late,
+					float64(frames)/time.Since(lastStat).Seconds(), draw, wait, ack, fill, n-gcN, float64(pause-gcPause)/1e6)
 				worst, total, late, frames = 0, 0, 0, 0
+				draw, wait, ack, fill = timing{}, timing{}, timing{}, timing{}
+				gcN, gcPause = n, pause
 				lastStat = time.Now()
 			}
 		}
@@ -1251,3 +1491,8 @@ func (a *App) textRight(c *gfx.Canvas, x, y int, f *gfx.Font, col gfx.Color, s s
 func (a *App) textCenterOn(c *gfx.Canvas, x, y int, f *gfx.Font, col, bg gfx.Color, s string) {
 	c.LineCenter(a.T, x, y, f, col, bg, s)
 }
+
+// bg is the context of the UI's server requests. The app has no lifetime
+// context of its own (it runs until the process ends), so nothing cancels
+// them but their own timeouts.
+func bg() context.Context { return context.Background() }

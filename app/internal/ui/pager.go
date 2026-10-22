@@ -24,7 +24,10 @@ type Pager struct {
 	// failErr is the last failed fetch's error, which err takes again
 	// while a page that is asked for waits out PageRetry
 	failErr error
-	inFlt   map[int]bool // page index being fetched
+	// Failed, when set, hears of every failed fetch (off the UI thread): the
+	// app checks it for a session the server has ended.
+	Failed func(error)
+	inFlt  map[int]bool // page index being fetched
 	// when each page whose last fetch failed failed (it is asked for again
 	// only after PageRetry); for a walk to the end (whole): the listing's
 	// size each page was fetched with, how many pages (filtered, walks)
@@ -84,10 +87,15 @@ const OrderedRewalks = 2
 // A filter, if given, hides items it rejects; prepare, if given, completes
 // each page's items before the filter sees them.
 func NewPager(c *plex.Client, path string, q url.Values, wake chan struct{}, filter func(*plex.Item) bool, prepare func([]*plex.Item)) *Pager {
-	p := &Pager{client: c, path: path, query: q, items: map[int]*plex.Item{}, inFlt: map[int]bool{},
-		failed: map[int]time.Time{}, seen: map[int]int{}, Wake: wake, total: -1, filter: filter, Prepare: prepare}
+	p := newPager(c, path, q, wake, filter, prepare)
 	p.Want(0)
 	return p
+}
+
+// newPager is NewPager before its first page is asked for.
+func newPager(c *plex.Client, path string, q url.Values, wake chan struct{}, filter func(*plex.Item) bool, prepare func([]*plex.Item)) *Pager {
+	return &Pager{client: c, path: path, query: q, items: map[int]*plex.Item{}, inFlt: map[int]bool{},
+		failed: map[int]time.Time{}, seen: map[int]int{}, Wake: wake, total: -1, filter: filter, Prepare: prepare}
 }
 
 // NewOrderedPager shows base's whole listing in an order of the caller's.
@@ -443,6 +451,9 @@ func (p *Pager) fetch(n int) {
 	delete(p.inFlt, n)
 	if p.failed == nil {
 		p.failed, p.seen = map[int]time.Time{}, map[int]int{}
+	}
+	if err != nil && p.Failed != nil {
+		p.Failed(err)
 	}
 	if err != nil && p.restage {
 		// a page of the walk again failed: the walk before keeps showing,

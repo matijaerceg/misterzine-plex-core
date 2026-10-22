@@ -22,13 +22,13 @@ func skipPlaying(t *testing.T) (*Playing, *coreOSD, *[]string, time.Time) {
 	p.item.Markers = []plex.Marker{{Type: "intro", Start: 590, End: 700}}
 	c := &coreOSD{}
 	now := time.Now()
-	p.framed(now, c)
+	p.framed(now)
 	return p, c, sent, now
 }
 
 // tickAt runs one field at a time with the picture moving.
 func tickAt(p *Playing, c *coreOSD, at time.Time) {
-	p.framed(at, c)
+	p.framed(at)
 	c.vsync()
 	p.Tick(at, c, true)
 }
@@ -88,6 +88,7 @@ func TestSkipButtonOKSkipsAndBackDismisses(t *testing.T) {
 
 	p, c, sent, now = skipPlaying(t)
 	tickAt(p, c, now)
+	p.framed(now.Add(time.Second)) // the picture is moving: no wait dots over the press
 	if keyAt(p, c, input.Back, now.Add(time.Second)) {
 		t.Fatal("Back on the skip button stopped the playback")
 	}
@@ -144,6 +145,7 @@ func TestSkipButtonsOptionDefaultsOnAndSaves(t *testing.T) {
 	if !a.Cfg.NoSkipButtons || o.items()[row].get() {
 		t.Fatal("OK did not turn the skip buttons off")
 	}
+	a.Cfg.Flush()
 	data, err := os.ReadFile(a.Cfg.path)
 	if err != nil {
 		t.Fatal(err)

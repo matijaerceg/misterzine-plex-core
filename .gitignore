@@ -1,46 +1,20 @@
 # build outputs
 app/dist/
-arm/plexfb
-arm/plexfb.build.json
-arm/plexui
-arm/__pycache__/
-core/db/
-core/incremental_db/
-core/output_files/
-core/*.qws
-core/*.rpt
-core/*.summary
+arm/jfplay
+build/
+third_party/release/*.zip
+release/dist/
+__pycache__/
+*.pyc
 # large generated test assets
 clips/
-arm/card/*.ppm
 # local state
 *.log
-.plextoken
-release/dist/
 release/private-beta/
 *.key
-release/__pycache__/
-tools/__pycache__/
-app/tools/__pycache__/
-core/*.srf
-core/*.done
-core/*.jdi
-core/*.smsg
-core/*.pin
-core/*.qdf
-core/*.ddb
-core/c5_pin_model_dump.txt
 
-# local tools and root-level Quartus output
+# local tools
 .claude/
-/db/
-/incremental_db/
-/output_files/
-/PlexCRT.qpf
-/PlexCRT.qsf
-/*.rpt
-/*.summary
-*.qws
 
 # account state, backups, and local environment
 plexcrt.json*

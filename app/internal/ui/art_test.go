@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"image"
 	"image/png"
 	"net/http"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"plexcrt/internal/gfx"
-	"plexcrt/internal/plex"
 )
 
 func TestArtVisibleBeforePrefetch(t *testing.T) {
@@ -50,16 +50,84 @@ func TestArtPromoteAndExpirePrefetch(t *testing.T) {
 	}
 }
 
+// testPicture is a picture of n bytes; the pixels are shared, only the
+// size counts.
+func testPicture(n int) *gfx.Image {
+	return &gfx.Image{Pix: testPixels[:n]}
+}
+
+var testPixels = make([]byte, 2<<20)
+
+// tk is a picture's key by name alone.
+func tk(name string) artKey { return artKey{thumb: name} }
+
 func TestArtEvictionWhenAllEntriesAreRecent(t *testing.T) {
 	a := NewArt(nil, 0, nil)
-	for i := 0; i <= ArtCap; i++ {
-		key := string(rune(i + 1))
-		a.have[key] = &artEntry{used: a.frame}
-		a.order = append(a.order, key)
+	for i := 0; i <= ArtBudget>>20; i++ {
+		a.add(tk(string(rune(i+1))), &artEntry{img: testPicture(1 << 20), used: a.frame})
 	}
-	a.evict()
-	if len(a.have) != ArtCap {
-		t.Fatal("cache exceeded its memory bound")
+	if a.bytes != ArtBudget || len(a.have) != ArtBudget>>20 {
+		t.Fatalf("cache exceeded its memory bound: %d bytes in %d pictures", a.bytes, len(a.have))
+	}
+}
+
+// The budget counts bytes, not pictures: a backdrop makes room by dropping
+// several posters, the least recently used first, while a picture used this
+// frame is kept.
+func TestArtBudgetEvictsLeastRecentlyUsedBytes(t *testing.T) {
+	a := NewArt(nil, 0, nil)
+	poster := PosterW * PosterH * 4
+	n := ArtBudget / poster
+	for i := 0; i < n; i++ {
+		a.add(tk(itoa(i)), &artEntry{img: testPicture(poster)})
+	}
+	for i := 0; i <= wantTTL; i++ {
+		a.Frame()
+	}
+	a.have[tk("0")].used = a.frame // on screen
+	backdrop := 720 * 480 * 4
+	a.add(tk("backdrop"), &artEntry{img: testPicture(backdrop), used: a.frame, backdrop: true})
+	if a.bytes > ArtBudget {
+		t.Fatalf("%d bytes held, budget %d", a.bytes, ArtBudget)
+	}
+	dropped := n + 1 - len(a.have)
+	if want := (backdrop - (ArtBudget - n*poster) + poster - 1) / poster; dropped != want {
+		t.Fatalf("dropped %d posters for a backdrop, want %d", dropped, want)
+	}
+	if a.have[tk("0")] == nil || a.have[tk("backdrop")] == nil {
+		t.Fatal("dropped a picture in use")
+	}
+	for i := 1; i <= dropped; i++ {
+		if a.have[tk(itoa(i))] != nil {
+			t.Fatalf("poster %d survived a newer one", i)
+		}
+	}
+	total := 0
+	for _, e := range a.have {
+		total += e.size
+	}
+	if total != a.bytes || len(a.order) != len(a.have) {
+		t.Fatalf("accounting drifted: %d bytes counted, %d held; %d ordered, %d held", a.bytes, total, len(a.order), len(a.have))
+	}
+}
+
+// Backdrops have a cap of their own within the budget: the oldest backdrop
+// goes, not the posters around it.
+func TestArtBackdropCap(t *testing.T) {
+	a := NewArt(nil, 0, nil)
+	for i := 0; i <= ArtBackdrops; i++ {
+		a.add(tk("poster"+itoa(i)), &artEntry{img: testPicture(PosterW * PosterH * 4)})
+		a.add(tk("backdrop"+itoa(i)), &artEntry{img: testPicture(720 * 480 * 4), backdrop: true})
+		a.Frame()
+		a.Frame()
+	}
+	if a.backdrops != ArtBackdrops || a.have[tk("backdrop0")] != nil || a.have[tk("backdrop1")] == nil {
+		t.Fatalf("%d backdrops held, the oldest kept: %v", a.backdrops, a.have[tk("backdrop0")] != nil)
+	}
+	for i := 0; i <= ArtBackdrops; i++ {
+		if a.have[tk("poster"+itoa(i))] == nil {
+			t.Fatalf("poster %d made way for a backdrop", i)
+		}
 	}
 }
 
@@ -100,7 +168,7 @@ func TestArtVisibleLoadsWhileBackgroundDownloadBlocked(t *testing.T) {
 	defer server.Close()
 	// Release blocked handlers before Server.Close, including on test failure.
 	defer once.Do(func() { close(release) })
-	client := plex.New(server.URL, "", t.TempDir(), "test")
+	client := testClient(server.URL, "", t.TempDir())
 	a := NewArt(client, 2, make(chan struct{}, 16))
 	a.Warm(artReq{thumb: "slow", w: 4, h: 4})
 	select {
@@ -149,7 +217,7 @@ func TestArtNoStoreLeavesDiskCacheAlone(t *testing.T) {
 	}))
 	defer server.Close()
 	dir := t.TempDir()
-	a := NewArt(plex.New(server.URL, "", dir, "test"), 0, nil)
+	a := NewArt(testClient(server.URL, "", dir), 0, nil)
 	files := func() int {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -157,7 +225,7 @@ func TestArtNoStoreLeavesDiskCacheAlone(t *testing.T) {
 		}
 		return len(entries)
 	}
-	r := artReq{thumb: "shown once", w: 8, h: 8, noStore: true}
+	r := artReq{thumb: "once", w: 8, h: 8, noStore: true}
 	img, err := a.fetch(r)
 	if err != nil || img == nil || img.W != 8 || img.H != 8 {
 		t.Fatalf("noStore picture not served: %v", err)
@@ -204,6 +272,66 @@ func TestHomeBackdropPositionAndFade(t *testing.T) {
 	home.homeBackdrop = true
 	if plain.key() == home.key() {
 		t.Fatal("home treatment changed shared show artwork")
+	}
+}
+
+// The queue is ordered by when each want was last asked for: a want asked
+// again goes ahead of those since, and only the newest wantCap are kept.
+func TestArtWantQueueOrder(t *testing.T) {
+	a := NewArt(nil, 0, nil)
+	for i := 0; i < wantCap+2; i++ {
+		a.Get(itoa(i), WallPW, WallPH)
+	}
+	a.Get("2", WallPW, WallPH)
+	if len(a.wants) != wantCap {
+		t.Fatalf("%d wants kept, want %d", len(a.wants), wantCap)
+	}
+	want := []string{"2"}
+	for i := wantCap + 1; i > 2; i-- {
+		want = append(want, itoa(i))
+	}
+	for _, thumb := range want {
+		if r, ok := a.nextWant(); !ok || r.thumb != thumb {
+			t.Fatalf("got %q, want %q", r.thumb, thumb)
+		}
+	}
+	if r, ok := a.nextWant(); ok {
+		t.Fatalf("the oldest wants survived the cap: %q", r.thumb)
+	}
+}
+
+// A wall frame asks for every poster on screen and the rows around it.
+func BenchmarkArtGetHit(b *testing.B) {
+	a := NewArt(nil, 0, nil)
+	var thumbs []string
+	for i := 0; i < 64; i++ {
+		thumb := fmt.Sprintf("/library/metadata/%d/thumb/%d", i, 1600000000+i*7)
+		thumbs = append(thumbs, thumb)
+		img := &gfx.Image{W: WallPW, H: WallPH}
+		a.have[(artReq{thumb: thumb, w: WallPW, h: WallPH}).key()] = &artEntry{img: img}
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if img, _ := a.GetAge(thumbs[i%len(thumbs)], WallPW, WallPH); img == nil {
+			b.Fatal("miss")
+		}
+	}
+}
+
+// Posters still on their way are asked for again every frame.
+func BenchmarkArtGetMiss(b *testing.B) {
+	a := NewArt(nil, 0, nil)
+	var thumbs []string
+	for i := 0; i < 64; i++ {
+		thumbs = append(thumbs, fmt.Sprintf("/library/metadata/%d/thumb/%d", i, 1600000000+i*7))
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if img := a.Get(thumbs[i%len(thumbs)], WallPW, WallPH); img != nil {
+			b.Fatal("hit")
+		}
 	}
 }
 

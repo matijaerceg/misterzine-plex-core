@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "core_version": "v1.1.0",
+  "build_date": "261014",
+  "built_at": "2026-10-14T02:08:49Z",
+  "rbf": {
+    "name": "H264_20261014.rbf",
+    "bytes": 4449604,
+    "sha256": "0790a8893789092c542aabc2e1135169b57a1f29bb7663a415fe8a5a33e1bdfb",
+    "marginal": false
+  },
+  "git": {
+    "branch": "release/1.1.0",
+    "sha": "30c5f4486176076e83134a7b5fe6053ac60bb539",
+    "dirty": false
+  },
+  "fit": {
+    "seed": 1,
+    "alm": "40,943 / 41,910 ( 98 % )",
+    "registers": "56114",
+    "ram_blocks": "421 / 553 ( 76 % )",
+    "dsp_blocks": "110 / 112 ( 98 % )"
+  },
+  "timing": {
+    "clk_dec_100c_mhz": 102.84,
+    "clk_dec_m40c_mhz": 104.12,
+    "threshold_mhz": 101.4,
+    "clk_vid_100c_mhz": 91.69,
+    "clk_vid_m40c_mhz": 91.99,
+    "clk_vid_threshold_mhz": 86.0,
+    "pass": true
+  },
+  "toolchain": {
+    "quartus": "17.0.2 Build 602 07/19/2017 SJ Lite Edition",
+    "image": "raetro/quartus:mister"
+  }
+}

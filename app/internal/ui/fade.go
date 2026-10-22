@@ -34,6 +34,8 @@ var (
 	fadePoolMu sync.Mutex
 	fadePool   []*gfx.Canvas
 	fadeOwner  *Fade
+	fadePoolW  int
+	fadePoolH  int
 )
 
 const (
@@ -47,17 +49,55 @@ const (
 	fadeSlots = transitionSteps - 1
 )
 
-// warmFades allocates the step buffers up front, so the first fade does
-// not pay for them mid-frame.
+var (
+	fadeWarmMu sync.Mutex    // one warming at a time: each is fadeSlots canvases
+	fadeWant   atomic.Uint64 // the canvas size last warmed for, w<<32 | h
+)
+
+// warmFades allocates the step buffers for w x h canvases up front, so the
+// first fade does not pay for them mid-frame. Safe off the render thread:
+// the new set replaces the pool under its lock, and a fade still running
+// keeps the canvases it took.
 func warmFades(w, h int) {
+	fadeWant.Store(uint64(w)<<32 | uint64(uint32(h)))
+	fillFadePool(w, h)
+}
+
+func fillFadePool(w, h int) {
 	fadePoolMu.Lock()
-	for len(fadePool) < fadeSlots {
-		fadePool = append(fadePool, gfx.NewCanvas(w, h))
+	ready := fadePoolW == w && fadePoolH == h && len(fadePool) >= fadeSlots
+	fadePoolMu.Unlock()
+	if ready {
+		return
 	}
-	for _, c := range fadePool {
-		c.Fill(0, 0, c.W, c.H, gfx.Bg) // touch the pages
+	fresh := make([]*gfx.Canvas, fadeSlots)
+	for i := range fresh {
+		fresh[i] = gfx.NewCanvas(w, h)
+		fresh[i].Fill(0, 0, w, h, gfx.Bg) // touch the pages
+	}
+	fadePoolMu.Lock()
+	if fadePoolW != w || fadePoolH != h || len(fadePool) < fadeSlots {
+		fadePool, fadePoolW, fadePoolH = fresh, w, h
 	}
 	fadePoolMu.Unlock()
+}
+
+// warmFadesFor warms the pool again, off the render thread, when the
+// layout canvas changes size (a raster or display shape changed): a 16:9
+// canvas's first fade would otherwise allocate them on it. The render
+// loop calls it every frame; an unchanged size costs one atomic swap.
+func warmFadesFor(w, h int) {
+	key := uint64(w)<<32 | uint64(uint32(h))
+	if fadeWant.Swap(key) == key {
+		return
+	}
+	go func() {
+		fadeWarmMu.Lock()
+		defer fadeWarmMu.Unlock()
+		if fadeWant.Load() == key { // not changed again since
+			fillFadePool(w, h)
+		}
+	}()
 }
 
 // Start begins a fade from one page to another over the standard duration.
@@ -84,6 +124,10 @@ func (f *Fade) startFade(from, to *gfx.Canvas, now time.Time, dur time.Duration,
 		fadeOwner.cancel() // another screen's fade is still using the pool
 	}
 	fadeOwner = f
+	if fadePoolW != to.W || fadePoolH != to.H {
+		fadePool = nil
+		fadePoolW, fadePoolH = to.W, to.H
+	}
 	// a step every two fields however long the fade: a long one (the
 	// wall's new palette, a screensaver's slideshow) used to be held to
 	// ten steps and changed only every few fields

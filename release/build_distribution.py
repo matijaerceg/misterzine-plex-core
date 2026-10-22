@@ -18,6 +18,14 @@ REPO = 'matijaerceg/misterzine-plex-core'
 DISTRIBUTION = 'https://raw.githubusercontent.com/' + REPO + '/distribution/'
 
 
+def sha(path):
+    digest = hashlib.sha256()
+    with Path(path).open('rb') as source:
+        for block in iter(lambda: source.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def installer(out, name, channel=None, pinned=None, database=None):
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, 'w', zipfile.ZIP_DEFLATED) as z:
@@ -43,18 +51,27 @@ def installer(out, name, channel=None, pinned=None, database=None):
         '#!/bin/bash\npython3 /media/fat/misterzine-plex/update_service.py uninstall "$@"\n', newline='\n')
 
 
-def build(package, tag, notes, out, previous=None):
+def build(package, tag, notes, out, previous=None, source_archive=None):
     out.mkdir(parents=True, exist_ok=True)
     if not catalogue.IDENT.fullmatch(tag):
         raise ValueError('Invalid release tag')
     with zipfile.ZipFile(package) as z:
         manifest = json.loads(z.read('misterzine-plex-beta/manifest.json'))
+    source = manifest.get('source')
+    if not isinstance(source, dict) or set(source) != {'filename', 'size', 'sha256'}:
+        raise ValueError('Release package has no corresponding-source asset metadata')
+    source_archive = Path(source_archive) if source_archive else package.parent / source['filename']
+    if (not source_archive.is_file() or source_archive.name != source['filename']
+            or source_archive.stat().st_size != source['size'] or sha(source_archive) != source['sha256']):
+        raise ValueError('Corresponding-source asset does not match package metadata')
     base = 'https://github.com/' + REPO + '/releases/download/' + tag + '/'
     channel = manifest.get('channel')
     release = {'id': manifest['id'], 'version': manifest['version'], 'channel': channel,
                'notes': notes, 'url': base + package.name, 'db_url': DISTRIBUTION + str(channel) + '.json.zip',
                'size': package.stat().st_size, 'sha256': hashlib.sha256(package.read_bytes()).hexdigest(),
-               'access': manifest.get('access')}
+               'access': manifest.get('access'),
+               'source': {'filename': source['filename'], 'size': source['size'], 'sha256': source['sha256'],
+                          'url': base + source['filename']}}
     catalogue.entry(release)
     cat = catalogue.catalogue(previous) if previous is not None else {'schema': 1, 'releases': {}}
     cat['releases'][channel] = release
@@ -83,6 +100,7 @@ if __name__ == '__main__':
     p.add_argument('--notes', type=Path, required=True)
     p.add_argument('--out', type=Path, default=ROOT / 'dist/distribution')
     p.add_argument('--previous', type=Path)
+    p.add_argument('--source-archive', type=Path)
     args = p.parse_args()
     build(args.package, args.tag, args.notes.read_text(), args.out,
-          json.loads(args.previous.read_text()) if args.previous else None)
+          json.loads(args.previous.read_text()) if args.previous else None, args.source_archive)

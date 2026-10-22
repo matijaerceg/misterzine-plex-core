@@ -14,3 +14,6 @@ committing; its scan is a guardrail, not a complete secret detector.
 
 See docs/BUILD.md for builds and CONTRIBUTING.md for validation. Do not publish
 old development history by merging historical branches into this repository.
+
+Supporter implementations and code registries belong in the private companion
+repository. Keep public extension points code-free. See docs/SUPPORTER_BUILDS.md.

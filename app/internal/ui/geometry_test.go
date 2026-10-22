@@ -7,6 +7,7 @@ import (
 	"image/png"
 	"io"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,7 +19,7 @@ import (
 	"plexcrt/internal/input"
 )
 
-// The presenter's own test (tools/plexfb_scale_test.c) reads the same table,
+// The worker's own test (arm/test_video_geometry.c) reads the same table,
 // so the calibration pattern and the played picture land in the same place.
 func TestGeometryFitMatchesPresenterCases(t *testing.T) {
 	f, err := os.Open(filepath.Join("..", "..", "..", "tools", "testdata", "fit_cases.txt"))
@@ -191,6 +192,57 @@ func TestCalibrateSquareStaysOnScreen(t *testing.T) {
 		if top-cornerArrowH < 0 || x < 0 || x+s.sqW+cornerArrowW > 720 || bottom > 480 {
 			t.Errorf("%+v: %dx%d square at x %d, lines %d..%d", g, s.sqW, s.sqH, x, top, bottom)
 		}
+	}
+}
+
+func TestCalibrateWidePreviewMapsEdgesAndKeepsSquarePhysicallySquare(t *testing.T) {
+	_, s := calibrateApp(t)
+	s.g = Geometry{Left: 60, Right: 40, Width: 1000}
+	s.sel = calLeft
+	wide := gfx.NewCanvas(960, 480)
+	s.Draw(wide, time.Now())
+	pixel := func(c *gfx.Canvas, x, y int) gfx.Color {
+		i := (y*c.W + x) * 4
+		return gfx.Color(c.Pix[i+2])<<16 | gfx.Color(c.Pix[i+1])<<8 | gfx.Color(c.Pix[i])
+	}
+	if x := geometryX(s.g.Left, wide.W); pixel(wide, x, 240) != gfx.Amber {
+		t.Fatalf("wide left edge at x=%d is %#06x", x, pixel(wide, x, 240))
+	}
+	if x := geometryX(720-s.g.Right, wide.W) - 1; pixel(wide, x, 240) != gfx.GreyLo {
+		t.Fatalf("wide right edge at x=%d is %#06x", x, pixel(wide, x, 240))
+	}
+
+	// The same saved width means the same physical square. Both the 720x480
+	// raster and 960x480 logical canvas have an 8:9 horizontal pixel aspect.
+	s.sel = calCorner
+	s.Draw(wide, time.Now())
+	sx, sy, _ := s.square(s.g.Normal())
+	center := geometryX(sx+s.sqW/2, wide.W)
+	drawW := s.sqW
+	left := center - drawW/2
+	amberPixels := 0
+	for x := 0; x < wide.W; x++ {
+		if pixel(wide, x, sy) == gfx.Amber {
+			amberPixels++
+		}
+	}
+	if amberPixels != drawW || drawW*8 != s.sqH*9 {
+		t.Fatalf("wide calibration square has %d horizontal pixels x %d lines; want physical width %d/9 == height %d (left %d)",
+			amberPixels, s.sqH, drawW*8, s.sqH, left)
+	}
+
+	// The 4:3 calibration keeps its existing raster-pixel compensation.
+	base := gfx.NewCanvas(720, 480)
+	s.sel = calLeft
+	s.Draw(base, time.Now())
+	if pixel(base, s.g.Left, 240) != gfx.Amber || pixel(base, 720-s.g.Right-1, 240) != gfx.GreyLo {
+		t.Fatalf("4:3 calibration edges moved: left=%#06x right=%#06x",
+			pixel(base, s.g.Left, 240), pixel(base, 720-s.g.Right-1, 240))
+	}
+	s.sel = calCorner
+	s.Draw(base, time.Now())
+	if s.sqW != 2*int(math.Round(float64(s.sqH)*9/8*float64(s.g.Width)/1000/2)) {
+		t.Fatalf("4:3 saved square changed: %dx%d", s.sqW, s.sqH)
 	}
 }
 

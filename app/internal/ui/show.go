@@ -69,6 +69,15 @@ func (v *Show) Key(ev input.Event, now time.Time) {
 }
 
 func (v *Show) Draw(c *gfx.Canvas, now time.Time) bool {
+	if v.transition != nil && !canvasSizeIs(v.transition.Page, c.W, c.H) {
+		v.fade.Done()
+		v.transition = nil
+		v.cadenceAt = time.Time{}
+	}
+	if v.fade.Running() && (!canvasSizeIs(v.fade.from, c.W, c.H) || !canvasSizeIs(v.fade.to, c.W, c.H)) {
+		v.fade.Done()
+		v.cadenceAt = time.Time{}
+	}
 	if v.transition != nil {
 		v.traceStart()
 		v.cadenceAt, v.cadenceStep = now, 0
