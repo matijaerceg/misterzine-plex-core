@@ -18,7 +18,7 @@ func TestIconButtonsStayInTheirCells(t *testing.T) {
 		c := gfx.NewCanvas(200, 80)
 		c.Fill(0, 0, c.W, c.H, gfx.Bg)
 		x, y, w, h := 60, 25, f.Width(b), f.Height()
-		osdIcon(c, b, x, y, w, h, gfx.White)
+		osdIcon(c, a.F, b, x, y, w, h, gfx.White)
 		return c, x, y, w, h
 	}
 	lit := func(c *gfx.Canvas, x, y int) bool {
@@ -99,6 +99,28 @@ func TestListItemClearsItsValue(t *testing.T) {
 			if end, start := x+vcrSmall.Width(vcrSmall.Fit(item, listItemW(x, vcrSmall.Width(u)))), right-vcrSmall.Width(u); end >= start {
 				t.Errorf("VCR %q with %q: item ends at %d, value starts at %d", item, u, end, start)
 			}
+		}
+	}
+}
+
+// Every bar label has a Lucide mask no taller than the glyph height (the
+// Body font's less 4), and the jump buttons' "10" fits beside its arrow in
+// the Body font, as the rest of the bar's words are set.
+func TestIconMasksFitTheBar(t *testing.T) {
+	a := betaTestApp(t)
+	f := a.F.Body
+	for _, b := range append(slices.Clone(osdButtons), "Play") {
+		m := iconMask(b)
+		if m == nil {
+			t.Fatalf("%s: no mask", b)
+		}
+		if m.Rect.Dy() > f.Height()-4 || m.Rect.Dx() > f.Width(b) {
+			t.Errorf("%s: mask %v too big for its %dx%d cell", b, m.Rect.Size(), f.Width(b), f.Height())
+		}
+	}
+	for _, b := range []string{"-10", "+10"} {
+		if w := iconMask(b).Rect.Dx() + iconJumpGap + tenWidth(f); w > f.Width(b) {
+			t.Errorf("%s: arrow and Body 10 take %d of a %d cell", b, w, f.Width(b))
 		}
 	}
 }

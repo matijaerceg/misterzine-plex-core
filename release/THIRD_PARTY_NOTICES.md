@@ -65,6 +65,12 @@ version 2.137 (2017), copyright 2011 Google Inc. Those fonts are licensed under
 Apache-2.0; see `release/licenses/Apache-2.0.txt`. The generated atlases are
 rasterized and resized for the display.
 
+The playback bar's Icons theme uses icons from Lucide 1.61.0
+(https://github.com/lucide-icons/lucide), licensed under the ISC License, with
+portions from Feather under MIT. The SVG sources sit beside the rasterized masks
+in `app/internal/ui/icons/` with their `LICENSE`; the ISC text is reproduced in
+`release/licenses/Lucide-ISC.txt`.
+
 ## Installer and MiSTer Downloader
 
 The independent installer can download the official GPL-3.0 MiSTer Downloader

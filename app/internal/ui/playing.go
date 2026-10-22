@@ -1363,7 +1363,7 @@ func (p *Playing) composeStatic(c *gfx.Canvas, peek, timed bool) {
 			col = ChevronOff
 		}
 		if p.app.Cfg.icons() {
-			osdIcon(c, b, x, y, f.Body.Width(b), f.Body.Height(), col)
+			osdIcon(c, f, b, x, y, f.Body.Width(b), f.Body.Height(), col)
 		} else {
 			c.Text(x, y, f.Body, col, b) // a colour change on focus would miss the cache for a frame
 		}

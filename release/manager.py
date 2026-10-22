@@ -854,7 +854,7 @@ def install(card, package):
     for name in ('README.md', 'TERMS.md', 'THIRD_PARTY_NOTICES.md', 'BETA_ACCESS.md'):
         if (package / name).is_file():
             atomic(root / name, (package / name).read_bytes())
-    for name in ('Apache-2.0.txt', 'Go.txt', 'GPL-2.0.txt', 'GPL-3.0.txt', 'LGPL-2.1.txt'):
+    for name in ('Apache-2.0.txt', 'Go.txt', 'GPL-2.0.txt', 'GPL-3.0.txt', 'LGPL-2.1.txt', 'Lucide-ISC.txt'):
         if (package / 'licenses' / name).is_file():
             atomic(root / 'licenses' / name, (package / 'licenses' / name).read_bytes())
     wrappers(card)
