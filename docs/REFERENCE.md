@@ -149,7 +149,7 @@ primary account. Automatic sign-in uses the saved server connection at startup.
     subtitle track, position, and the decoder's late frames and errors. OK
     or Back goes back to More.
 - Over an intro or credits the server has found, **Skip intro** or **Skip
-  credits** shows for 20 seconds once playback reaches them, also after a
+  credits** shows at the lower right for 20 seconds once playback reaches them, also after a
   resume or a seek into them. OK skips to their end; Back dismisses the
   button. Options can turn the buttons off.
 - When an episode plays to its end, the next one in the season is shown for
