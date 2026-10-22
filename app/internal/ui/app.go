@@ -199,7 +199,7 @@ func New(c *plex.Client, out Presenter, player *Player, lg *log.Logger) *App {
 	// small and let the collector work harder rather than grow
 	debug.SetGCPercent(100)
 	debug.SetMemoryLimit(96 << 20)
-	a.Art = NewArt(c, 2, a.Wake)
+	a.Art = NewArt(c, ArtWorkers, a.Wake)
 	a.T = gfx.NewTextCache(1, a.Wake)
 	a.pagers = map[string]*Pager{}
 	if c != nil {

@@ -48,6 +48,8 @@ type Wall struct {
 	pageBg         string // which backdrop the page holds
 	fade           Fade
 	focusAt        time.Time
+	jumpAt         time.Time   // the last letter jump
+	runUntil       time.Time   // a jump run is on until then (zero: none)
 	blob           *gfx.Canvas // the abstract page for the lingered item's palette
 	blobFor        [4]uint32
 	blobBusy       bool
@@ -541,8 +543,10 @@ func (w *Wall) Key(ev input.Event, now time.Time) {
 		}
 	case input.JumpBack:
 		w.jump(-1)
+		w.jumped(now, ev.Repeat)
 	case input.JumpFwd:
 		w.jump(1)
+		w.jumped(now, ev.Repeat)
 	case input.Enter:
 		if it := w.pager.Get(w.cur); it != nil && it.Type == "collection" {
 			w.app.Push(NewCollectionWall(w.app, w.section, it))
@@ -555,7 +559,9 @@ func (w *Wall) Key(ev input.Event, now time.Time) {
 	if w.cur >= n && n > 0 {
 		w.cur = n - 1
 	}
-	w.pager.Want(w.cur)
+	if !w.inRun(now) {
+		w.pager.Want(w.cur)
+	}
 	w.focusAt = now
 	w.rowY.Move(float64(w.cur/w.cols()*WallRowPitch), now, ev.Repeat)
 	w.keep()
@@ -652,6 +658,8 @@ func (w *Wall) Draw(c *gfx.Canvas, now time.Time) bool {
 	firstRow := max(0, (oy-WallRowPitch)/WallRowPitch)
 	w.holes = w.holes[:0]
 	w.fading = false
+	w.settle(now)
+	run := w.inRun(now)
 	page, pageAnim := w.drawPage(c, now)
 	// the band goes first: it is composed from the posters under it
 	w.composeBand(page, now, oy)
@@ -666,8 +674,8 @@ func (w *Wall) Draw(c *gfx.Canvas, now time.Time) bool {
 				break
 			}
 			x := SafeX + col*WallPitch
-			it := w.pager.Get(i)
-			w.drawPoster(c, it, x, y, i == w.cur)
+			it := w.item(i, now)
+			w.drawPoster(c, it, x, y, i == w.cur, run)
 		}
 	}
 	c.Blit(WallBandX, WallBandY, &gfx.Image{W: w.band.W, H: w.band.H, Pix: w.band.Pix})
@@ -693,10 +701,10 @@ func (w *Wall) Draw(c *gfx.Canvas, now time.Time) bool {
 	} else if n == 0 {
 		w.app.textOver(c, page, SafeX, WallY0, w.app.F.Body, gfx.GreyLo, "Nothing here.")
 	}
-	if !w.rowY.Running(now) {
+	if !w.rowY.Running(now) && !run {
 		w.prefetchRows()
 	}
-	return w.rowY.Running(now) || w.fading || pageAnim
+	return w.rowY.Running(now) || w.fading || pageAnim || run
 }
 
 func (w *Wall) matchCanvas(c *gfx.Canvas) {
@@ -740,7 +748,7 @@ func (w *Wall) prefetchRows() {
 func (w *Wall) drawPage(c *gfx.Canvas, now time.Time) (*gfx.Canvas, bool) {
 	// the page follows the cursor only after a long rest and never while
 	// the grid moves; the gradient is made off-thread and lands via Later
-	if it := w.pager.Get(w.cur); it != nil && it.Colors != [4]uint32{} && !w.blobBusy &&
+	if it := w.item(w.cur, now); it != nil && it.Colors != [4]uint32{} && !w.blobBusy &&
 		now.Sub(w.focusAt) >= LingerRest && !w.rowY.Running(now) && it.Colors != w.blobFor {
 		w.blobBusy = true
 		cols := it.Colors
@@ -855,7 +863,7 @@ func (w *Wall) marker(n int) string {
 		return ""
 	}
 	if w.az() {
-		if it := w.pager.Get(w.cur); it != nil && it.SortLabel() != "" {
+		if it := w.pager.Peek(w.cur); it != nil && it.SortLabel() != "" {
 			return strings.ToUpper(it.SortLabel()[:1])
 		}
 		// not loaded yet (a run of letter jumps lands ahead of the pager):
@@ -901,7 +909,7 @@ func (w *Wall) composeBand(page *gfx.Canvas, now time.Time, oy int) {
 		w.bandKey = ""
 	}
 	n := w.total()
-	it := w.pager.Get(w.cur)
+	it := w.item(w.cur, now)
 	key := itoa(oy) + "|" + itoa(w.cur)
 	if it != nil {
 		key += "|" + it.RatingKey + "|" + itoa(it.ViewCount) + "|" + itoa(it.ViewOffset)
@@ -921,7 +929,7 @@ func (w *Wall) composeBand(page *gfx.Canvas, now time.Time, oy int) {
 			if i >= n {
 				break
 			}
-			if p := w.pager.Get(i); p != nil {
+			if p := w.item(i, now); p != nil {
 				if img := w.app.Art.wallBand(p.Thumb); img != nil {
 					key += "|" + itoa(i)
 				}
@@ -947,7 +955,7 @@ func (w *Wall) composeBand(page *gfx.Canvas, now time.Time, oy int) {
 			if i >= n {
 				break
 			}
-			p := w.pager.Get(i)
+			p := w.item(i, now)
 			if p == nil {
 				continue
 			}
@@ -987,7 +995,7 @@ var wallBandPlaceholder = func() *gfx.Image {
 // drawPoster paints one poster clipped to the grid's band and records the
 // painted area as a hole for the background fill. What lies under the
 // info band is left to it.
-func (w *Wall) drawPoster(c *gfx.Canvas, it *plex.Item, x, y int, focus bool) {
+func (w *Wall) drawPoster(c *gfx.Canvas, it *plex.Item, x, y int, focus, run bool) {
 	// peeking rows may run into the overscan: only the tabs bound them above
 	cy0, cy1 := WallPeekTop, c.H
 	// the band covers part of the next row
@@ -1005,7 +1013,9 @@ func (w *Wall) drawPoster(c *gfx.Canvas, it *plex.Item, x, y int, focus bool) {
 	whole := y >= cy0 && y+WallPH <= cy1
 	var img *gfx.Image
 	var age time.Duration
-	if it != nil {
+	if it != nil && run {
+		img = w.app.Art.Have(it.Thumb, WallPW, WallPH) // flown past: not queued
+	} else if it != nil {
 		img, age = w.app.Art.GetAge(it.Thumb, WallPW, WallPH)
 		if focus && w.tabs && img != nil {
 			// shaded once for the one poster that needs it, not per frame
@@ -1069,4 +1079,40 @@ func frameHoles(x, y, w, h int) []gfx.Rect {
 		{X: ox, Y: oy + FocusT, W: FocusT, H: oh - 2*FocusT},
 		{X: ox + ow - FocusT, Y: oy + FocusT, W: FocusT, H: oh - 2*FocusT},
 	}
+}
+
+// A jump run is Left or Right held, or tapped faster than JumpRunGap.
+// While it lasts the wall only moves the cursor and the scrollbar's
+// letter: nothing is fetched for the letters flown past, since every page
+// asked for then would queue ahead of the landing place's. JumpSettle
+// after the last jump (longer than the repeat cadence) the landing place
+// is asked for, its posters first.
+const (
+	JumpRunGap = 350 * time.Millisecond
+	JumpSettle = 220 * time.Millisecond
+)
+
+func (w *Wall) jumped(now time.Time, repeat bool) {
+	if repeat || now.Sub(w.jumpAt) < JumpRunGap {
+		w.runUntil = now.Add(JumpSettle)
+	}
+	w.jumpAt = now
+}
+
+func (w *Wall) inRun(now time.Time) bool { return now.Before(w.runUntil) }
+
+// settle ends a run that has rested and asks for the landing place.
+func (w *Wall) settle(now time.Time) {
+	if !w.runUntil.IsZero() && !w.inRun(now) {
+		w.runUntil = time.Time{}
+		w.pager.Want(w.cur)
+	}
+}
+
+// item is the item at i; during a run its page is not asked for.
+func (w *Wall) item(i int, now time.Time) *plex.Item {
+	if w.inRun(now) {
+		return w.pager.Peek(i)
+	}
+	return w.pager.Get(i)
 }

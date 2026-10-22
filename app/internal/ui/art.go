@@ -103,6 +103,12 @@ func (r artReq) key() artKey {
 	return k
 }
 
+// ArtWorkers is how many pictures download at once. A poster is mostly
+// the server's resize and the round trip (about 300 ms on a LAN against
+// 30 ms to decode), so a screen of them wants several in flight; the
+// last worker alone takes speculative work.
+const ArtWorkers = 6
+
 // NewArt starts n fetch workers; wake is signalled when a picture lands.
 func NewArt(c *plex.Client, n int, wake chan struct{}) *Art {
 	a := &Art{client: c, have: map[artKey]*artEntry{}, wants: map[artKey]artReq{}, busy: map[artKey]bool{}, failed: map[artKey]bool{}, Wake: wake}
@@ -464,6 +470,22 @@ func (a *Art) Get(thumb string, w, h int) *gfx.Image {
 func (a *Art) GetAge(thumb string, w, h int) (*gfx.Image, time.Duration) {
 	img, age, _ := a.get(artReq{thumb: thumb, w: w, h: h})
 	return img, age
+}
+
+// Have is GetAge without a want: the poster if decoded, else nil. A jump
+// run draws with it, so posters flown past are never queued.
+func (a *Art) Have(thumb string, w, h int) *gfx.Image {
+	if thumb == "" {
+		return nil
+	}
+	k := (artReq{thumb: thumb, w: w, h: h}).key()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if e, ok := a.have[k]; ok {
+		e.used = a.frame
+		return e.img
+	}
+	return nil
 }
 
 // GetBackdrop returns a backdrop dimmed to bright/255 and faded into the

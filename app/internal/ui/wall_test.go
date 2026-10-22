@@ -82,17 +82,17 @@ func TestWallFocusedPosterDimsOnTabs(t *testing.T) {
 	at := ((y+80)*c.W + x + 50) * 4
 	src := img.Pix[(80*WallPW+50)*4]
 	w.tabs = true
-	w.drawPoster(c, it, x, y, true)
+	w.drawPoster(c, it, x, y, true, false)
 	if want := byte(int(src) * WatchedBright / 255); c.Pix[at] != want {
 		t.Fatalf("focused poster on the tabs drew %d, want %d", c.Pix[at], want)
 	}
 	dim := w.dim
-	w.drawPoster(c, it, x, y, true)
+	w.drawPoster(c, it, x, y, true, false)
 	if w.dim != dim {
 		t.Fatal("the same poster was shaded again")
 	}
 	w.tabs = false
-	w.drawPoster(c, it, x, y, true)
+	w.drawPoster(c, it, x, y, true, false)
 	if c.Pix[at] != src {
 		t.Fatalf("focused poster in the grid drew %d, want %d", c.Pix[at], src)
 	}

@@ -331,6 +331,24 @@ func (p *Pager) Get(i int) *plex.Item {
 	return p.get(i, true)
 }
 
+// Peek is Get without asking for anything: the item if its page has
+// landed, else nil. A jump run reads with it, so the pages it flies past
+// are never fetched.
+func (p *Pager) Peek(i int) *plex.Item {
+	if p.base != nil {
+		return p.Get(i)
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.filter != nil {
+		if i >= 0 && i < len(p.list) {
+			return p.list[i]
+		}
+		return nil
+	}
+	return p.items[i]
+}
+
 // get is Get; ahead also queues the page after i's. While a filtered walk
 // again is under way the walk before is shown whole, so a found item asks
 // too: the wall draws its items every frame and at the idle tick, which
