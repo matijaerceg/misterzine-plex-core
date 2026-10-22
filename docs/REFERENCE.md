@@ -52,7 +52,9 @@ primary account. Automatic sign-in uses the saved server connection at startup.
   **Continue** (the library's Continue Watching), **Folders** and, once the
   server has listed at least one, **Collections**. Up from the first row, or
   Back from anywhere in the grid, selects the tabs; Left and Right switch them;
-  Back again leaves the library. L/R jump a letter in A to Z and a screen in
+  Back again leaves the library. Down past the last row rounds to the first,
+  and Up on the tabs to the last (a held run stops at the end instead). A
+  collection has no tabs, so Up from its first row rounds too. L/R jump a letter in A to Z and a screen in
   the other views. The scrollbar on the right shows the letter, or the
   position and the total.
 - **Folders** lists the library's folders on disk as the server lists them. OK

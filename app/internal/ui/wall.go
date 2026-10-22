@@ -49,6 +49,7 @@ type Wall struct {
 	fade           Fade
 	focusAt        time.Time
 	jumpAt         time.Time   // the last letter jump
+	heldDir        int         // Up (-1) or Down (1) held: rows ahead are asked for
 	runUntil       time.Time   // a jump run is on until then (zero: none)
 	blob           *gfx.Canvas // the abstract page for the lingered item's palette
 	blobFor        [4]uint32
@@ -488,11 +489,19 @@ func (w *Wall) Key(ev input.Event, now time.Time) {
 	n := w.total()
 	if ev.Release {
 		w.rowY.Settle(now)
+		w.heldDir = 0
 		return
 	}
+	w.heldDir = 0
 	if w.tabs {
 		switch ev.Key {
 		case input.Up:
+			// round from the tabs to the last row (a tap: a held run stops)
+			if !ev.Repeat && n > 0 {
+				w.tabs = false
+				w.cur = w.lastRowAt(w.cur)
+				w.settleTo(now)
+			}
 			return
 		case input.Left:
 			if w.view > 0 {
@@ -529,17 +538,37 @@ func (w *Wall) Key(ev input.Event, now time.Time) {
 			w.cur++
 		}
 	case input.Up:
+		if ev.Repeat {
+			w.heldDir = -1
+		}
 		if w.cur < w.cols() {
-			// above the first row: the view tabs (a collection has none)
-			w.tabs = w.coll == nil
+			// above the first row: the view tabs (a collection has none,
+			// so a tap rounds to the last row; a held run stops)
+			if w.coll == nil {
+				w.tabs = true
+				return
+			}
+			if ev.Repeat {
+				return
+			}
+			w.cur = w.lastRowAt(w.cur)
+			w.settleTo(now)
 			return
 		}
 		w.cur -= w.cols()
 	case input.Down:
+		if ev.Repeat {
+			w.heldDir = 1
+		}
 		if w.cur+w.cols() < n {
 			w.cur += w.cols()
 		} else if w.cur/w.cols() < (n-1)/w.cols() {
 			w.cur = n - 1
+		} else if !ev.Repeat {
+			// past the last row a tap rounds to the first; a held run stops
+			w.cur %= w.cols()
+			w.settleTo(now)
+			return
 		}
 	case input.JumpBack:
 		w.jump(-1)
@@ -701,7 +730,9 @@ func (w *Wall) Draw(c *gfx.Canvas, now time.Time) bool {
 	} else if n == 0 {
 		w.app.textOver(c, page, SafeX, WallY0, w.app.F.Body, gfx.GreyLo, "Nothing here.")
 	}
-	if !w.rowY.Running(now) && !run {
+	if w.heldDir != 0 && !run {
+		w.prefetchAhead(firstRow, now)
+	} else if !w.rowY.Running(now) && !run {
 		w.prefetchRows()
 	}
 	return w.rowY.Running(now) || w.fading || pageAnim || run
@@ -720,6 +751,47 @@ func (w *Wall) matchCanvas(c *gfx.Canvas) {
 	w.band = gfx.NewCanvas(w.bandW(), max(1, c.H-WallBandY))
 	w.bandBase, w.bandPage = nil, nil
 	w.bandKey, w.bandPageKey = "", ""
+}
+
+// WallAheadRows is how many rows past the screen a held Up or Down asks
+// for, so posters are on their way before their row slides in.
+const WallAheadRows = 2
+
+// prefetchAhead asks for the rows the held direction is about to show,
+// nearest first, as visible work (they will be, within a few steps).
+func (w *Wall) prefetchAhead(firstRow int, now time.Time) {
+	n := w.total()
+	from := firstRow + 5 // the first row past the drawn ones
+	if w.heldDir < 0 {
+		from = firstRow - 1
+	}
+	for k := 0; k < WallAheadRows; k++ {
+		r := from + k*w.heldDir
+		if r < 0 {
+			break
+		}
+		for i := r * w.cols(); i < (r+1)*w.cols() && i < n; i++ {
+			if it := w.item(i, now); it != nil {
+				w.app.Art.GetAge(it.Thumb, WallPW, WallPH)
+			}
+		}
+	}
+}
+
+// lastRowAt is the item in the last row under the column of i (the last
+// item when that row is short).
+func (w *Wall) lastRowAt(i int) int {
+	n := w.total()
+	return min(n-1, (n-1)/w.cols()*w.cols()+i%w.cols())
+}
+
+// settleTo lands the grid on the cursor's row without a slide: a round
+// from one end to the other is a cut, not a scroll past everything.
+func (w *Wall) settleTo(now time.Time) {
+	w.pager.Want(w.cur)
+	w.focusAt = now
+	w.rowY.Set(float64(w.cur / w.cols() * WallRowPitch))
+	w.keep()
 }
 
 // Queue far rows first so the nearest missing rows are served first. Drawing
