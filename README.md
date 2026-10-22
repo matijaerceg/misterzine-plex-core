@@ -62,7 +62,7 @@ does to your library or your MiSTer.
   0.4 to 8 Mbit/s; the low steps are for weak Wi-Fi. Higher frame rates are
   limited to lower widths; see [playback details](docs/PLAYBACK.md).
 - Pause, seeking, audio and subtitle track choice, skip intro and credits,
-  autoplay and shuffle, with Standard or VCR-style playback controls.
+  autoplay and shuffle, with Standard, Icons or VCR-style playback controls.
 - Text subtitles drawn by the app in three sizes, without a transcode;
   picture subtitles burned into the picture by the server. A surround downmix
   boost with peak limiting.

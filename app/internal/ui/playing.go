@@ -483,6 +483,20 @@ func (p *Playing) openList(kind string) {
 	p.showList(l)
 }
 
+// listValGap is the least room between a list item and its value.
+const listValGap = 16
+
+// listItemW is the width a list item starting at x may take: up to the
+// tick's room, and short of a right-aligned value valW wide (0 for none)
+// by listValGap, so the two never run into each other.
+func listItemW(x, valW int) int {
+	w := OsdListW - x - 52
+	if valW > 0 {
+		w = min(w, OsdListW-OsdListPad-valW-listValGap-x)
+	}
+	return w
+}
+
 // showList puts a list up, opened on its cursor.
 func (p *Playing) showList(l *listMode) {
 	l.window()
@@ -497,7 +511,7 @@ func (p *Playing) openMore() {
 		items = append(items, "Crop")
 		vals = append(vals, p.app.crop.Label())
 	}
-	items = append(items, "Surround downmix boost")
+	items = append(items, "Downmix boost")
 	boost := p.app.Cfg.AudioBoostValue()
 	label := itoa(boost) + "%"
 	for _, b := range AudioBoosts {
@@ -521,7 +535,7 @@ func (p *Playing) openSubtitleSize() {
 }
 
 func (p *Playing) openBoost() {
-	l := &listMode{kind: "Surround downmix boost", set: p.app.Cfg.audioBoostIndex()}
+	l := &listMode{kind: "Downmix boost", set: p.app.Cfg.audioBoostIndex()}
 	for _, b := range AudioBoosts {
 		l.items = append(l.items, b.Label)
 	}
@@ -550,7 +564,7 @@ func (p *Playing) choose(l *listMode) {
 		default:
 			p.openBoost()
 		}
-	case "Surround downmix boost":
+	case "Downmix boost":
 		p.app.Cfg.AudioBoost = AudioBoosts[l.cur].Value
 		p.app.Cfg.Save()
 		p.send("boost " + itoa(p.app.Cfg.AudioBoostValue()))
@@ -600,7 +614,7 @@ func (p *Playing) restartTracks() {
 
 // closeList returns from a track list to the controls.
 func (p *Playing) closeList() {
-	if p.list.kind == "Crop" || p.list.kind == "Surround downmix boost" || p.list.kind == "Subtitle size" {
+	if p.list.kind == "Crop" || p.list.kind == "Downmix boost" || p.list.kind == "Subtitle size" {
 		p.openMore()
 		return
 	}
@@ -1315,7 +1329,11 @@ func (p *Playing) composeStatic(c *gfx.Canvas, peek, timed bool) {
 		if p.dimmed(i) {
 			col = ChevronOff
 		}
-		c.Text(x, y, f.Body, col, b) // a colour change on focus would miss the cache for a frame
+		if p.app.Cfg.icons() {
+			osdIcon(c, b, x, y, f.Body.Width(b), f.Body.Height(), col)
+		} else {
+			c.Text(x, y, f.Body, col, b) // a colour change on focus would miss the cache for a frame
+		}
 		x += f.Body.Width(b) + OsdBtnGap
 	}
 }
@@ -1377,7 +1395,11 @@ func (p *Playing) uploadList(osd OSD) {
 		if y+OsdListRowH <= 0 || y >= rows {
 			continue
 		}
-		c.Text(p.menuX(), y, f.Body, gfx.GreyHi, f.Body.Fit(item, OsdListW-p.menuX()-52))
+		valW := 0
+		if i < len(l.vals) {
+			valW = f.Body.Width(l.vals[i])
+		}
+		c.Text(p.menuX(), y, f.Body, gfx.GreyHi, f.Body.Fit(item, listItemW(p.menuX(), valW)))
 		if i == l.set {
 			tick(c, OsdListW-30, y+f.Body.Height()/2, gfx.GreyHi)
 		}

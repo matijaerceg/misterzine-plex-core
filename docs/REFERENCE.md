@@ -158,7 +158,12 @@ Options lists, in groups:
   folder.
 - **Autoplay next episode**: the countdown into the next episode.
 - **Skip intro and credits buttons**.
-- **Playback controls**: Standard, or VCR, an old deck's on-screen display:
+- **Playback UI theme**: the look of the playback controls. **Standard**;
+  **Icons**, Standard with the buttons drawn as small icons instead of
+  words (back and forward 10 seconds as double arrows over a 10, pause bars
+  or a play triangle, previous and next as arrows against a bar, a speaker
+  for Audio, a caption box for Subs, three dots for More), in the same
+  places, colours and order; or **VCR**, an old deck's on-screen display:
   bright green and white block capitals in an on-screen display chip's
   eight pure colours on a blue band, the progress as a row of blocks with an
   upright line for the scrubber's playhead, and the lines of the controls
@@ -290,7 +295,7 @@ server in a transcode. A plain fold of a surround track comes out noticeably
 quieter than a stereo track, so **Surround downmix boost** raises the level of
 surround sources: Off, Small or Large (the default). Stereo tracks are passed
 through unchanged. The MiSTer applies the boost in both cases, so **More >
-Surround downmix boost** in the playback controls changes it at once, without
+Downmix boost** in the playback controls changes it at once, without
 restarting the video.
 
 Theme music and navigation sounds can be turned off in Options.

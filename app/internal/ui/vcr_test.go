@@ -113,20 +113,25 @@ func TestOptionsStepThePlaybackLook(t *testing.T) {
 	a := betaTestApp(t)
 	o := NewOptions(a)
 	a.Push(o)
-	row := func() option { return o.items()[optionRow(o, "Playback controls")] }
-	if optionRow(o, "Playback controls") < 0 || row().val() != "Standard" {
-		t.Fatal("no Playback controls row at Standard")
+	row := func() option { return o.items()[optionRow(o, "Playback UI theme")] }
+	if optionRow(o, "Playback UI theme") < 0 || row().val() != "Standard" {
+		t.Fatal("no Playback UI theme row at Standard")
 	}
-	pressOption(t, o, "Playback controls", input.Right)
+	pressOption(t, o, "Playback UI theme", input.Right)
+	if a.Cfg.PlaybackLook != "icons" || row().val() != "Icons" {
+		t.Fatalf("right stepped to %q (%q)", a.Cfg.PlaybackLook, row().val())
+	}
+	pressOption(t, o, "Playback UI theme", input.Right)
 	if a.Cfg.PlaybackLook != "vcr" || row().val() != "VCR" {
 		t.Fatalf("right stepped to %q (%q)", a.Cfg.PlaybackLook, row().val())
 	}
-	pressOption(t, o, "Playback controls", input.Right)
+	pressOption(t, o, "Playback UI theme", input.Right)
 	if a.Cfg.PlaybackLook != "vcr-clear" || row().val() != "VCR, no band" {
 		t.Fatalf("right again stepped to %q (%q)", a.Cfg.PlaybackLook, row().val())
 	}
-	pressOption(t, o, "Playback controls", input.Left)
-	pressOption(t, o, "Playback controls", input.Left)
+	pressOption(t, o, "Playback UI theme", input.Left)
+	pressOption(t, o, "Playback UI theme", input.Left)
+	pressOption(t, o, "Playback UI theme", input.Left)
 	if a.Cfg.PlaybackLook != "" {
 		t.Fatalf("left stepped to %q, want Standard", a.Cfg.PlaybackLook)
 	}

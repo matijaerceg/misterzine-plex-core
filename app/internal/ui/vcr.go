@@ -7,7 +7,7 @@ import (
 	"plexcrt/internal/gfx"
 )
 
-// The VCR look of the playback controls (Options > Playback controls): an
+// The VCR look of the playback controls (Options > Playback UI theme): an
 // old deck's on-screen display, bright green and white block capitals with
 // a hard shadow on a flat blue band (or none), the progress as a row of
 // blocks, the wait dots as a turning tape, and its lines wavering sideways by a
@@ -321,12 +321,16 @@ func (p *Playing) drawListVCR(c *gfx.Canvas, base int) {
 		if y+OsdListRowH <= 0 || y >= c.H {
 			continue
 		}
-		c.PixelText(x, y+2, vcrSmall, vcrText, vcrShadow, vcrSmall.Fit(item, OsdListW-x-52))
+		v, valW := "", 0
+		if i < len(l.vals) {
+			v = strings.ToUpper(l.vals[i])
+			valW = vcrSmall.Width(v)
+		}
+		c.PixelText(x, y+2, vcrSmall, vcrText, vcrShadow, vcrSmall.Fit(item, listItemW(x, valW)))
 		if i == l.set {
 			c.PixelText(OsdListW-34, y+2, vcrSmall, vcrText, vcrShadow, string(gfx.PixelTick))
 		}
 		if i < len(l.vals) {
-			v := strings.ToUpper(l.vals[i])
 			c.PixelText(OsdListW-OsdListPad-vcrSmall.Width(v), y+2, vcrSmall, vcrLo, vcrShadow, v)
 		}
 	}

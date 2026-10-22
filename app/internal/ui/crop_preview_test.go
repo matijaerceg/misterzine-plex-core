@@ -54,8 +54,9 @@ func TestCropPreview(t *testing.T) {
 			}
 		}
 	}
-	bar := func(aspect float64) *gfx.Canvas {
+	bar := func(aspect float64, paused bool) *gfx.Canvas {
 		p := playingCrop(a, aspect)
+		p.paused = paused
 		p.item = &plex.Item{Type: "episode", GrandTitle: "The Show", Title: "An Episode", Parent: 2, Index: 5, Aspect: aspect}
 		p.dur, p.pos = 1800, 600
 		p.canvas, p.alpha = gfx.NewCanvas(720, 480), make([]byte, 720*480)
@@ -108,12 +109,16 @@ func TestCropPreview(t *testing.T) {
 		return c
 	}
 	shots := map[string]*gfx.Canvas{
-		"bar":        bar(1.78),
-		"bar-dimmed": bar(1.33),
+		"bar":        bar(1.78, false),
+		"bar-dimmed": bar(1.33, false),
 		"more":       list(func(p *Playing) { p.openMore() }),
 		"crop":       list(func(p *Playing) { p.openCrop() }),
 		"options":    options(),
 	}
+	a.Cfg.PlaybackLook = "icons"
+	shots["bar-icons"] = bar(1.78, false)
+	shots["bar-icons-paused"] = bar(1.78, true)
+	a.Cfg.PlaybackLook = ""
 	for name, c := range shots {
 		// 720 source pixels occupy a 640-wide 4:3 display.
 		out := image.NewRGBA(image.Rect(0, 0, 640, 480))

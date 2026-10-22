@@ -202,12 +202,12 @@ func (c *Config) SubtitleSizeValue() int {
 }
 
 // PlaybackLooks are the looks of the playback controls: the app's own,
-// and an old deck's blocky on-screen display that wavers like tape
+// the same with icons for the buttons' words (icons.go), and an old deck's blocky on-screen display that wavers like tape
 // (vcr.go), on its blue band or straight over the picture.
 var PlaybackLooks = []struct {
 	Label string
 	Value string
-}{{"Standard", ""}, {"VCR", "vcr"}, {"VCR, no band", "vcr-clear"}}
+}{{"Standard", ""}, {"Icons", "icons"}, {"VCR", "vcr"}, {"VCR, no band", "vcr-clear"}}
 
 func (c *Config) playbackLookIndex() int {
 	for i, l := range PlaybackLooks {
@@ -220,6 +220,10 @@ func (c *Config) playbackLookIndex() int {
 
 // vcr reports whether the playback controls take the VCR look.
 func (c *Config) vcr() bool { return c.PlaybackLook == "vcr" || c.vcrClear() }
+
+// icons reports whether the playback bar's buttons are drawn as icons;
+// everything else about that look is the standard one.
+func (c *Config) icons() bool { return c.PlaybackLook == "icons" }
 
 // vcrClear reports whether the VCR controls go without their band.
 func (c *Config) vcrClear() bool { return c.PlaybackLook == "vcr-clear" }
