@@ -325,10 +325,19 @@ func (p *Playing) status() {
 	if time.Since(p.pausedAt) > 700*time.Millisecond {
 		p.paused = values["state"] == "paused"
 	}
-	if dur > 0 {
-		p.dur = dur
-	}
+	p.dur = playingDuration(float64(p.item.Duration), dur)
 	p.bufferStart, p.bufferEnd = bufferedInterval(values, p.dur)
+}
+
+// playingDuration is the length the bar shows: the server's for the item
+// when it has one, else the player's. A transcode's container carries the
+// whole item's length again, and the player adds the start offset to it, so
+// after a resume or a seek the player's is the item's plus the offset.
+func playingDuration(item, player float64) float64 {
+	if item > 0 {
+		return item
+	}
+	return max(0, player)
 }
 
 func (p *Playing) show(now time.Time) {
