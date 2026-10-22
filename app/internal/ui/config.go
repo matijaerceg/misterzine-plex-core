@@ -24,6 +24,7 @@ type Config struct {
 	NoAutoplay         bool     `json:"no_autoplay"`             // do not run on to the next episode
 	NoSkipButtons      bool     `json:"no_skip_buttons"`         // no Skip intro / Skip credits button over the markers
 	Bitrate            int      `json:"bitrate"`                 // transcode cap in kbit/s; 0 is the default
+	BitrateReset       int      `json:"bitrate_reset,omitempty"` // the BitrateResetGeneration last applied
 	AudioBoost         int      `json:"audio_boost,omitempty"`   // surround downmix gain; 0 is the default
 	SubtitleSize       int      `json:"subtitle_size,omitempty"` // drawn text subtitles, a percentage (SubtitleSizes); 0 is Normal
 	PlaybackLook       string   `json:"playback_look,omitempty"` // the playback controls' look (PlaybackLooks); "" is Standard
@@ -114,6 +115,11 @@ func LoadConfig(path string) *Config {
 		c.ClientID = "misterzine-" + hex.EncodeToString(b[:])
 		needsSave = true
 	}
+	if c.BitrateReset < BitrateResetGeneration {
+		c.Bitrate = Bitrates[len(Bitrates)-1].Kbps
+		c.BitrateReset = BitrateResetGeneration
+		needsSave = true
+	}
 	if needsSave || c.LoadWarning != "" {
 		if e := c.Save(); e != nil {
 			c.LoadError = e
@@ -121,6 +127,14 @@ func LoadConfig(path string) *Config {
 	}
 	return c
 }
+
+// BitrateResetGeneration moves every install to the top Video bitrate once.
+// Generation 1 is the move to the FPGA H.264 decoder core: the software
+// decoder releases before it pushed people to low caps, and that saved choice
+// would otherwise outlive the update. A settings file below this generation
+// is set to the top step on load; a change made afterwards stays. Bump it
+// only to deliberately reset everyone's bitrate again.
+const BitrateResetGeneration = 1
 
 // DefaultBitrate is the core's own limit (MaxVideoKbps): the video cap a
 // wired connection needs nothing below.

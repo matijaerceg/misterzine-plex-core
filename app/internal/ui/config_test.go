@@ -295,11 +295,11 @@ func TestBitrateOptionShowsAndStepsOfferedCaps(t *testing.T) {
 }
 
 // A choice saved by an older build, which offered 3 Mbps at the lowest,
-// loads as the same step.
+// loads as the same step once the bitrate reset has run.
 func TestBitrateSavedByOlderBuildLoads(t *testing.T) {
 	for _, kbps := range []int{3000, 4000, 6000, 8000} {
 		path := filepath.Join(t.TempDir(), "settings.json")
-		os.WriteFile(path, []byte(`{"client_id":"misterzine-test","bitrate":`+strconv.Itoa(kbps)+`}`), 0600)
+		os.WriteFile(path, []byte(`{"client_id":"misterzine-test","bitrate_reset":1,"bitrate":`+strconv.Itoa(kbps)+`}`), 0600)
 		c := LoadConfig(path)
 		if c.LoadError != nil || c.LoadWarning != "" || c.BitrateKbps() != kbps {
 			t.Fatalf("saved %d: loaded %d (%v %q)", kbps, c.BitrateKbps(), c.LoadError, c.LoadWarning)
@@ -327,5 +327,68 @@ func TestConnectionSaveFailureDoesNotSignIn(t *testing.T) {
 	l.finishConnect(1, plex.Server{AccessToken: "test-server"}, "http://test")
 	if c.SignedIn() || c.Token != "" || l.err == "" || len(a.Connected) != 0 {
 		t.Fatal("failed save reported successful sign-in")
+	}
+}
+
+func TestBitrateResetToTop(t *testing.T) {
+	top := Bitrates[len(Bitrates)-1].Kbps
+	if top != MaxVideoKbps {
+		t.Fatalf("top step %d is not the core's limit %d", top, MaxVideoKbps)
+	}
+	dir := t.TempDir()
+	read := func(path string) map[string]any {
+		var m map[string]any
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+
+	// an older release's file: a low cap and no marker
+	old := filepath.Join(dir, "old.json")
+	os.WriteFile(old, []byte(`{"client_id":"x","bitrate":1000}`), 0600)
+	c := LoadConfig(old)
+	if c.LoadError != nil || c.Bitrate != top || c.BitrateKbps() != top || c.BitrateReset != BitrateResetGeneration {
+		t.Fatalf("old file loaded as %d / reset %d", c.Bitrate, c.BitrateReset)
+	}
+	if Bitrates[c.bitrateIndex()].Label != Bitrates[len(Bitrates)-1].Label {
+		t.Fatal("Options would not show the top step")
+	}
+	if m := read(old); m["bitrate"] != float64(top) || m["bitrate_reset"] != float64(BitrateResetGeneration) {
+		t.Fatalf("file not rewritten: %v", m)
+	}
+
+	// the user lowers it afterwards: it stays through the next load
+	c.Bitrate = 2000
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if c = LoadConfig(old); c.Bitrate != 2000 {
+		t.Fatalf("user choice lost: %d", c.Bitrate)
+	}
+
+	// a file already carrying the marker is left alone
+	marked := filepath.Join(dir, "marked.json")
+	body := []byte(`{"client_id":"x","bitrate":400,"bitrate_reset":1}`)
+	os.WriteFile(marked, body, 0600)
+	if c = LoadConfig(marked); c.Bitrate != 400 {
+		t.Fatalf("marked file changed to %d", c.Bitrate)
+	}
+	if data, _ := os.ReadFile(marked); string(data) != string(body) {
+		t.Fatal("marked file rewritten")
+	}
+
+	// a fresh install
+	fresh := filepath.Join(dir, "fresh.json")
+	c = LoadConfig(fresh)
+	if c.LoadError != nil || c.Bitrate != top || c.BitrateReset != BitrateResetGeneration {
+		t.Fatalf("fresh install got %d / reset %d", c.Bitrate, c.BitrateReset)
+	}
+	if m := read(fresh); m["bitrate"] != float64(top) || m["bitrate_reset"] != float64(BitrateResetGeneration) {
+		t.Fatalf("fresh file: %v", m)
 	}
 }
