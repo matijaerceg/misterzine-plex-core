@@ -14,6 +14,7 @@ import (
 	"runtime/debug"
 	"runtime/metrics"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -146,7 +147,14 @@ type App struct {
 	Notice   string
 	NoticeAt time.Time
 	// later holds closures for the render thread (results of background work).
+	// Run drains it; playLoop only moves them to held while a playback has
+	// the screen (a long autoplay posts one per finished episode, and they
+	// may change the items the playback is using), and runLater runs them in
+	// order once the menus are back. laterFull notes a post dropped because
+	// the queue was full, logged once until it drains.
 	later       chan func()
+	held        []func()
+	laterFull   atomic.Bool
 	seasonData  *seasonData // one selected season, shared with its opening page
 	scr         *gfx.Canvas
 	osd         OSD            // the playback overlay: the core's plane
@@ -503,6 +511,7 @@ func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 			break
 		}
 		ctl := NewPlaying(a, it, queue, idx, sess.SendUI)
+		ctl.direct = sess.Direct
 		ctl.pos = float64(offset)
 		if offset < 0 {
 			ctl.pos = float64(it.ViewOffset)
@@ -676,6 +685,10 @@ func (a *App) playLoop(sess *Session, ctl *Playing) (int, bool) {
 				selectionPresented()
 			}
 		case <-tick.C:
+			// background results keep coming through a long autoplay (one
+			// per finished episode); keep room for them without running
+			// them, as they may change the items the playback is using
+			a.holdLater()
 			if stopped {
 				continue
 			}
@@ -908,11 +921,16 @@ func (a *App) section(key string) (plex.Section, bool) {
 	return plex.Section{}, false
 }
 
-// Later queues a closure to run on the render thread before the next frame.
+// Later queues a closure to run on the render thread before the next frame
+// (or the next field of a playback). A full queue drops it, and says so in
+// the log, once until the queue is drained again.
 func (a *App) Later(f func()) {
 	select {
 	case a.later <- f:
 	default:
+		if a.laterFull.CompareAndSwap(false, true) && a.Log != nil {
+			a.Log.Printf("later: the render thread's queue is full; a background result was dropped")
+		}
 	}
 	select {
 	case a.Wake <- struct{}{}:
@@ -920,12 +938,35 @@ func (a *App) Later(f func()) {
 	}
 }
 
+// runLater runs the closures held during a playback, then the queued ones.
 func (a *App) runLater() {
+	held := a.held
+	a.held = nil
+	for _, f := range held {
+		f()
+		a.dirty = true
+	}
 	for {
 		select {
 		case f := <-a.later:
 			f()
 			a.dirty = true
+			a.laterFull.Store(false)
+		default:
+			return
+		}
+	}
+}
+
+// holdLater empties the queue into held without running anything: playLoop
+// calls it so Later keeps room during a long autoplay, while the closures,
+// which may change the items the playback is using, wait for the menus.
+func (a *App) holdLater() {
+	for {
+		select {
+		case f := <-a.later:
+			a.held = append(a.held, f)
+			a.laterFull.Store(false)
 		default:
 			return
 		}

@@ -687,11 +687,15 @@ func TestPlayerSessionReportsToItsOwnServer(t *testing.T) {
 	}
 }
 
-// The next start's PlaybackInfo waits for the last session's stopped
-// report (which selects a burned-in subtitle again), but not for long.
+// The next start's PlaybackInfo of the same part waits for the last
+// session's stopped report (which selects a burned-in subtitle again), but
+// not for long; a start of another part (the next episode) does not wait.
 func TestPlayerStartAsyncWaitsForTheLastStoppedReport(t *testing.T) {
-	for _, held := range []bool{false, true} {
-		t.Run(map[bool]string{false: "sent", true: "held"}[held], func(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		held, other bool
+	}{{"sent", false, false}, {"held", true, false}, {"other part", true, true}} {
+		t.Run(c.name, func(t *testing.T) {
 			stopping := make(chan struct{})
 			release := make(chan struct{})
 			var once sync.Once
@@ -711,7 +715,7 @@ func TestPlayerStartAsyncWaitsForTheLastStoppedReport(t *testing.T) {
 			defer free()
 			p := f.player(t)
 			p.reportWait = 2 * time.Second
-			if held {
+			if c.held && !c.other {
 				p.reportWait = 200 * time.Millisecond
 			}
 			p.exec = func(_ string, _ ...string) *exec.Cmd {
@@ -726,16 +730,30 @@ func TestPlayerStartAsyncWaitsForTheLastStoppedReport(t *testing.T) {
 			case <-time.After(4 * time.Second):
 				t.Fatal("the first session did not report stopped")
 			}
-			second, err := p.StartAsync(playItem(), 0)
+			next := playItem()
+			if c.other {
+				next.PartID = "other-part"
+			}
+			asked := time.Now()
+			second, err := p.StartAsync(next, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(second.StopUI)
-			if held {
+			switch {
+			case c.other:
+				// the report is held for longer than reportWait: another
+				// part's start goes ahead without it
+				waitUntil(t, "the second PlaybackInfo", func() bool { return metadata.Load() == 2 })
+				if waited := time.Since(asked); waited >= p.reportWait {
+					t.Fatalf("another part's start waited %v for the last stopped report", waited)
+				}
+				free()
+			case c.held:
 				// the report never comes: the start goes ahead after reportWait
 				waitUntil(t, "the second PlaybackInfo", func() bool { return metadata.Load() == 2 })
 				free()
-			} else {
+			default:
 				time.Sleep(300 * time.Millisecond)
 				if got := metadata.Load(); got != 1 {
 					t.Fatalf("PlaybackInfo calls before the stopped report = %d, want 1", got)

@@ -368,8 +368,9 @@ func (c *Client) playbackReq(ctx context.Context, path string, q url.Values) (*h
 	return r, nil
 }
 
-// StreamHeaders is the --headers value for jfplay: the token and the client
-// identity, one CRLF-terminated line each. The URL never carries the token.
+// StreamHeaders is the JFPLAY_HEADERS value for jfplay (the environment,
+// not the command line): the token and the client identity, one
+// CRLF-terminated line each. The URL never carries the token.
 func (c *Client) StreamHeaders() string {
 	return "X-Plex-Token: " + c.Token + "\r\nX-Plex-Client-Identifier: " + c.ClientID + "\r\n"
 }

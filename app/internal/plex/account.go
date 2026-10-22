@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -227,6 +228,23 @@ func reach(s Server, probe *http.Client, logf func(string, ...any)) (string, err
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
+	// The probes that lose run on after reach returns; they go quiet then,
+	// so nothing reaches the caller's log once it has its answer.
+	var logMu sync.Mutex
+	quiet := false
+	say := logf
+	logf = func(format string, args ...any) {
+		logMu.Lock()
+		defer logMu.Unlock()
+		if !quiet {
+			say(format, args...)
+		}
+	}
+	defer func() {
+		logMu.Lock()
+		quiet = true
+		logMu.Unlock()
+	}()
 	logf("server connection: probing %d advertised connections", len(s.Connections))
 	rank := func(c Connection) int {
 		r := 2

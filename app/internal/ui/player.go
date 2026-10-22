@@ -191,9 +191,12 @@ func (p *Player) StartAsync(item *plex.Item, offset int) (*Session, error) {
 	prev := p.last
 	p.last = s
 	p.lastMu.Unlock()
+	// only a start of the same part needs the last one's stopped report
+	// first (awaitReports); the next episode or another item goes at once
+	wait := prev != nil && samePart(prev.item, item)
 	go s.runUICommands()
 	go func() {
-		if prev != nil {
+		if wait {
 			p.awaitReports(ctx, prev)
 		}
 		err := s.startContext(offset, false, ctx)
@@ -211,8 +214,8 @@ func (p *Player) StartAsync(item *plex.Item, offset int) (*Session, error) {
 
 // awaitReports waits, a few seconds at most, for prev's stopped report. That
 // report selects again the subtitle a transcode had the server burn in;
-// landing after the next start's PlaybackInfo, it would undo the subtitle
-// choice that start made.
+// landing after the next start's PlaybackInfo of the same part, it would
+// undo the subtitle choice that start made.
 func (p *Player) awaitReports(ctx context.Context, prev *Session) {
 	wait := p.reportWait
 	if wait <= 0 {
@@ -225,6 +228,16 @@ func (p *Player) awaitReports(ctx context.Context, prev *Session) {
 	case <-ctx.Done():
 	case <-timer.C:
 	}
+}
+
+// samePart reports whether two playbacks play the same media part: the
+// part's own ID when both know it, else the item's. Neither changes during
+// a session, so prev's item may be read while it runs.
+func samePart(a, b *plex.Item) bool {
+	if a.PartID != "" && b.PartID != "" {
+		return a.PartID == b.PartID
+	}
+	return a.RatingKey == b.RatingKey
 }
 
 func copyPlaybackItem(item *plex.Item) *plex.Item {
@@ -327,7 +340,9 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 		if retire {
 			s.stopTranscode(old)
 		}
+		s.mu.Lock() // Direct reads it from the UI thread
 		s.direct = info.Direct
+		s.mu.Unlock()
 		s.url = info.URL
 		duration := float64(s.item.Duration)
 		if duration <= 0 {
@@ -851,6 +866,14 @@ func (s *Session) suppressStopCancellation(err error) error {
 // ReportsDone closes after this session's stopped report has been sent.
 // UI refreshes can wait in the background before reading resume metadata.
 func (s *Session) ReportsDone() <-chan struct{} { return s.reported }
+
+// Direct reports whether the stream plays the file as stored rather than a
+// transcode. A track change or the fallback to a transcode can change it.
+func (s *Session) Direct() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.direct
+}
 
 // SendUI queues a command for the session worker and returns immediately.
 // Repeated seeks coalesce to the newest target, keeping rapid input bounded.

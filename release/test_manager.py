@@ -254,6 +254,7 @@ class InstallerTests(unittest.TestCase):
         def launch(status, menu):
             app = mock.Mock(pid=1)
             app.wait.return_value = status
+            loads = {'side_effect': menu} if isinstance(menu, Exception) else {'return_value': menu}
             with mock.patch.object(manager, 'recover_activation', return_value=True), \
                     mock.patch.object(manager.subprocess, 'run'), \
                     mock.patch.object(manager.subprocess, 'Popen', return_value=app), \
@@ -261,16 +262,23 @@ class InstallerTests(unittest.TestCase):
                     mock.patch.object(manager, 'display_env', return_value=''), \
                     mock.patch.object(manager, 'rotate_log'), \
                     mock.patch.object(manager, 'open', mock.mock_open(), create=True), \
-                    mock.patch.object(manager, 'trace'), \
-                    mock.patch.object(manager, 'load_menu', return_value=menu) as load_menu:
-                return manager.run(self.root), load_menu
+                    mock.patch.object(manager, 'trace') as trace, \
+                    mock.patch.object(manager, 'load_menu', **loads) as load_menu:
+                return manager.run(self.root), load_menu, ' '.join(str(c.args[0]) for c in trace.call_args_list)
+        hint = 'Could not return to the MiSTer menu. Use the OSD to leave MisterZine Plex.'
         # Exit to the MiSTer menu: the app only says so, run() loads it.
-        to_menu, load_menu = launch(manager.EXIT_TO_MENU, True)
+        to_menu, load_menu, traced = launch(manager.EXIT_TO_MENU, True)
         self.assertTrue(to_menu)
         load_menu.assert_called_once_with(self.card)
-        with self.assertRaisesRegex(RuntimeError, 'Could not return to the MiSTer menu'):
-            launch(manager.EXIT_TO_MENU, False)
-        to_menu, load_menu = launch(0, True)
+        self.assertNotIn(hint, traced)
+        # A menu that does not come is still the Exit (status 3, not 1, which an
+        # updater's start check reads as a failed start); the log says so.
+        for failure in (False, OSError(5, 'synthetic')):
+            to_menu, load_menu, traced = launch(manager.EXIT_TO_MENU, failure)
+            self.assertTrue(to_menu)
+            load_menu.assert_called_once_with(self.card)
+            self.assertIn(hint, traced)
+        to_menu, load_menu, _ = launch(0, True)
         self.assertFalse(to_menu)
         load_menu.assert_not_called()
         with self.assertRaisesRegex(RuntimeError, 'status 1'):
@@ -587,6 +595,27 @@ class ReportTests(unittest.TestCase):
     def test_report_service_off_is_worded(self):
         with self.assertRaisesRegex(manager.ReportError, 'switched off'):
             manager.send_report('x')
+
+    def test_names_are_redacted_as_whole_words_only(self):
+        (self.root / 'plexcrt.json').write_text(json.dumps({'token': 'TESTtoken1234', 'account_name': 'Rowena',
+                                                            'home_user_title': 'tv', 'server_name': 'media'}))
+        secrets = manager.report_secrets(self.root)
+        line = ('Rowena opened misterzine-plex.log on the tv; tvservice says Rowenas server media is up\n'
+                'GET /library/parts/1/file?X-Plex-Token=TESTtoken1234&download=0 for Rowena.')
+        value = manager.safe_log(line, secrets)
+        # a short name ("tv") is left alone, and so are the words it is part of
+        self.assertIn('misterzine-plex.log', value)
+        self.assertIn('on the tv; tvservice says', value)
+        # a name goes as a word, not as part of another
+        self.assertNotIn('Rowena ', value)
+        self.assertNotIn('for Rowena.', value)
+        self.assertIn('[redacted] opened', value)
+        self.assertIn('Rowenas server', value)
+        self.assertIn('[redacted] is up', value)
+        # a token goes wherever it stands, in a URL too
+        self.assertNotIn('TESTtoken1234', value)
+        self.assertIn('&download=0', value)
+        self.assertEqual(manager.safe_log('/x?id=abcdTESTtoken1234', ['TESTtoken1234']), '/x?id=abcd[redacted]')
 
     def test_account_name_never_reaches_the_report(self):
         for key in ('account_name', 'home_user_title'):     # the account's and the Plex Home user's

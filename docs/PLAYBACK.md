@@ -175,8 +175,9 @@ base time and in-file seek, volume, audio stream index, control FIFO, status
 file, analog aspect, the core's file and name (`--rbf`, `--core-name`), and (on
 capable core versions) saved video geometry. With `--core-name` it treats
 only a core reporting that name as its own and loads its core over an
-upstream `H264`, which may be another app's. The app passes saved geometry only when the running core reports interface 1.2 or
-later. Its full command line and status/control contract are documented in
+upstream `H264`, which may be another app's. The app passes saved geometry
+only when the running core reports interface 1.2 or later. Its full command
+line and status/control contract are documented in
 [`arm/jfplay.md`](../arm/jfplay.md). Seeks go to the running worker as `seek`
 commands; when it cannot seek in place, the app restarts it with an in-file
 seek for direct streams and a new offset for transcodes.

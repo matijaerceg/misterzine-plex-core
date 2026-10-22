@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -46,7 +47,7 @@ func TestConnectionReportErrorsHidePrivateDetails(t *testing.T) {
 }
 
 func TestFailedConnectionsAppearInReportLog(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncBuffer
 	logger := log.New(&buf, "", 0)
 	s := Server{Name: "private-server", AccessToken: "secret-token", Connections: []Connection{
 		{URI: "https://local.example", Local: true},
@@ -84,7 +85,7 @@ func TestFailedConnectionsAppearInReportLog(t *testing.T) {
 // Report RXN6 (Oct 2026): a router with DNS rebind protection answered that
 // the local plex.direct name does not exist, and the remote one timed out.
 func TestReachNamesTheRouterRefusingTheLocalName(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncBuffer
 	logger := log.New(&buf, "", 0)
 	const local = "192-168-1-9.0123456789abcdef.plex.direct"
 	s := Server{Name: "private-server", AccessToken: "secret-token", Connections: []Connection{
@@ -122,7 +123,7 @@ func TestReachNamesTheRouterRefusingTheLocalName(t *testing.T) {
 }
 
 func TestConnectionReportSelectionAndEmptyList(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncBuffer
 	logger := log.New(&buf, "", 0)
 	client := &http.Client{Transport: accountTransport(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(""))}, nil
@@ -139,7 +140,7 @@ func TestConnectionReportSelectionAndEmptyList(t *testing.T) {
 
 // Another server at the plain local address must not get the session.
 func TestReachRejectsADifferentServersIdentity(t *testing.T) {
-	var buf bytes.Buffer
+	var buf syncBuffer
 	s := Server{ID: "wanted-id", AccessToken: "secret-token", Connections: []Connection{
 		{URI: "https://local.example:32400", Local: true},
 		{URI: "http://local.example:32400", Local: true},
@@ -197,7 +198,7 @@ func TestReachPrefersHTTPSThenFallsBackToHTTP(t *testing.T) {
 			"https://relay.example:8443", "candidate 5 relay HTTPS: HTTP 200"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var buf bytes.Buffer
+			var buf syncBuffer
 			client := &http.Client{Transport: accountTransport(func(r *http.Request) (*http.Response, error) {
 				uri := r.URL.Scheme + "://" + r.URL.Host
 				if uri == tc.slow {
@@ -224,5 +225,58 @@ func TestReachPrefersHTTPSThenFallsBackToHTTP(t *testing.T) {
 				t.Errorf("log leaked a host: %s", buf.String())
 			}
 		})
+	}
+}
+
+// syncBuffer is a log sink the probes' goroutines may write while the test
+// reads it.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func (b *syncBuffer) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Reset()
+}
+
+// The probes that lose run on after reach has its answer; they log nothing
+// from then on, as the caller may be reading or closing its log.
+func TestReachLosersGoQuietOnceItReturns(t *testing.T) {
+	var buf syncBuffer
+	slow := make(chan struct{})
+	finished := make(chan struct{})
+	client := &http.Client{Transport: accountTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host == "relay.example:8443" {
+			<-slow
+			defer close(finished)
+			return nil, syscall.ECONNREFUSED
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+	conns := []Connection{{URI: "https://local.example:32400", Local: true}, {URI: "https://relay.example:8443", Relay: true}}
+	uri, err := reach(Server{Connections: conns}, client, log.New(&buf, "", 0).Printf)
+	if err != nil || uri != conns[0].URI {
+		t.Fatalf("got %q %v, want the local connection", uri, err)
+	}
+	before := buf.String()
+	close(slow)
+	<-finished
+	time.Sleep(50 * time.Millisecond) // the loser's log line would follow its answer
+	if after := buf.String(); after != before {
+		t.Fatalf("a losing probe logged after reach returned: %q", strings.TrimPrefix(after, before))
 	}
 }

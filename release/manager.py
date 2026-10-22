@@ -947,12 +947,27 @@ def remove(card):
     print('Run the installer to restore the entries.')
 
 
+# A name shorter than this is not redacted: "tv" or "Bo" would shred the
+# report wherever those letters stand, and says little about anyone.
+NAME_MIN = 4
+
+
 def safe_log(text, secrets):
+    """text with every secret replaced by [redacted]. A secret is a string
+    (a token, key or id: replaced wherever it stands, URL-quoted too) or a
+    (value, whole_word) pair; whole_word marks a name, replaced only as a whole
+    word and only when at least NAME_MIN characters long."""
     import urllib.parse
     for secret in secrets:
-        if secret:
-            for value in (secret, urllib.parse.quote(secret, safe=''), urllib.parse.quote_plus(secret)):
-                text = text.replace(value, '[redacted]')
+        value, whole_word = secret if isinstance(secret, tuple) else (secret, False)
+        if not value:
+            continue
+        if whole_word:
+            if len(value) >= NAME_MIN:
+                text = re.sub(r'(?<!\w)' + re.escape(value) + r'(?!\w)', '[redacted]', text)
+            continue
+        for quoted in (value, urllib.parse.quote(value, safe=''), urllib.parse.quote_plus(value)):
+            text = text.replace(quoted, '[redacted]')
     text = re.sub(r'(?i)((?:x-plex-token|x-emby-token|x-mediabrowser-token|authtoken|accesstoken|access_token|api_key|token)[= :"%]+)[^&\s"<>]+', r'\1[redacted]', text)
     text = re.sub(r'(?i)(authorization:\s*bearer\s+)\S+', r'\1[redacted]', text)
     text = re.sub(r'(?i)((?:beta|supporter)[_-]?code|receipt)[= :"%]+[^&\s"<>]+', r'\1[redacted]', text)
@@ -1590,14 +1605,16 @@ def system_facts(root, secrets, proc_root=Path('/proc'), altcfg=read_altcfg, dme
 
 
 def report_secrets(root):
-    """Values that must never leave the card, read only to redact them."""
+    """Values that must never leave the card, read only to redact them (for
+    safe_log): tokens, ids and addresses as they are, names as whole words."""
     import urllib.parse
     secrets = []
     for path in (root / 'plexcrt.json', root / 'plexcrt.json.bak'):
         try:
             cfg = json.loads(path.read_text())
-            secrets += [cfg.get(k, '') for k in ('token', 'account_name', 'home_token', 'home_user_title', 'server_token',
-                                                 'server_url', 'server_name', 'server_id', 'client_id')]
+            secrets += [str(cfg.get(k) or '') for k in ('token', 'home_token', 'server_token', 'server_url', 'server_id',
+                                                        'client_id')]
+            secrets += [(str(cfg.get(k) or ''), True) for k in ('account_name', 'home_user_title', 'server_name')]
             # a plain HTTP server URL is a bare address, which network errors quote without the URL
             secrets.append(urllib.parse.urlsplit(str(cfg.get('server_url') or '')).hostname or '')
         except (OSError, ValueError):
@@ -2151,8 +2168,18 @@ def run(root):
         signal.signal(signal.SIGTERM, original_term)
     # The app only says it wants the menu (exit status 3); loading it is ours.
     to_menu = app_finished(code)
-    if to_menu and not load_menu(card):
-        raise RuntimeError('Could not return to the MiSTer menu. Use the OSD to leave MisterZine Plex.')
+    if to_menu:
+        try:
+            loaded = load_menu(card)
+        except OSError as exc:
+            import errno
+            trace('could not ask MiSTer for its menu (%s)' % errno.errorcode.get(exc.errno or 0, type(exc).__name__))
+            loaded = False
+        if not loaded:
+            # Still the Exit, not a failure: an updater's start check reads an
+            # exit status of 1 within its first seconds as a failed start and
+            # can roll the update back.
+            trace('Could not return to the MiSTer menu. Use the OSD to leave MisterZine Plex.')
     return to_menu
 
 

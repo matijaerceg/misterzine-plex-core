@@ -75,12 +75,13 @@ func run() int {
 	if *decoder != "" {
 		ff = *decoder
 	}
-	// The MISTERZINE_PLEX_* names (OWNER here, READY_FILE and DISPLAY) keep
-	// their Plex-era spelling on purpose: they are a contract with
-	// release/manager.py and update_service.py, which set them for the app or
-	// look for them in a running process's environment (installed managers
-	// included). A rename must change both sides together and accept both
-	// names for a release.
+	// MISTERZINE_PLEX_OWNER marks every process the app starts as this
+	// install's: its children inherit it, and Player.Reap kills any process
+	// whose environment carries it (or the MISTERZINE_JFPLAY_OWNER each
+	// player launch sets) for this player, at start, at exit and before each
+	// playback, so nothing left over keeps the core. The only other reader is updates/worker.go, which
+	// strips it (and MISTERZINE_PLEX_READY_FILE) from the updater it starts so
+	// the updater survives that cleanup. Both readers are in this program.
 	os.Setenv("MISTERZINE_PLEX_OWNER", filepath.Clean(*playerPath))
 	if *dump == "" {
 		if err := preflight(home, *playerPath, *cfgPath, *cache, ff); err != nil {

@@ -26,7 +26,8 @@ func TestSplitCredentialRedaction(t *testing.T) {
 // The redactor knows every credential name release/manager.py redacts.
 func TestManagerCredentialNamesRedacted(t *testing.T) {
 	for _, line := range []string{
-		"GET https://server/Videos/1/stream?api_key=stale123&Static=true",
+		"GET https://server/library/parts/1/file.mkv?X-Plex-Token=stale123&download=0",
+		"GET https://server/x?api_key=stale123",
 		"GET https://server/socket?access_token=stale123",
 		"X-Emby-Token: stale123",
 		`X-MediaBrowser-Token="stale123"`,
@@ -36,8 +37,8 @@ func TestManagerCredentialNamesRedacted(t *testing.T) {
 			t.Errorf("Redact(%q) = %q", line, got)
 		}
 	}
-	if got := Redact("api_key=stale123&Static=true"); got != "api_key=[redacted]&Static=true" {
-		t.Errorf("api_key: %q", got)
+	if got := Redact("X-Plex-Token=stale123&download=0"); got != "X-Plex-Token=[redacted]&download=0" {
+		t.Errorf("X-Plex-Token: %q", got)
 	}
 }
 

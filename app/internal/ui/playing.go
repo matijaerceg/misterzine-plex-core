@@ -32,6 +32,7 @@ type Playing struct {
 	queue                  []*plex.Item    // the episodes around it, for Prev and Next
 	idx                    int
 	send                   func(string)
+	direct                 func() bool // whether the stream is the file as stored (Session.Direct); nil is a transcode
 	visible                bool
 	shownAt                time.Time
 	closedAt               time.Time     // when Back last cleared the screen: Back rests for BackGrace
@@ -316,15 +317,20 @@ func (p *Playing) status() {
 	if time.Since(p.pausedAt) > 700*time.Millisecond {
 		p.paused = values["state"] == "paused"
 	}
-	p.dur = playingDuration(float64(p.item.Duration), dur)
+	p.dur = playingDuration(float64(p.item.Duration), dur, p.direct != nil && p.direct())
 	p.bufferStart, p.bufferEnd = bufferedInterval(values, p.dur)
 }
 
-// playingDuration is the length the bar shows: the server's for the item
-// when it has one, else the player's. A transcode's container carries the
-// whole item's length again, and the player adds the start offset to it, so
-// after a resume or a seek the player's is the item's plus the offset.
-func playingDuration(item, player float64) float64 {
+// playingDuration is the length the bar shows. A direct stream's is the
+// player's when it has one: it reads the file as stored, so it is exact.
+// A transcode's is the server's for the item when it has one, else the
+// player's: a transcode's container carries the whole item's length again,
+// and the player adds the start offset to it, so after a resume or a seek
+// the player's is the item's plus the offset.
+func playingDuration(item, player float64, direct bool) float64 {
+	if direct && player > 0 {
+		return player
+	}
 	if item > 0 {
 		return item
 	}
