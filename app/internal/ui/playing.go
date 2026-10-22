@@ -1090,9 +1090,9 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 	if skipBtn {
 		osd.Dot(0, 0, 0, false)
 		osd.Bar(0, 0, 0, 0, 0, false)
-		// lower right of the safe area, off the picture's centre and where
-		// the controls would be
-		x, y = p.safeX()+p.safeW()-240, (p.osdBottom()-OsdControlH-40)&^1
+		// lower right of the safe area, off the picture's centre; the
+		// controls never show at the same time
+		x, y = p.safeX()+p.safeW()-240, (p.osdBottom()-40)&^1
 		key = p.skipKey()
 		if key != p.last {
 			p.setJitter(osd, true)
