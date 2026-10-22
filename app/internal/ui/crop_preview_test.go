@@ -113,7 +113,12 @@ func TestCropPreview(t *testing.T) {
 		"bar-dimmed": bar(1.33, false),
 		"more":       list(func(p *Playing) { p.openMore() }),
 		"crop":       list(func(p *Playing) { p.openCrop() }),
-		"options":    options(),
+		"info": list(func(p *Playing) {
+			_, f := infoFixture(t)
+			p.item, p.direct, p.pos, p.dur, p.statusVals = f.item, f.direct, f.pos, f.dur, f.statusVals
+			p.openInfo(time.Now())
+		}),
+		"options": options(),
 	}
 	a.Cfg.PlaybackLook = "icons"
 	shots["bar-icons"] = bar(1.78, false)

@@ -92,6 +92,10 @@ type Session struct {
 	// burned is the subtitle track the running stream has burned in, "-1"
 	// for none (burnedSubtitle).
 	burned string
+	// kbps is the video cap More > Video bitrate chose during this session
+	// (0: the Player's Kbps). It travels with the command, so the worker
+	// never reads the settings the UI thread writes.
+	kbps int
 }
 
 func (p *Player) Started(t time.Time) bool {
@@ -320,6 +324,9 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 			kbps = p.Kbps()
 		}
 		s.mu.Lock()
+		if s.kbps > 0 {
+			kbps = s.kbps
+		}
 		force := s.forceTranscode
 		s.mu.Unlock()
 		burn := s.burnedSubtitle(subtitle)
@@ -708,6 +715,34 @@ func (s *Session) Send(line string) {
 		s.mu.Unlock()
 		err = s.startContext(int(target), reuse, s.sessionContext())
 		if err != nil {
+			s.finishLocked(s.suppressStopCancellation(err))
+		}
+		return
+	}
+	if len(fields) == 3 && fields[0] == "bitrate" {
+		// More > Video bitrate: a new PlaybackInfo with the new cap, at
+		// the position the UI had, the tracks as they are
+		kbps, e1 := strconv.Atoi(fields[1])
+		target, e2 := strconv.ParseFloat(fields[2], 64)
+		if e1 != nil || e2 != nil || kbps <= 0 || target < 0 || math.IsNaN(target) || math.IsInf(target, 0) {
+			return
+		}
+		s.updateLocked(false)
+		s.mu.Lock()
+		s.kbps = kbps
+		s.state.Position = target
+		ps := s.state
+		s.mu.Unlock()
+		s.reportProgress(ps)
+		if s.sessionContext().Err() != nil {
+			return
+		}
+		s.stopProcessLocked()
+		_ = os.Remove(s.p.Status)
+		s.mu.Lock()
+		s.started = false
+		s.mu.Unlock()
+		if err := s.startContext(int(target), false, s.sessionContext()); err != nil {
 			s.finishLocked(s.suppressStopCancellation(err))
 		}
 		return

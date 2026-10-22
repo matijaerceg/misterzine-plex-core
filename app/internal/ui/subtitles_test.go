@@ -260,10 +260,16 @@ func TestSubtitleSizeFromMoreRepaintsWithoutRestart(t *testing.T) {
 		}
 	}
 	pressPlay(p, input.Enter)
-	if p.list == nil || p.list.kind != "More" || p.list.items[len(p.list.items)-1] != "Subtitle size" || p.list.vals[len(p.list.vals)-1] != "Normal" {
+	row := -1
+	for i, item := range listItems(p.list) {
+		if item == "Subtitle size" {
+			row = i
+		}
+	}
+	if p.list == nil || p.list.kind != "More" || row < 0 || p.list.vals[row] != "Normal" {
 		t.Fatalf("More: %+v", p.list)
 	}
-	p.list.cur = len(p.list.items) - 1
+	p.list.cur = row
 	pressPlay(p, input.Enter)
 	if p.list == nil || p.list.kind != "Subtitle size" || p.list.set != 0 {
 		t.Fatalf("Subtitle size list: %+v", p.list)
@@ -431,4 +437,11 @@ func TestSessionDrawnSubtitlesKeepTheStream(t *testing.T) {
 	if !slices.Equal(requests, want) {
 		t.Fatalf("server requests %q, want %q", requests, want)
 	}
+}
+
+func listItems(l *listMode) []string {
+	if l == nil {
+		return nil
+	}
+	return l.items
 }

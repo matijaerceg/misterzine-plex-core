@@ -137,8 +137,17 @@ primary account. Automatic sign-in uses the saved server connection at startup.
   or show. Another audio track, or a subtitle track the server burns in,
   restarts the stream at the same position; a subtitle track the app draws
   changes without a restart (see Subtitles).
-- **More** holds **Crop**, for a picture wider than 4:3, **Surround downmix
-  boost** and **Subtitle size** (see Display setup, Sound and Subtitles).
+- **More** holds **Crop**, for any picture, **Surround downmix boost** and
+  **Subtitle size** (see Display setup, Sound and Subtitles), and after them:
+  - **Autoplay next** (episodes): On or Off by Left, Right or OK; the Options
+    setting, saved at once, and the end of this playback follows it.
+  - **Video bitrate**: Left and Right choose a step of the Options ladder and
+    OK saves it. A transcode starts over at the same position with the new
+    cap; a direct play (so marked) plays on and uses it next time.
+  - **Playback info**: read only and updated every second: direct play or
+    transcode, picture size and frame rate, bitrate, sound and downmix,
+    subtitle track, position, and the decoder's late frames and errors. OK
+    or Back goes back to More.
 - Over an intro or credits the server has found, **Skip intro** or **Skip
   credits** shows for 20 seconds once playback reaches them, also after a
   resume or a seek into them. OK skips to their end; Back dismisses the

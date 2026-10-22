@@ -107,12 +107,12 @@ func TestPlaybackMenuChangesCoreAspectForThisPlayback(t *testing.T) {
 	}
 }
 
-func TestCropMenuOnlyMattersForWideOrUnknownPictures(t *testing.T) {
+func TestCropMenuShowsForEveryPicture(t *testing.T) {
 	a := cropApp(t)
 	for _, tc := range []struct {
 		aspect float64
 		want   bool
-	}{{0, true}, {1.33, false}, {4.0 / 3.0, false}, {1.78, true}, {2.39, true}} {
+	}{{0, true}, {1.33, true}, {4.0 / 3.0, true}, {1.78, true}, {2.39, true}} {
 		p := playingCrop(a, tc.aspect)
 		p.openMore()
 		got := p.list != nil && len(p.list.items) > 0 && p.list.items[0] == "Crop"

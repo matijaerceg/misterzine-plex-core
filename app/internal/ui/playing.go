@@ -73,17 +73,19 @@ type Playing struct {
 	painter    *painter
 	Next       int // set to +1 or -1 when Prev or Next was chosen; the queue continues
 
-	list     *listMode // an open audio or subtitle list
-	scrub    bool      // the cursor is on the timeline
-	scrubTo  float64   // where it points
-	held     int       // -1/+1 while left or right is held in scrub mode
-	settle   bool      // a run just ended: take the dot's place from the core
-	pausedAt time.Time // when Pause was last pressed
-	runVx    int       // the run speed last sent to the core
-	heldAt   time.Time // since when
-	skip     *plex.Marker
-	skipOff  bool // the skip button was dismissed for this marker
-	skipAt   time.Time
+	list *listMode // an open audio or subtitle list
+	// the worker's last status, as read: More > Playback info shows it
+	statusVals map[string]string
+	scrub      bool      // the cursor is on the timeline
+	scrubTo    float64   // where it points
+	held       int       // -1/+1 while left or right is held in scrub mode
+	settle     bool      // a run just ended: take the dot's place from the core
+	pausedAt   time.Time // when Pause was last pressed
+	runVx      int       // the run speed last sent to the core
+	heldAt     time.Time // since when
+	skip       *plex.Marker
+	skipOff    bool // the skip button was dismissed for this marker
+	skipAt     time.Time
 	// the wait dot (waitdot.go): it runs in the middle while the picture
 	// is held up, from the start until the first frame and on any stall
 	starting   bool        // no frame from the player (jfplay) yet
@@ -135,6 +137,10 @@ type listMode struct {
 	cur   int
 	set   int
 	off   int // subtitles: item 0 is Off
+	// More: the Video bitrate step Left and Right have picked, applied by
+	// OK (-1 for none picked); Playback info: when its values were made
+	step   int
+	infoAt time.Time
 	// The list is drawn once as a tall column in the overlay region and
 	// the core is pointed at a window of it: a scroll is a header store.
 	// at/to are the window's top in column pixels; base is the column
@@ -294,6 +300,7 @@ func (p *Playing) status() {
 		p.bufferStart, p.bufferEnd = 0, 0
 		return
 	}
+	p.statusVals = values
 	pos, err := strconv.ParseFloat(values["position"], 64)
 	if err != nil {
 		return
@@ -497,6 +504,12 @@ func listItemW(x, valW int) int {
 	return w
 }
 
+// listValW is the room a list value has beside an item itemW wide that
+// starts at x: a long value (Playback info's) is cut short, not the item.
+func listValW(x, itemW int) int {
+	return max(40, OsdListW-OsdListPad-listValGap-x-itemW)
+}
+
 // showList puts a list up, opened on its cursor.
 func (p *Playing) showList(l *listMode) {
 	l.window()
@@ -507,10 +520,9 @@ func (p *Playing) showList(l *listMode) {
 
 func (p *Playing) openMore() {
 	items, vals := []string{}, []string{}
-	if p.cropMatters() {
-		items = append(items, "Crop")
-		vals = append(vals, p.app.crop.Label())
-	}
+	// every picture: Fill zooms a 4:3 one on a 16:9 raster too
+	items = append(items, "Crop")
+	vals = append(vals, p.app.crop.Label())
 	items = append(items, "Downmix boost")
 	boost := p.app.Cfg.AudioBoostValue()
 	label := itoa(boost) + "%"
@@ -522,7 +534,8 @@ func (p *Playing) openMore() {
 	vals = append(vals, label)
 	items = append(items, "Subtitle size")
 	vals = append(vals, SubtitleSizes[p.app.Cfg.subtitleSizeIndex()].Label)
-	p.showList(&listMode{kind: "More", items: items, vals: vals, set: -1})
+	items, vals = p.moreRows(items, vals, -1)
+	p.showList(&listMode{kind: "More", items: items, vals: vals, set: -1, step: -1})
 }
 
 func (p *Playing) openSubtitleSize() {
@@ -561,6 +574,12 @@ func (p *Playing) choose(l *listMode) {
 			p.openCrop()
 		case "Subtitle size":
 			p.openSubtitleSize()
+		case moreAutoplay:
+			p.toggleAutoplay(l)
+		case moreBitrate:
+			p.applyBitrate(l)
+		case moreInfo:
+			p.openInfo(time.Now())
 		default:
 			p.openBoost()
 		}
@@ -569,6 +588,8 @@ func (p *Playing) choose(l *listMode) {
 		p.app.Cfg.Save()
 		p.send("boost " + itoa(p.app.Cfg.AudioBoostValue()))
 		p.list = nil
+	case moreInfo:
+		p.closeList() // read only: OK goes back as Back does
 	case "Crop":
 		crop := Crops[l.cur].Mode
 		p.app.setCrop(crop)
@@ -614,6 +635,10 @@ func (p *Playing) restartTracks() {
 
 // closeList returns from a track list to the controls.
 func (p *Playing) closeList() {
+	if p.list.kind == moreInfo {
+		p.reopenMore(moreInfo)
+		return
+	}
 	if p.list.kind == "Crop" || p.list.kind == "Downmix boost" || p.list.kind == "Subtitle size" {
 		p.openMore()
 		return
@@ -631,8 +656,6 @@ func (p *Playing) burnsSubtitle() bool {
 	}
 	return false
 }
-
-func (p *Playing) cropMatters() bool { return p.item.Aspect <= 0 || p.item.Aspect > 4.0/3.0*1.01 }
 
 // Key handles a pad event during playback; returns true when playback
 // should stop (or move along the queue: Next is set).
@@ -708,7 +731,14 @@ func (p *Playing) Key(ev input.Event, now time.Time) bool {
 				l.cur++
 			}
 			l.window()
-		case input.Back, input.Left, input.Right:
+		case input.Left, input.Right:
+			if p.stepMore(l, ev.Key == input.Right) {
+				break // a value row of More: the value steps
+			}
+			if !ev.Repeat {
+				p.closeList()
+			}
+		case input.Back:
 			if !ev.Repeat {
 				p.closeList()
 			}
@@ -993,6 +1023,7 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 	var x, y int
 	if p.list != nil {
 		l := p.list
+		p.refreshInfo(now)
 		osd.Dot(0, 0, 0, false)
 		moved := false
 		if field {
@@ -1397,14 +1428,14 @@ func (p *Playing) uploadList(osd OSD) {
 		}
 		valW := 0
 		if i < len(l.vals) {
-			valW = f.Body.Width(l.vals[i])
+			valW = min(f.Body.Width(l.vals[i]), listValW(p.menuX(), f.Body.Width(item)))
 		}
 		c.Text(p.menuX(), y, f.Body, gfx.GreyHi, f.Body.Fit(item, listItemW(p.menuX(), valW)))
 		if i == l.set {
 			tick(c, OsdListW-30, y+f.Body.Height()/2, gfx.GreyHi)
 		}
 		if i < len(l.vals) {
-			c.TextRight(OsdListW-OsdListPad, y, f.Body, gfx.GreyLo, l.vals[i])
+			c.TextRight(OsdListW-OsdListPad, y, f.Body, gfx.GreyLo, f.Body.Fit(l.vals[i], listValW(p.menuX(), f.Body.Width(item))))
 		}
 	}
 	l.base, l.uploaded, l.loaded = base, rows, true

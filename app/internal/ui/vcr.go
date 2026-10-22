@@ -324,6 +324,7 @@ func (p *Playing) drawListVCR(c *gfx.Canvas, base int) {
 		v, valW := "", 0
 		if i < len(l.vals) {
 			v = strings.ToUpper(l.vals[i])
+			v = vcrSmall.Fit(v, listValW(x, vcrSmall.Width(item)))
 			valW = vcrSmall.Width(v)
 		}
 		c.PixelText(x, y+2, vcrSmall, vcrText, vcrShadow, vcrSmall.Fit(item, listItemW(x, valW)))
