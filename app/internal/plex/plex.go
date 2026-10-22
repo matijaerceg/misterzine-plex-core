@@ -715,6 +715,67 @@ func (c *Client) Hubs(count int) ([]*Hub, error) {
 		}
 		out = append(out, hub)
 	}
+	// The two hubs are capped at count each, so on a busy server a show
+	// whose last episode was just finished (On Deck only) falls past the
+	// row's end. The server's own Continue Watching list holds both, in
+	// its order by recency; it replaces the merge where the server has it.
+	if items, err := c.continueWatchingItems(count, false); err == nil {
+		cw := findHub(out, "home.")
+		if cw == nil && len(items) > 0 {
+			cw = &Hub{Title: "Continue Watching", Key: "/hubs/continueWatching/items", Ident: "home.continue"}
+			out = append([]*Hub{cw}, out...)
+		}
+		if cw != nil {
+			cw.Ident, cw.Title, cw.Items = "home.continue", "Continue Watching", items
+			if len(items) == 0 {
+				out = removeHub(out, cw)
+			}
+		}
+	}
+	return out, nil
+}
+
+func removeHub(hubs []*Hub, h *Hub) []*Hub {
+	var out []*Hub
+	for _, x := range hubs {
+		if x != h {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+// continueWatchingItems reads the server's Continue Watching list in its
+// order: the first max items (all with max 0), without Media when bare.
+func (c *Client) continueWatchingItems(max int, bare bool) ([]*Item, error) {
+	q := url.Values{"excludeFields": {"summary,tagline"},
+		"excludeElements": {"Genre,Director,Writer,Role,Country,Producer,Guid,Collection,Label,Field,UltraBlurColors"}}
+	if bare {
+		q.Set("excludeElements", q.Get("excludeElements")+",Media")
+	}
+	if max > 0 {
+		q.Set("X-Plex-Container-Start", "0")
+		q.Set("X-Plex-Container-Size", strconv.Itoa(max))
+	}
+	data, err := c.getSlow("/hubs/continueWatching/items", q)
+	if err != nil {
+		return nil, err
+	}
+	var mc xmlContainer
+	if err := xml.Unmarshal(data, &mc); err != nil {
+		return nil, err
+	}
+	out := []*Item{}
+	for i := range mc.Items {
+		x := &mc.Items[i]
+		if x.XMLName.Local != "Video" && x.XMLName.Local != "Directory" {
+			continue
+		}
+		if max > 0 && len(out) == max {
+			break
+		}
+		out = append(out, x.item())
+	}
 	return out, nil
 }
 
@@ -824,21 +885,14 @@ func (c *Client) Scrobble(ratingKey string, watched bool) error {
 // hubs of the Home row together and without the row's cap. A server
 // without the list answers with an error.
 func (c *Client) ContinueWatching() (map[string]bool, error) {
-	q := url.Values{"excludeFields": {"summary,tagline"},
-		"excludeElements": {"Genre,Director,Writer,Role,Country,Producer,Guid,Collection,Label,Field,UltraBlurColors,Media"}}
-	data, err := c.getSlow("/hubs/continueWatching/items", q)
+	items, err := c.continueWatchingItems(0, true)
 	if err != nil {
 		return nil, err
 	}
-	var mc xmlContainer
-	if err := xml.Unmarshal(data, &mc); err != nil {
-		return nil, err
-	}
 	keys := map[string]bool{}
-	for i := range mc.Items {
-		x := &mc.Items[i]
-		if (x.XMLName.Local == "Video" || x.XMLName.Local == "Directory") && x.RatingKey != "" {
-			keys[x.RatingKey] = true
+	for _, it := range items {
+		if it.RatingKey != "" {
+			keys[it.RatingKey] = true
 		}
 	}
 	return keys, nil
