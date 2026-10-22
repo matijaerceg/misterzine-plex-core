@@ -19,9 +19,10 @@ import (
 	"plexcrt/internal/input"
 )
 
-// The worker's own test (arm/test_video_geometry.c) reads the same table,
-// so the calibration pattern and the played picture land in the same place.
-func TestGeometryFitMatchesPresenterCases(t *testing.T) {
+// arm/test_video_geometry.c reads the same table (video_geometry_compute in
+// arm/video_geometry.h), so the calibration pattern and the played picture
+// land in the same place.
+func TestGeometryFitMatchesSharedFitCases(t *testing.T) {
 	f, err := os.Open(filepath.Join("..", "..", "..", "tools", "testdata", "fit_cases.txt"))
 	if err != nil {
 		t.Fatal(err)

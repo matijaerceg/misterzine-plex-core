@@ -21,12 +21,13 @@ correction, and anything else that is not decoding and presentation. Its user in
 draws itself, into the Linux framebuffer; the core shows it over the video on every output
 ([Your own screens](overlay.md)).
 
-!!! info "Interface version 1.1 -- the layout frozen at 1.0"
+!!! info "Interface version 1.4 -- the layout frozen at 1.0"
     The layout and the meaning of every word are fixed for every 1.x core: a later version
     only adds, so a program built for 1.0 keeps working on newer cores
     ([Versions](interface.md#versions)). 1.1 changes no word: audio written ahead of its
-    video can no longer stop the picture. Build against the client library: it carries the
-    layout and checks the version.
+    video can no longer stop the picture. 1.2 to 1.4 add playback geometry, display
+    requests and the refresh-match field ([Version history](interface.md#version-history)).
+    Build against the client library: it carries the layout and checks the version.
 
 ## The pieces
 
@@ -40,7 +41,7 @@ draws itself, into the Linux framebuffer; the core shows it over the video on ev
 - **`h264stat`** -- prints the status block, alone or beside a running feeder.
 - **The four programs in `clients/`** (Moonlight, the upstream core's cast-only Jellyfin client,
   the video player, the camera viewer) -- complete programs on the same library,
-  GPL-3.0-or-later. MisterZine Jellyfin releases include none of them; MisterZine Jellyfin
+  GPL-3.0-or-later. MisterZine Plex releases include none of them; MisterZine Plex
   feeds the core with its own player.
   `clients/common/` holds what three of them share: the session, the on-screen interface drawn
   into the overlay, input, subtitles, and decoding other formats on the ARM.

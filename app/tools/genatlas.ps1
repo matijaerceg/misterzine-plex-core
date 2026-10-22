@@ -43,14 +43,8 @@ Gen "med18"  "Roboto Medium" 18 $R
 Gen "bold18" "Roboto" 18 $B
 Gen "med22"  "Roboto Medium" 22 $R
 Gen "bold22" "Roboto" 22 $B
-Gen "cond18" "Roboto Condensed" 18 $R
-Gen "cond22" "Roboto Condensed" 22 $R
 Gen "bold28" "Roboto" 28 $B
-Gen "condbold24" "Roboto Condensed" 24 $B
-Gen "black26" "Roboto Black" 26 $R
-Gen "black17" "Roboto Black" 17 $R
 $BI = [System.Drawing.FontStyle]::Bold -bor [System.Drawing.FontStyle]::Italic
+# nothing in this app loads blackit26; supporter builds do (docs/SUPPORTER_BUILDS.md)
 Gen "blackit26" "Roboto Black" 26 $BI
-Gen "blackit17" "Roboto Black" 17 $BI
-Gen "condit24" "Roboto Condensed" 24 $BI
-Gen "condregit24" "Roboto Condensed" 24 ([System.Drawing.FontStyle]::Italic)
+Gen "condit24" "Roboto Condensed" 24 $BI # the beta access screen's title

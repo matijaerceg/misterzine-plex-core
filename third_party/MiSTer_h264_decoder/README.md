@@ -22,13 +22,15 @@ presents picture and sound against one clock, and drives:
 It is not tied to one service. Game streaming, a media server, local files and a USB camera all
 come in through the same interface.
 
-**This is MisterZine Jellyfin's fork of the core.** It is released only inside
-[MisterZine Jellyfin](https://github.com/matijaerceg/misterzine-jellyfin), whose installer puts
-the app and this core on the SD card together ([manual](site/content/using/jellyfin.md)).
+**This is the MisterZine fork of the core, as kept in MisterZine Plex.** Here it is built as
+`PlexH264.rbf` and released only inside
+[MisterZine Plex](https://github.com/matijaerceg/misterzine-plex-core), whose installer puts
+the app and this core on the SD card together ([user guide](https://github.com/matijaerceg/misterzine-plex-core/blob/main/release/README.md)).
+MisterZine Jellyfin builds the same fork as its own core, under another name.
 
 ## Programs in this repository
 
-The source of four programs that feed the core is in `clients/`. MisterZine Jellyfin releases
+The source of four programs that feed the core is in `clients/`. MisterZine Plex releases
 include none of them: build one yourself to use it
 ([Install the core](site/content/getting-started/install.md#the-other-programs)). Each starts
 from MiSTer's **Scripts** menu and is driven with the gamepad.
@@ -38,7 +40,7 @@ from MiSTer's **Scripts** menu and is driven with the gamepad.
 | **Moonlight** ([manual](site/content/using/moonlight.md)) | Streams games from a PC running Sunshine. The MiSTer's keyboard, mouse and gamepads reach the PC; rumble comes back. |
 | **Video player** ([manual](site/content/using/player.md)) | Plays files from the SD card, a USB drive or a network share. H.264 goes to the core; MPEG-2, DivX / Xvid, WMV, Theora and Motion JPEG are decoded on the ARM and shown the same way. |
 | **Camera viewer** ([manual](site/content/using/camera.md)) | Shows a USB webcam or capture device -- the MiSTer as a 15 kHz monitor for another source. |
-| **Jellyfin cast client** ([`clients/jellyfin`](clients/jellyfin/README.md)) | The upstream core's cast target for a Jellyfin server, kept as source. MisterZine Jellyfin replaces it for users of this fork. |
+| **Jellyfin cast client** ([`clients/jellyfin`](clients/jellyfin/README.md)) | The upstream core's cast target for a Jellyfin server, kept as source. It is not part of MisterZine Plex releases. |
 
 ## What the core handles
 
@@ -52,12 +54,12 @@ from MiSTer's **Scripts** menu and is driven with the gamepad.
 | **Input** | The keyboard, mouse and gamepads plugged into the MiSTer reach the program; the program can drive the gamepads' rumble. |
 
 Higher rates (720p at 60 frames/s, 1080p) decode correctly but fall behind, visibly, so the
-programs avoid them: the player and Moonlight refuse them by name, MisterZine Jellyfin asks the
+programs avoid them: the player and Moonlight refuse them by name, MisterZine Plex asks the
 server for a transcode. The full list: [compatibility](site/content/reference/compatibility.md).
 
 ## Write your own program
 
-The interface is a ring of records and a control block in shared DDR3 memory -- **version 1.2,
+The interface is a ring of records and a control block in shared DDR3 memory -- **version 1.4,
 the layout frozen at 1.0**: a program built for 1.0 keeps working on every later 1.x core. The C client library in
 [`hps/`](hps/) (MIT-licensed, libc only) does the work:
 
@@ -81,7 +83,7 @@ is a complete reference player.
 **A proof of concept, offered as is.** Everything above runs on the hardware (a DE10-Nano,
 tested over HDMI, on CRTs and through a RetroTINK); the video player and the camera viewer are
 early. **No support is provided**: issues and pull requests may go unanswered, and nothing here
-is a promise of future work. MisterZine Jellyfin releases carry the core built from this
+is a promise of future work. MisterZine Plex releases carry the core built from this
 source.
 
 **If you fork it**, these are the places to start:

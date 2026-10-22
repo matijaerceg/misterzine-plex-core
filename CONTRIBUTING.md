@@ -17,32 +17,27 @@ Keep changes focused and explain the resulting behavior. Retain the applicable
 [application terms](release/TERMS.md). No additional license grant is implied
 by source availability.
 
-On Linux with Go 1.27 and Python 3 (on Windows, inside WSL):
+On Linux (on Windows, inside WSL) with Go 1.27, Python 3 and a host C
+compiler (the race detector needs cgo):
 
 ```sh
 cd app
-go test ./...
+go test -race ./...
 GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go vet ./...
 GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -o dist/plexcrt ./cmd/plexcrt
 cd ..
+make -C arm test
 python3 -m unittest discover -s release -p 'test*.py'
-python3 arm/test_jfplay_contract.py
-make -C arm core-owner-test audio-boost-test seek-cache-test seek-protocol-test h264-idr-test direct-check-test
-make -C arm film-speed-test
+python3 -m unittest discover -s tools -p 'test*.py'
 python3 tools/check_public_content.py
 ```
 
-The `make` tests and the worker need the HPS library and FFmpeg prefix from
-`toolchain/build_hps.sh` and `toolchain/build_ffmpeg.sh` ([build](docs/BUILD.md)).
-
-Run the standalone geometry test from the repository root as well; it compares
-the C helper with the shared fit fixtures and checks calibrated crop/fit,
-480/576-line alignment, and invalid inputs:
-
-```sh
-cc -std=c99 -Wall -Wextra -Werror -Iarm arm/test_video_geometry.c -o /tmp/test_video_geometry
-/tmp/test_video_geometry
-```
+`make -C arm test` runs the worker's contract check and every C host test,
+including the geometry test, which compares the C helper with the shared fit
+fixtures in `tools/testdata/fit_cases.txt`. The tests build with the host
+compiler alone; only the worker itself (`make -C arm jfplay`) needs the ARM
+toolchain and the HPS library and FFmpeg prefix from `toolchain/build_hps.sh`
+and `toolchain/build_ffmpeg.sh` ([build](docs/BUILD.md)).
 
 Core changes are checked without Quartus by the wiring check and the core's
 test suite:
@@ -51,6 +46,10 @@ test suite:
 python3 third_party/MiSTer_h264_decoder/tools/check_emu_wiring.py
 bash third_party/MiSTer_h264_decoder/tools/tests/run_tests.sh
 ```
+
+Playback calibration is capability-gated on HPS interface 1.2; see
+[Build from source](docs/BUILD.md#dependencies-and-playback-worker) for which
+cores apply saved geometry.
 
 The core's display controls and `jfplay` film-speed selection use HPS interface
 1.3; interface 1.4 exposes the selected Off/50-60 refresh-match mode in status
@@ -74,8 +73,6 @@ vvp /tmp/sync_gen_240_tb
 Independent installer and publishing checks are described in
 [distribution](release/DISTRIBUTION.md). The real Downloader integration test
 uses a disposable `/media` card tree and a supplied official Downloader archive.
-`tools/check_update_device.py` exercises the synthetic lifecycle on MiSTer while
-preserving the normal installation; read its required fixture arguments first.
 
 Hardware-dependent changes also need a MiSTer test. Verify direct streaming and
 transcoding, continuous audio/video, pause/resume, repeated seeking, stop/restart,

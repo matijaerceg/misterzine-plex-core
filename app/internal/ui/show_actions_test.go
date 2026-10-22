@@ -67,7 +67,7 @@ func showTestApp(t *testing.T, s *showServer) *App {
 		Out: &fakeOut{c: gfx.NewCanvas(720, 480)}, Cfg: &Config{}, later: make(chan func(), 32),
 		Art: NewArt(nil, 0, nil), T: gfx.NewTextCache(0, nil),
 		Player: &Player{Access: func() error { return errPlayed }}}
-	a.F = Fonts{Title: gfx.Load("med22"), Body: gfx.Load("med18"), Small: gfx.Load("reg16"), SmallBold: gfx.Load("med16"), Big: gfx.Load("bold28")}
+	a.F = appFonts()
 	return a
 }
 

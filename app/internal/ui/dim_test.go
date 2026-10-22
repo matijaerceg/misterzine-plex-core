@@ -12,7 +12,7 @@ import (
 type dimPresenter struct {
 	Presenter
 	level, sets int
-	old         bool // a core without the brightness word
+	old         bool // a dimmer without brightness support (the ring never is one)
 }
 
 func (p *dimPresenter) SetBrightness(level int) { p.level = level; p.sets++ }

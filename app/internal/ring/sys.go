@@ -72,7 +72,7 @@ const fbioGetFScreenInfo = 0x4602
 
 // mapFB maps /dev/fb0 whole and lays the pages out at its start, after
 // checking the driver's memory lies inside the region the core reads.
-func (r *Ring) mapFB() error {
+func (r *Ring) mapFB(logf func(string, ...any)) error {
 	f, err := os.OpenFile("/dev/fb0", os.O_RDWR, 0)
 	if err != nil {
 		return err
@@ -88,9 +88,9 @@ func (r *Ring) mapFB() error {
 	}
 	if n < uint64(NPage*r.opage) {
 		// Native pages are useful only when both can flip without tearing.
-		// Keep the larger video and use a centered logical canvas instead.
+		// Keep the larger video and use a centred logical canvas instead.
 		r.setOutput(W, H)
-		fmt.Fprintf(os.Stderr, "ring: /dev/fb0 maps %d bytes; using centered %dx%d overlay pages instead of native raster\n", n, W, H)
+		logf("ring: /dev/fb0 maps %d bytes; using centred %dx%d overlay pages instead of native raster", n, W, H)
 	}
 	if n < uint64(r.opage) {
 		return fmt.Errorf("/dev/fb0 maps %d bytes, less than one %dx%d page", n, r.ow, r.oh)

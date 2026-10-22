@@ -1,6 +1,11 @@
-"""Summarize opt-in transition traces against season_device_test.py cadence data.
+"""Summarize opt-in transition traces against cadence data captured from the screen.
 
-Run the app with PLEX_TRANSITION_TRACE=1. Extract only 'transition trace {' log
+The cadence JSON is a list with one run per transition, oldest first:
+[{"shown": [{"seq": S, "field": F}, ...]}, ...], where S is a frame's
+publication sequence number (the trace's Published.Published) and F the core's
+32-bit field counter when that frame was first on screen.
+
+Run the app with PLEXCRT_TRANSITION_TRACE=1. Extract only 'transition trace {' log
 lines, then pass that file and the cadence JSON here. Timings contain no media
 titles, server URLs or credentials. The last N traces match N cadence runs.
 """

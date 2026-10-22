@@ -22,9 +22,8 @@ import (
 type Player struct {
 	Client                      *plex.Client
 	Binary, Fifo, Status, LogTo string
-	// Script is retained for launcher compatibility. Access is checked before
-	// opening a playback log or contacting the server.
-	Script      string
+	// Access is checked before opening a playback log or contacting the
+	// server.
 	Access      func() error
 	Kbps, Boost func() int
 	// SubtitleSize is the size the server burns a subtitle into a
@@ -39,13 +38,22 @@ type Player struct {
 	DrawsSubtitle func(ratingKey string, s plex.Stream) bool
 	Hide          func()
 	exec          func(string, ...string) *exec.Cmd
-	reportOnce    sync.Once
-	reports       chan func()
+	stopGrace     time.Duration // how long a worker asked to stop has before it is killed; 0 is 3 s
+	// reportWait bounds StartAsync's wait for the last session's stopped
+	// report; 0 is 3 s
+	reportWait time.Duration
+	reportOnce sync.Once
+	reports    chan func()
+	lastMu     sync.Mutex
+	last       *Session // the session StartAsync started last
 }
 
 type Session struct {
-	p    *Player
-	item *plex.Item
+	p *Player
+	// client is the Player's when the session started: its reports go to
+	// that server and account even after the app signs in elsewhere.
+	client *plex.Client
+	item   *plex.Item
 	// opMu serializes player lifecycle changes and status reports. mu only
 	// protects fields shared with readers such as UI state.
 	opMu                     sync.Mutex
@@ -93,11 +101,7 @@ func (p *Player) Started(t time.Time) bool {
 
 func (p *Player) Reap() {
 	entries, _ := os.ReadDir("/proc")
-	owner := p.Binary
-	if owner == "" {
-		owner = p.Script
-	}
-	owner = filepath.Clean(owner)
+	owner := filepath.Clean(p.Binary)
 	var owned []int
 	for _, entry := range entries {
 		pid, err := strconv.Atoi(entry.Name())
@@ -136,7 +140,8 @@ func (p *Player) Start(item *plex.Item, offset int) (*Session, error) {
 			return nil, err
 		}
 	}
-	if p.Client == nil {
+	client := p.Client
+	if client == nil {
 		return nil, fmt.Errorf("playback has no Plex client")
 	}
 	if offset < 0 {
@@ -146,7 +151,7 @@ func (p *Player) Start(item *plex.Item, offset int) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot open playback log: %w", err)
 	}
-	s := &Session{p: p, item: copyPlaybackItem(item), lf: lf, Done: make(chan error, 1), reported: make(chan struct{}), ctx: context.Background()}
+	s := &Session{p: p, client: client, item: copyPlaybackItem(item), lf: lf, Done: make(chan error, 1), reported: make(chan struct{}), ctx: context.Background()}
 	if err := s.startContext(offset, false, s.ctx); err != nil {
 		lf.Close()
 		return nil, err
@@ -164,7 +169,8 @@ func (p *Player) StartAsync(item *plex.Item, offset int) (*Session, error) {
 			return nil, err
 		}
 	}
-	if p.Client == nil {
+	client := p.Client
+	if client == nil {
 		return nil, fmt.Errorf("playback has no Plex client")
 	}
 	if offset < 0 {
@@ -175,14 +181,21 @@ func (p *Player) StartAsync(item *plex.Item, offset int) (*Session, error) {
 		return nil, fmt.Errorf("cannot open playback log: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Session{p: p, item: copyPlaybackItem(item), lf: lf, Done: make(chan error, 1), reported: make(chan struct{}), async: true, ctx: ctx, cancel: cancel, uiWake: make(chan struct{}, 1)}
+	s := &Session{p: p, client: client, item: copyPlaybackItem(item), lf: lf, Done: make(chan error, 1), reported: make(chan struct{}), async: true, ctx: ctx, cancel: cancel, uiWake: make(chan struct{}, 1)}
 	_ = os.Remove(p.Status) // never let a canceled start consume an old session's position.
 	p.startReporter()
 	// Reserve the lifecycle before publishing the session to command callers.
 	// An immediate seek must wait for initial startup, not launch ahead of it.
 	s.opMu.Lock()
+	p.lastMu.Lock()
+	prev := p.last
+	p.last = s
+	p.lastMu.Unlock()
 	go s.runUICommands()
 	go func() {
+		if prev != nil {
+			p.awaitReports(ctx, prev)
+		}
 		err := s.startContext(offset, false, ctx)
 		s.opMu.Unlock()
 		if err != nil {
@@ -194,6 +207,24 @@ func (p *Player) StartAsync(item *plex.Item, offset int) (*Session, error) {
 		go s.watch()
 	}()
 	return s, nil
+}
+
+// awaitReports waits, a few seconds at most, for prev's stopped report. That
+// report selects again the subtitle a transcode had the server burn in;
+// landing after the next start's PlaybackInfo, it would undo the subtitle
+// choice that start made.
+func (p *Player) awaitReports(ctx context.Context, prev *Session) {
+	wait := p.reportWait
+	if wait <= 0 {
+		wait = 3 * time.Second
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-prev.reported:
+	case <-ctx.Done():
+	case <-timer.C:
+	}
 }
 
 func copyPlaybackItem(item *plex.Item) *plex.Item {
@@ -258,10 +289,6 @@ func (s *Session) burnedSubtitle(selected string) string {
 		}
 	}
 	return selected
-}
-
-func (s *Session) start(offset int, reuseDirect bool) error {
-	return s.startContext(offset, reuseDirect, context.Background())
 }
 
 func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context) error {
@@ -334,7 +361,7 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 		// the core keeps up; it exits 7 when a transcode is needed.
 		args = append(args, "--direct")
 	}
-	args = append(args, "--headers", p.Client.StreamHeaders(), "--fifo", p.Fifo, "--status", p.Status)
+	args = append(args, "--fifo", p.Fifo, "--status", p.Status)
 	// jfplay loads the app's own build of the core when another runs, and
 	// counts a core of that name as its own
 	args = append(args, "--rbf", ring.CoreFile(), "--core-name", ring.AppCoreName)
@@ -361,9 +388,12 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 		run = exec.Command
 	}
 	cmd := run(p.Binary, args...)
-	output := &safelog.Writer{Out: s.lf, Secrets: []string{p.Client.Token}}
+	output := &safelog.Writer{Out: s.lf, Secrets: []string{s.client.Token}}
 	cmd.Stdout, cmd.Stderr = output, output
-	cmd.Env = append(os.Environ(), "MISTERZINE_JFPLAY_OWNER="+filepath.Clean(p.Binary))
+	// The headers carry the token, so they go in the environment (readable by
+	// this user only), not on the command line (readable by every process).
+	cmd.Env = append(os.Environ(), "MISTERZINE_JFPLAY_OWNER="+filepath.Clean(p.Binary),
+		"JFPLAY_HEADERS="+s.client.StreamHeaders())
 	s.mu.Lock()
 	if ctx.Err() != nil || s.closing || s.stopRequested {
 		s.mu.Unlock()
@@ -417,7 +447,7 @@ func directAudio(part plex.MediaPart, audio string) *plex.MediaStream {
 // stopTranscode ends a transcode session the playback no longer uses, in
 // order with the reports.
 func (s *Session) stopTranscode(session string) {
-	stop := func() { _ = s.p.Client.StopTranscode(context.Background(), session) }
+	stop := func() { _ = s.client.StopTranscode(context.Background(), session) }
 	if s.async {
 		s.p.reportAsync(stop, false)
 	} else {
@@ -574,17 +604,17 @@ func (s *Session) updateLocked(report bool) {
 
 func (s *Session) reportStart(ps plex.PlayState) {
 	if s.async {
-		s.p.reportAsync(func() { _ = s.p.Client.ReportStart(context.Background(), ps) }, false)
+		s.p.reportAsync(func() { _ = s.client.ReportStart(context.Background(), ps) }, false)
 	} else {
-		_ = s.p.Client.ReportStart(context.Background(), ps)
+		_ = s.client.ReportStart(context.Background(), ps)
 	}
 }
 
 func (s *Session) reportProgress(ps plex.PlayState) {
 	if s.async {
-		s.p.reportAsync(func() { _ = s.p.Client.ReportProgress(context.Background(), ps) }, true)
+		s.p.reportAsync(func() { _ = s.client.ReportProgress(context.Background(), ps) }, true)
 	} else {
-		_ = s.p.Client.ReportProgress(context.Background(), ps)
+		_ = s.client.ReportProgress(context.Background(), ps)
 	}
 }
 
@@ -923,7 +953,11 @@ func (s *Session) stopProcessLocked() {
 	if done == nil {
 		return
 	}
-	timer := time.NewTimer(3 * time.Second)
+	grace := s.p.stopGrace
+	if grace <= 0 {
+		grace = 3 * time.Second
+	}
+	timer := time.NewTimer(grace)
 	defer timer.Stop()
 	select {
 	case <-done:
@@ -962,14 +996,14 @@ func (s *Session) finishLocked(err error) {
 		// session's start report cannot overtake it.
 		if ps.Session != "" {
 			s.p.reportAsync(func() {
-				_ = s.p.Client.ReportStopped(context.Background(), ps)
+				_ = s.client.ReportStopped(context.Background(), ps)
 				close(s.reported)
 			}, false)
 		} else {
 			close(s.reported)
 		}
 	} else {
-		_ = s.p.Client.ReportStopped(context.Background(), ps)
+		_ = s.client.ReportStopped(context.Background(), ps)
 		close(s.reported)
 	}
 	_ = s.lf.Close()

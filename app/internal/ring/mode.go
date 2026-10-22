@@ -7,18 +7,22 @@ import (
 )
 
 // MiSTer main sizes the Linux framebuffer for its own HDMI mode (width x
-// height x 4 bytes): at 720x480, or with direct video, /dev/fb0 holds a
-// single 720x480 8888 page, and the overlay needs two to flip without
-// tearing. Main writes that mode again whenever it sets a video mode (every
-// core load), so Open enlarges it after the core is up and Watch puts it
-// back when it shrinks. The core reads the overlay's page by its physical
-// address, not through the mode, so the mode's pixel format does not
-// matter, only how much memory it maps. Writing the mode clears the
-// framebuffer; the app redraws.
+// height x 4 bytes). The overlay needs room for two pages of the largest
+// size it uses (1280x720 ARGB8888, maxPageSize) to flip without tearing,
+// and a 720p, 480p or direct-video mode maps less. Main writes that mode
+// again whenever it sets a video mode (every core load), so Open enlarges
+// it after the core is up and Watch puts it back when it shrinks. The core
+// reads the overlay's page by its physical address, not through the mode,
+// so the mode's pixel format does not matter, only how much memory it
+// maps. Writing the mode clears the framebuffer; the app redraws.
 
 var modeFile = "/sys/module/MiSTer_fb/parameters/mode"
 
-const fullMode = "8888 1 1920 1080 7680"
+const (
+	fullMode = "8888 1 1920 1080 7680"
+	// pagesBytes is how much the mode must map: two of the largest pages.
+	pagesBytes = NPage * maxPageSize
+)
 
 func readMode() string {
 	b, err := os.ReadFile(modeFile)
@@ -29,13 +33,9 @@ func readMode() string {
 }
 
 // modeTooSmall reports whether a MiSTer_fb mode ("format rgb width height
-// stride") maps less than the two overlay pages. A mode it cannot read is
-// left alone.
+// stride") maps less than two overlay pages. A mode it cannot read is left
+// alone.
 func modeTooSmall(mode string) bool {
-	return modeTooSmallFor(mode, NPage*pageSize)
-}
-
-func modeTooSmallFor(mode string, bytes int) bool {
 	f := strings.Fields(mode)
 	if len(f) != 5 {
 		return false
@@ -48,18 +48,14 @@ func modeTooSmallFor(mode string, bytes int) bool {
 		}
 		v[i] = n
 	}
-	return v[3]*v[4] < bytes
+	return v[3]*v[4] < pagesBytes
 }
 
 // enlargeMode writes the 1920x1080 mode when the current one maps less than
 // the pages, and returns the mode it replaced ("" when it wrote nothing).
 func enlargeMode() (string, error) {
-	return enlargeModeFor(NPage * pageSize)
-}
-
-func enlargeModeFor(bytes int) (string, error) {
 	m := readMode()
-	if !modeTooSmallFor(m, bytes) {
+	if !modeTooSmall(m) {
 		return "", nil
 	}
 	return m, os.WriteFile(modeFile, []byte(fullMode+"\n"), 0)
@@ -68,11 +64,7 @@ func enlargeModeFor(bytes int) (string, error) {
 // keepMapped puts back a framebuffer mode that maps less than the pages
 // and returns the mode now in place.
 func keepMapped(logf func(string, ...any), mode string) string {
-	return keepMappedFor(logf, mode, NPage*pageSize)
-}
-
-func keepMappedFor(logf func(string, ...any), mode string, bytes int) string {
-	from, err := enlargeModeFor(bytes)
+	from, err := enlargeMode()
 	if err != nil {
 		logf("watch: framebuffer mode %q maps less than two overlay pages and could not be changed: %v", from, err)
 		return mode

@@ -49,7 +49,9 @@ func (t *Theme) Stop() {
 	}
 }
 
-func (t *Theme) Select(c *plex.Client, key, path string) {
+// Select plays key's theme once, decoded by ffmpeg; an empty key stops the
+// one playing.
+func (t *Theme) Select(c *plex.Client, ffmpeg, key, path string) {
 	if key == t.key {
 		return
 	} // includes a theme that already finished: play once
@@ -80,13 +82,13 @@ func (t *Theme) Select(c *plex.Client, key, path string) {
 				return
 			}
 		}
-		themePlay(ctx, file)
+		themePlay(ctx, ffmpeg, file)
 	}()
 }
 
-func playTheme(ctx context.Context, file string) {
+func playTheme(ctx context.Context, ffmpeg, file string) {
 	playThemeCommands(ctx, func(hard context.Context) (*exec.Cmd, *exec.Cmd) {
-		decode := exec.CommandContext(hard, os.Getenv("PLEX_FFMPEG"),
+		decode := exec.CommandContext(hard, ffmpeg,
 			"-nostdin", "-v", "error", "-i", file, "-f", "s16le", "-ac", "2", "-ar", "48000", "pipe:1")
 		output := exec.CommandContext(hard, "/usr/bin/aplay", "-q", "-t", "raw", "-f", "S16_LE",
 			"-c", "2", "-r", "48000", "--buffer-time=40000", "--period-time=10000", "-")
@@ -195,5 +197,5 @@ func (a *App) syncTheme() {
 		}
 		break
 	}
-	a.theme.Select(a.Plex, key, path)
+	a.theme.Select(a.Plex, a.FFmpeg, key, path)
 }

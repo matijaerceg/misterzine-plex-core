@@ -49,7 +49,7 @@ func run() int {
 	cache := flag.String("cache", filepath.Join(home, "cache"), "artwork cache directory")
 	dump := flag.String("dump", "", "render once to this PPM and exit")
 	wait := flag.Duration("wait", 8*time.Second, "with -dump: how long to wait for artwork")
-	script := flag.String("player", filepath.Join(home, "jfplay"), "playback worker")
+	playerPath := flag.String("player", filepath.Join(home, "jfplay"), "playback worker")
 	prof := flag.String("cpuprofile", "", "write a CPU profile here until exit")
 	cfgPath := flag.String("config", filepath.Join(home, "plexcrt.json"), "settings file")
 	showVersion := flag.Bool("version", false, "show version and exit")
@@ -71,17 +71,19 @@ func run() int {
 		}
 		return 0
 	}
-	ff := filepath.Join(home, "ffmpeg")
-	if _, err := os.Stat(ff); err != nil {
-		ff = filepath.Join(home, "ffmpeg-7.0.2-armhf-static", "ffmpeg")
-	}
+	ff := filepath.Join(home, "ffmpeg") // the installer places it beside the app
 	if *decoder != "" {
 		ff = *decoder
 	}
-	os.Setenv("PLEX_FFMPEG", ff)
-	os.Setenv("MISTERZINE_PLEX_OWNER", filepath.Clean(*script))
+	// The MISTERZINE_PLEX_* names (OWNER here, READY_FILE and DISPLAY) keep
+	// their Plex-era spelling on purpose: they are a contract with
+	// release/manager.py and update_service.py, which set them for the app or
+	// look for them in a running process's environment (installed managers
+	// included). A rename must change both sides together and accept both
+	// names for a release.
+	os.Setenv("MISTERZINE_PLEX_OWNER", filepath.Clean(*playerPath))
 	if *dump == "" {
-		if err := preflight(home, *script, *cfgPath, *cache, ff); err != nil {
+		if err := preflight(home, *playerPath, *cfgPath, *cache, ff); err != nil {
 			fmt.Fprintln(os.Stderr, "MisterZine Plex Core:", err)
 			os.Exit(1)
 		}
@@ -128,9 +130,10 @@ func run() int {
 	}
 
 	if *dump != "" {
-		app := ui.New(client, &fileOut{gfx.NewCanvas(720, 480)}, nil, lg)
+		app := ui.New(client, &fileOut{gfx.NewCanvas(ui.DesignW, ui.DesignH)}, nil, lg)
 		app.Cfg = cfg
 		app.Version, app.Build = version, build
+		app.FFmpeg = ff
 		app.SetCacheDir(*cache)
 		app.Start()
 		app.DrawOnce()
@@ -148,13 +151,13 @@ func run() int {
 		return 0
 	}
 
-	r, err := ring.Open()
+	r, err := ring.Open(lg.Printf)
 	if err != nil {
 		lg.Fatalf("ring: %v (is the PlexH264 core loaded?)", err)
 	}
 	// The ring stays mapped until the process ends: the pad poller and the
 	// watchdog may still be reading it as the app stops, and exiting unmaps it.
-	player := &ui.Player{Client: client, Binary: *script, Fifo: "/tmp/jfplay.ctl", LogTo: filepath.Join(os.TempDir(), "jfplay.log"),
+	player := &ui.Player{Client: client, Binary: *playerPath, Fifo: "/tmp/jfplay.ctl", LogTo: filepath.Join(os.TempDir(), "jfplay.log"),
 		Status: "/tmp/jfplay.status", Kbps: cfg.BitrateKbps, Boost: cfg.AudioBoostValue, SubtitleSize: cfg.SubtitleSizeValue, Hide: r.Hide}
 	player.Access = func() error { return beta.Check(filepath.Dir(*cfgPath)) }
 	app := ui.New(client, r, player, lg)
@@ -170,6 +173,7 @@ func run() int {
 	}()
 	app.Cfg = cfg
 	app.Version, app.Build = version, build
+	app.FFmpeg = ff
 	app.Display = ui.ParseDisplayCheck(os.Getenv("MISTERZINE_PLEX_DISPLAY"))
 	app.SetCacheDir(*cache)
 	player.Reap()
@@ -256,18 +260,18 @@ func (f *fileOut) Foreign() bool                        { return false }
 func (f *fileOut) Late() (time.Duration, time.Duration) { return 0, 0 }
 func (f *fileOut) WaitField(max time.Duration)          { time.Sleep(16 * time.Millisecond) }
 
-func preflight(home, script, cfg, cache, ff string) error {
+func preflight(home, player, cfg, cache, ff string) error {
 	for _, name := range []string{"aplay"} {
 		if _, err := exec.LookPath(name); err != nil {
 			return fmt.Errorf("%s is missing; update MiSTer Linux and reinstall", name)
 		}
 	}
-	for _, path := range []string{script, ff} {
+	for _, path := range []string{player, ff} {
 		st, err := os.Stat(path)
 		if err != nil || st.IsDir() {
 			return fmt.Errorf("installation is incomplete (%s); run the installer again", filepath.Base(path))
 		}
-		if path != script && st.Mode()&0111 == 0 {
+		if path != player && st.Mode()&0111 == 0 {
 			return fmt.Errorf("%s is not executable; reinstall", filepath.Base(path))
 		}
 	}

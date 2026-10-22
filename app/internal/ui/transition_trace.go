@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-var traceTransitions = os.Getenv("PLEX_TRANSITION_TRACE") == "1"
+var traceTransitions = os.Getenv("PLEXCRT_TRANSITION_TRACE") == "1"
 
 type transitionTracePoint struct {
 	US                      int64

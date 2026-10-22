@@ -25,11 +25,14 @@ the current playback point (whichever bound is reached first).
 ## Invocation
 
 ```
-jfplay [--rbf path] [--core-name NAME] [--base SECONDS] [--start-in-file SECONDS] [--audio INDEX] [--headers "K: v\r\n..."] [--cafile path] [--fifo /tmp/jfplay.ctl] [--status /tmp/jfplay.status] [--hold] [--direct] [--volume 0-100] [--audio-boost 100-300] [--surround-source] [--analog-aspect 0-3] [--anti-twitter 0-2] [--geometry LEFT,TOP,RIGHT,BOTTOM,WIDTH] URL
+jfplay [--rbf path] [--core-name NAME] [--base SECONDS] [--start-in-file SECONDS] [--audio INDEX] [--headers "K: v\r\n..."] [--cafile path] [--fifo /tmp/jfplay.ctl] [--status /tmp/jfplay.status] [--hold] [--direct] [--volume 0-100] [--audio-boost 100-300] [--surround-source] [--analog-aspect 0-4] [--anti-twitter 0-2] [--geometry LEFT,TOP,RIGHT,BOTTOM,WIDTH] URL
 ```
 
 `URL` is a direct-play file or an HLS master/media playlist.  `--headers` is
-passed to every FFmpeg HTTP open, including HLS children.  `--cafile` enables
+passed to every FFmpeg HTTP open, including HLS children.  Without
+`--headers`, the environment variable `JFPLAY_HEADERS` supplies them; the app
+uses it, since the headers carry the token and a process's command line is
+readable by every other process.  `--cafile` enables
 TLS peer verification using that CA bundle.  The URL is never logged unless
 `JFPLAY_LOG_URLS=1` is in the environment.
 
@@ -59,16 +62,18 @@ The default RBF is `_Other/H264`.  The core is loaded only if necessary, then a
 new session is started.  Whether it is loaded is read from `/tmp/CORENAME`,
 where MiSTer writes the loaded core's own name (the first entry of its
 CONF_STR, not the rbf file name): `H264` for an upstream build of the core, or
-the name an app's build gives itself, which the app passes as `--core-name`
-(MisterZine Plex's core is `MisterZine Plex Core`).  Only those names count as the
-core being loaded and owned; without `--core-name`, only `H264` does, so an
-app-named core would be loaded again.  Volume is a user-facing linear amplitude percentage;
+the name an app's build gives itself.  With `--core-name NAME` only that name
+counts as the core being loaded and owned (MisterZine Plex passes
+`MisterZine Plex Core`), so an upstream `H264` core, which may be another
+app's, is loaded over rather than written to; without `--core-name`, only
+`H264` does.
+Volume is a user-facing linear amplitude percentage;
 100 maps to zero attenuation, 0 to mute, and intermediate values to the core's
-nearest 0.5 dB attenuation step. `--audio-boost` selects the saved 100, 175, or
-300 percent surround downmix gain (the menu presets are 100, 175, and 300). The
-gain applies only when the decoded source
-has more than two channels, or when `--surround-source` identifies a multichannel
-source already downmixed by the server. A soft limiter keeps boosted PCM within
+nearest 0.5 dB attenuation step. `--audio-boost` sets the surround downmix gain,
+100 to 300 percent (the app's presets are 100, 175 and 300). The gain applies
+only when the decoded source has more than two channels, or when
+`--surround-source` identifies a multichannel source already downmixed by the
+server. A soft limiter keeps boosted PCM within
 the signed 16-bit output range. Live `boost N` changes the gain for audio decoded
 after the command; audio already queued for playback keeps its previous gain.
 
@@ -90,9 +95,9 @@ Like the aspect request, it is cleared when jfplay exits.
 supported by H.264 core interface 1.2 or later and applies only to fitted
 720x480 or 720x576 output; Native HDMI output is not supported. The app
 sends this option only when the running core advertises interface 1.2 or
-later, so older cores retain preview-only calibration. Applying geometry
-requires a custom core build with interface 1.2 or later. The software path is
-implemented but has not yet been confirmed on a MiSTer display.
+later, so older cores retain preview-only calibration. The core shipped with
+the app (interface 1.4) applies saved geometry. Visual confirmation on a CRT
+remains pending.
 
 `--direct` marks an untranscoded stream. Before anything of the stream reaches
 the core, the worker checks its SPS and PPS (from the container's extradata,
@@ -174,7 +179,7 @@ per line.  Unknown or malformed commands are logged and ignored.
 | `volume N` | Set volume, where N is 0 through 100. |
 | `boost N` | Set surround downmix boost from 100 through 300 percent. |
 | `seek ID SECONDS` | Seek to an absolute item position; ID must increase for each request. |
-| `aspect N` | Set analog aspect treatment, where N is 0 through 3. |
+| `aspect N` | Set analog aspect treatment, where N is 0 through 4 (4: jfplay's 14:9 crop; see `--analog-aspect`). |
 | `anti-twitter N` | Set Anti-Twitter, where N is 0 (Auto), 1 (Off), or 2 (On). |
 | `stop` | Silence playback and reset the core session to discard buffered video/audio, then exit. |
 | `quit` | Alias for `stop`; it is also a clean end. |
@@ -203,6 +208,9 @@ and fractional seconds use three decimal places.
 | `width` | Coded video width. |
 | `height` | Coded video height. |
 | `fps` | Nominal video frame rate as a decimal. |
+| `film_speed` | `1` when PAL film speed-up (24 to 25 fps) is active, otherwise `0`. |
+| `ntsc_slowdown` | `1` when the 1000/1001 NTSC slowdown is active, otherwise `0`. |
+| `audio_output_rate` | PCM rate in Hz the audio is resampled to (48000 unless a film-speed clock is active). |
 | `video_bitrate` | Container/stream video bitrate in bits per second. |
 | `audio_codec` | Decoder codec name, or empty when there is no audio. |
 | `audio_channels_in` | Channels reported by the first decoded input frame. |

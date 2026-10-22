@@ -10,7 +10,9 @@ import (
 	"sync"
 )
 
-var token = regexp.MustCompile(`(?i)(x-plex-token|authtoken|accesstoken|token)([= :"%]+)([^&\s"<>]+)`)
+// token names the credentials release/manager.py redacts too; keep the two
+// alternations the same.
+var token = regexp.MustCompile(`(?i)(x-plex-token|x-emby-token|x-mediabrowser-token|authtoken|accesstoken|access_token|api_key|token)([= :"%]+)([^&\s"<>]+)`)
 var bearer = regexp.MustCompile(`(?i)(authorization: ?bearer )[^\s]+`)
 
 func Redact(s string, secrets ...string) string {

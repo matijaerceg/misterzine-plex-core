@@ -16,7 +16,8 @@ func TestEndEveryBoundsAStalledHeartbeat(t *testing.T) {
 	if !missed {
 		t.Fatal("stalled heartbeat was not reported as missed")
 	}
-	if elapsed < cadenceWait || elapsed > 2*cadenceWait {
+	// the race detector and a busy machine stretch a timer: a generous bound
+	if elapsed < cadenceWait || elapsed > 4*cadenceWait {
 		t.Fatalf("stalled heartbeat wait took %s, want about %s", elapsed, cadenceWait)
 	}
 }

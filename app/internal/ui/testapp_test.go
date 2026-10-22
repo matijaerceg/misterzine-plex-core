@@ -7,8 +7,22 @@ import (
 	"strconv"
 	"strings"
 
+	"plexcrt/internal/gfx"
 	"plexcrt/internal/plex"
 )
+
+// nopOSD is an OSD that does nothing; test doubles embed it and keep
+// only the methods they watch.
+type nopOSD struct{}
+
+func (nopOSD) Show(int, int, *gfx.Canvas, []byte)   {}
+func (nopOSD) Hide()                                {}
+func (nopOSD) Upload(int, *gfx.Canvas, byte)        {}
+func (nopOSD) ShowAt(int, int, int, int, int)       {}
+func (nopOSD) Dot(int, int, uint32, bool)           {}
+func (nopOSD) DotRun(int, int, int)                 {}
+func (nopOSD) DotX() int                            { return 0 }
+func (nopOSD) Bar(int, int, int, int, uint32, bool) {}
 
 // testClient is a client of the test server at host with token (an empty
 // token: the server asks for none).

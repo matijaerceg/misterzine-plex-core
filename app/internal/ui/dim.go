@@ -17,8 +17,8 @@ const (
 	DimLevel = ring.Full / 4
 )
 
-// dimmer is a presenter whose output can be dimmed: the ring, on a core
-// that reports the brightness it uses.
+// dimmer is a presenter whose output can be dimmed: the ring (dims in
+// software, so it always reports the brightness supported).
 type dimmer interface {
 	SetBrightness(level int)
 	Brightness() (level int, supported bool)
@@ -101,8 +101,10 @@ func (a *App) setDimmed(on bool) {
 	if !ok {
 		return
 	}
+	// Defensive only: the ring always supports it. A dimmer that did not
+	// would eat the waking press for nothing.
 	if _, supported := out.Brightness(); on && !supported {
-		return // an older core would eat the waking press for nothing
+		return
 	}
 	a.dim.on = on
 	level := ring.Full

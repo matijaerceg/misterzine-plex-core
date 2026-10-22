@@ -41,8 +41,9 @@ func ParseDisplayCheck(s string) DisplayCheck {
 
 // CoreOutput is the refresh the core menu picks, read from the core's status
 // as Options show: PAL for the 576-line Output Modes, which run at 50 Hz (the
-// others at 59.94, or 60 in Native HDMI playback), and Match when Refresh
-// Rate Match lets playback switch to the other family. The zero value is the
+// others at 59.94; Native HDMI playback runs exactly 24/30/60 fps sources at
+// 60, and 50 Hz needs Refresh Rate Match), and Match when Refresh Rate Match
+// lets playback switch to the other family. The zero value is the
 // core's default, 480i60 without matching; it stands in when the core does
 // not report its settings.
 type CoreOutput struct {

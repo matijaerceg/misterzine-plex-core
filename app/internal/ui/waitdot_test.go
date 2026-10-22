@@ -16,6 +16,7 @@ import (
 // bit only for a new x, as ring.Overlay does. It also keeps the overlay
 // rectangle last shown (one at a time, as the core has it).
 type coreOSD struct {
+	nopOSD
 	x, y           int
 	rgb            uint32
 	on             bool
@@ -38,9 +39,7 @@ func (c *coreOSD) Show(x, y int, cv *gfx.Canvas, alpha []byte) {
 	c.showAlpha = append(c.showAlpha[:0], alpha[:cv.W*cv.H]...)
 	c.shows++
 }
-func (c *coreOSD) Hide()                          { c.shown = false }
-func (c *coreOSD) Upload(int, *gfx.Canvas, byte)  {}
-func (c *coreOSD) ShowAt(int, int, int, int, int) {}
+func (c *coreOSD) Hide() { c.shown = false }
 func (c *coreOSD) Dot(x, y int, rgb uint32, on bool) {
 	c.x, c.y, c.rgb, c.on = x, y, rgb, on
 	if x != c.asked || !c.askedSet {
@@ -64,21 +63,6 @@ func (c *coreOSD) vsync() {
 // panel from the dots' top line (alone, or with the strip under them).
 func (c *coreOSD) waitDotAt() bool {
 	return c.shown && c.showY == waitTop
-}
-
-// dotSizes measures the three dots in the shown panel: the number of
-// pixels each covers (coverage summed, in 255ths), left to right.
-func (c *coreOSD) dotSizes(w, gap int) [3]int {
-	var n [3]int
-	for i := range n {
-		x0 := w/2 + (i-1)*gap
-		for y := 0; y <= 2*WaitDotRMax+1; y++ {
-			for x := x0 - gap/2; x < x0+gap/2; x++ {
-				n[i] += int(c.showAlpha[y*w+x])
-			}
-		}
-	}
-	return n
 }
 
 // swellOrder is which dot is largest at a moment.

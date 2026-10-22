@@ -12,7 +12,7 @@ PlexCRT scan-out core of earlier releases.
 ## Layout
 
 ```
- Plex server ──HTTP──► Go app (plexcrt) ──draws 720x480 frames──► /dev/fb0 overlay page ─┐
+ Plex server ──HTTP──► Go app (plexcrt) ─draws 480-line frames──► /dev/fb0 overlay page ─┐
                           ▲                                                               │
                           │ input region (pads, keys, OSD open)                           ▼
                           └──────────────────────────── H.264 core (FPGA) ◄── ring ── C player
@@ -30,8 +30,8 @@ PlexCRT scan-out core of earlier releases.
   so either app can change its core without the other.
 - **The Go app** (`app/`, executable `plexcrt`) signs in through plex.tv,
   selects the Plex Home user, browses the server's libraries and runs the UI,
-  rendering, input handling, art cache, theme music and updater. Its 720x480
-  frames go into an overlay page in `/dev/fb0` described to the core
+  rendering, input handling, art cache, theme music and updater. Its frames
+  go into an overlay page in `/dev/fb0` described to the core
   (`h264ring_overlay_show`), sized to the core's raster (word 80), and its
   input comes from the core's input region (MiSTer main holds the real input
   devices while a core runs). It talks to the server through `app/internal/plex`.
@@ -55,13 +55,18 @@ supporter code from a private repository ([supporter builds](SUPPORTER_BUILDS.md
 
 Internal names (the `plexcrt` executable and module, `jfplay`, the
 `MISTERZINE_PLEX_*`, `MISTERZINE_H264_RBF` and `PLEXCRT_*` environment
-variables) keep their historical spelling.
+variables) keep their historical spelling. `MISTERZINE_PLEX_READY_FILE` and
+`MISTERZINE_PLEX_DISPLAY` are kept on purpose: they are a compatibility
+contract between the app and `release/manager.py` and `update_service.py`,
+including managers already installed. Renaming one means changing the Go and
+Python sides together and accepting both names for at least one release.
 
 ## The ring and input packages on the H.264 core
 
 `app/internal/ring` and `app/internal/input` speak the H.264 core's
 interface 1.x (`third_party/MiSTer_h264_decoder/hps/include/h264ring_layout.h`),
-reimplemented in Go without cgo.
+reimplemented in Go without cgo. The UI-facing API keeps the old names where
+the meaning carried over (`compat.go`).
 
 - **Memory.** The control block (`0x3140_0000`, 4 KB of 64-bit words) is mapped
   through `/dev/mem` `O_RDWR|O_SYNC` after checking `/proc/iomem` (the library's
@@ -69,8 +74,10 @@ reimplemented in Go without cgo.
   `atomic.Store` is `DMB; STR; DMB`, `atomic.Load` is `LDR; DMB`, never
   LDREX/STREX). The 8 MB ring is not mapped: only the player writes it.
   `/dev/fb0` is mapped whole (its `smem_start` from `FBIOGET_FSCREENINFO` must lie
-  in `0x2200_0000`+8 MB); two 720x480 ARGB8888 pages sit at its start
-  (1,382,400 bytes each, stride 2,880). A framebuffer mode that maps less than
+  in `0x2200_0000`+8 MB); two overlay pages sit at its start, sized to the
+  core's raster (word 80), at most 1280x720 ARGB8888 each. The app draws a
+  480-line canvas, 720 wide (960 for a 16:9 Display Shape), which is scaled
+  onto the page, centred on the raster. A framebuffer mode that maps less than
   two pages (a 480p HDMI mode) is set to 1920x1080 after the core is up, and
   Watch puts it back when MiSTer main shrinks it.
 - **Frames.** `Begin` hands out an ordinary-memory canvas; `End`/`Present` wait
@@ -122,13 +129,15 @@ reimplemented in Go without cgo.
   overlay generation/state/error, raster (word 80), aspect (word 47).
   `Field()` is the heartbeat; `Foreign`/`Published` follow the display's
   `fetch_changes` (word 13) while a picture is shown. Idle dimming is the
-  software brightness applied as frames are copied.
+  software brightness applied as frames are copied into a page; `Tap`, the
+  PlexCRT core's click, is a no-op (`compat.go`).
 - **Launch.** `ring.Open` calls `LaunchCore` (MGL in `/tmp/h264ring.mgl`,
   `load_core` written once to `/dev/MiSTer_cmd`, only when `/tmp/CORENAME`
-  does not already name the app's core, `MisterZine Plex Core` or `PlexH264`;
-  rbf `_Other/PlexH264`, or `$MISTERZINE_H264_RBF`) and waits for the
-  heartbeat. An installed release is started by its menu entry, which loads
-  the release's own `PlexH264.rbf` first.
+  does not already name the app's core, `MisterZine Plex Core`, the only name
+  it accepts (`H264` is another app's core); rbf `_Other/PlexH264`, or
+  `$MISTERZINE_H264_RBF`) and waits for the heartbeat. An installed release
+  is started by its menu entry, which loads the release's own `PlexH264.rbf`
+  first.
 - **Input.** `input.Poll` reads the whole input region (words 48-71) as a seqlock
   (in_tail first, in_head last) when the source offers `InputRegion`, keeps its
   own event count against `ev_count` (more than 32 between reads: the oldest are

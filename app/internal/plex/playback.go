@@ -18,7 +18,7 @@ import (
 // stored when the H.264 core can certainly decode it (DirectEligible); the
 // server converts everything else to a progressive H.264 Matroska over
 // plain HTTP, capped at the core's limits through the Plex Web client
-// profile plus X-Plex-Client-Profile-Extra, as arm/plexplay.py did.
+// profile plus X-Plex-Client-Profile-Extra.
 
 // Stream types of a part, as Plex numbers them.
 const (
@@ -221,8 +221,7 @@ func (c *Client) fetchCtx(ctx context.Context, cl *http.Client, r *http.Request)
 // decodes (toolchain/build_ffmpeg.sh: the mov, matroska and mpegts demuxers;
 // the audio decoders), as Plex names them. jfplay exits 4, not 7, for a file
 // it cannot open or a sound it cannot decode, and only 7 falls back to a
-// transcode: so these are checked before a file is offered as stored, as
-// the Jellyfin app's device profile has the server check them.
+// transcode: so these are checked here before a file is offered as stored.
 var (
 	directContainers  = map[string]bool{"mkv": true, "mp4": true, "m4v": true, "mov": true, "mpegts": true, "ts": true}
 	directAudioCodecs = map[string]bool{"aac": true, "ac3": true, "eac3": true, "dca": true, "dts": true, "mp3": true,
@@ -310,10 +309,10 @@ func videoCap(videoKbps int) int {
 
 // ProfileExtra is the X-Plex-Client-Profile-Extra value for a transcode at
 // a video cap in kbit/s from a source at sourceFPS frames/s (0 unknown):
-// the lines plexplay.py sent (stereo audio, so the server downmixes and
-// boosts rather than the board; 50 and 60 frames/s halved when the picture
-// is too wide for them) plus the core's limits at TranscodeSize, and the
-// progressive H.264/AAC Matroska target over HTTP that start.mkv serves.
+// stereo audio (so the server downmixes and boosts rather than the board),
+// the core's limits at TranscodeSize (a source of 45 frames/s or more
+// halved when that size is wider than directSDWidth), and the progressive
+// H.264/AAC Matroska target over HTTP that start.mkv serves.
 func ProfileExtra(videoKbps int, sourceFPS float64) string {
 	w, h := TranscodeSize(videoCap(videoKbps))
 	limit := func(name, value string) string {
@@ -513,7 +512,7 @@ func (c *Client) PlaybackInfo(ctx context.Context, r PlaybackRequest) (*Playback
 }
 
 // transcodeQuery is the universal transcoder's parameters for a request,
-// shared by the decision and the start, as plexplay.py sent them.
+// shared by the decision and the start.
 func (c *Client) transcodeQuery(r PlaybackRequest, session string, part MediaPart) url.Values {
 	cap := videoCap(r.VideoKbps)
 	w, h := TranscodeSize(cap)

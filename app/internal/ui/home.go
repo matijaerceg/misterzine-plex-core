@@ -70,7 +70,7 @@ type Home struct {
 	refreshAt     time.Time
 	refreshResult chan homeResult
 	updating      bool // a filter changed in Options: rows are being fetched again
-	home          bool // the home screen: hamburger, Left at the edge opens the menu
+	home          bool // the home screen: Left at the edge opens the menu
 	row           int
 	col           []int
 	rowAt         time.Time // when the focused row last changed (its posters fade in)
@@ -106,7 +106,7 @@ func NewHome(app *App) *Home {
 
 func (h *Home) safeW() int {
 	w, _ := layoutCanvasSize(h.app)
-	if w > 720 {
+	if w > DesignW {
 		return w - 2*SafeX
 	}
 	return SafeW
@@ -512,15 +512,6 @@ func (h *Home) Key(ev input.Event, now time.Time) {
 	h.colX[h.row].Move(float64(first*pitch), now, ev.Repeat)
 }
 
-// Refresh re-reads one item after playback (view offset, watched state).
-func (h *Home) Refresh(it *plex.Item) {
-	fresh, err := h.app.Plex.Item(it.RatingKey)
-	if err != nil {
-		return
-	}
-	h.app.takeFresh(it, fresh)
-}
-
 // Draw paints the screen; returns true while something is still animating.
 func (h *Home) Draw(c *gfx.Canvas, now time.Time) bool {
 	h.matchCanvas(c)
@@ -711,8 +702,8 @@ func (h *Home) logoY(logo *gfx.Image) int {
 }
 
 // compose paints the backdrop (already dimmed and faded by the art
-// loader), the hamburger, the hero's logo or title and facts, and the
-// focused row's label with its chevrons.
+// loader), the hero's logo or title and facts, and the focused row's label
+// with its chevrons.
 func (h *Home) compose(c *gfx.Canvas, it *plex.Item, img, logo *gfx.Image, logoPending bool) {
 	f := h.app.F
 	if img != nil {
@@ -759,13 +750,6 @@ func (h *Home) compose(c *gfx.Canvas, it *plex.Item, img, logo *gfx.Image, logoP
 		x += 22
 	}
 	c.Text(x, ly, f.Body, gfx.White, f.Body.Fit(label, h.safeW()-40))
-}
-
-// hamburger draws the three-bar menu glyph with its top-left at x,y.
-func hamburger(c *gfx.Canvas, x, y int, col gfx.Color) {
-	for i := 0; i < 3; i++ {
-		c.Fill(x, y+2+i*7, 22, 2, col)
-	}
 }
 
 // chevronA is chevron in white, at half alpha when off (composed pages only).
@@ -1103,20 +1087,6 @@ func check(c *gfx.Canvas, cx, cy int) {
 // the left of x, as tall as the text.
 func focusBar(c *gfx.Canvas, x, y, h int) {
 	c.Fill(x-BarGap-BarW, y+2, BarW, h-4, gfx.GreyHi)
-}
-
-// itemLine is the one-line description of an item (lists, walls).
-func itemLine(it *plex.Item) string {
-	s := it.Title
-	if it.Type == "episode" {
-		s = fmt.Sprintf("%s  S%dE%d  %s", it.GrandTitle, it.Parent, it.Index, it.Title)
-	} else if it.Year > 0 {
-		s = fmt.Sprintf("%s (%d)", it.Title, it.Year)
-	}
-	if it.Duration > 0 {
-		s += "  " + hm(it.Duration)
-	}
-	return s
 }
 
 func hm(sec int) string {

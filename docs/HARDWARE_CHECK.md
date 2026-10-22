@@ -3,7 +3,7 @@
 On each unit: install from Scripts and launch from the main menu; link the
 device and select a server; browse; play, pause, seek and stop one item; leave
 a menu and a paused item alone for three minutes and check the screen dims and
-the next press only restores it; check theme/taps; leave to MiSTer Menu and
+the next press only restores it; check theme music; leave to MiSTer Menu and
 relaunch. Check normal startup has no test card.
 
 Play one file the core can take as stored (H.264 up to 720p) and one that needs

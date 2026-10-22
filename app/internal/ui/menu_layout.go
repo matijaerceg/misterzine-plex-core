@@ -11,6 +11,12 @@ const (
 	MenuBarGap = 8
 )
 
+// The top of a full-screen list under its title, and a sign-in list's rows.
+const (
+	ListY0   = SafeY + 40
+	ListRowH = 44
+)
+
 func menuFocusBar(c *gfx.Canvas, x, y, h int) {
 	c.Fill(x-MenuBarGap-BarW, y+2, BarW, h-4, gfx.GreyHi)
 }

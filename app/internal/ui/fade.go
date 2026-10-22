@@ -27,6 +27,8 @@ type Fade struct {
 	fromY, toY int
 	trace      *transitionTrace
 	readyWake  chan struct{}
+	shown      atomic.Int32  // the step Frame last handed out, 0 for the old page
+	shownWake  chan struct{} // Frame moved on to another step
 }
 
 // One set of step canvases serves every fade: only one runs at a time.
@@ -44,8 +46,8 @@ const (
 	// fadeSlots is how many step canvases the pool holds: enough for a
 	// layout transition's steps. A longer fade has more steps than that
 	// and takes the canvases in turn, a ring: the worker is paced to the
-	// steps' times, so the canvas it blends into held a step shown
-	// fadeSlots steps ago, long since copied out.
+	// steps' times, and before it blends into a canvas again it waits
+	// until Frame has moved past the step the canvas held (see startFade).
 	fadeSlots = transitionSteps - 1
 )
 
@@ -150,6 +152,9 @@ func (f *Fade) startFade(from, to *gfx.Canvas, now time.Time, dur time.Duration,
 	stop := f.stop
 	f.readyWake = make(chan struct{}, 1)
 	wake := f.readyWake
+	f.shown.Store(0)
+	f.shownWake = make(chan struct{}, 1)
+	shownWake := f.shownWake
 	trace := f.trace
 	a := &gfx.Image{W: from.W, H: from.H, Pix: from.Pix}
 	b := &gfx.Image{W: to.W, H: to.H, Pix: to.Pix}
@@ -193,6 +198,21 @@ func (f *Fade) startFade(from, to *gfx.Canvas, now time.Time, dur time.Duration,
 			case <-stop:
 				return
 			default:
+			}
+			// A long fade's step i reuses the canvas of step i-len(steps).
+			// The clock alone does not keep that step off the screen (the
+			// presenter may be late), so wait until Frame has handed out a
+			// later one. The presenter shows one canvas at a time and is
+			// done with it before its next Frame call, so a canvas whose
+			// step is behind the one Frame last returned is free.
+			if prev := i - len(f.steps); prev >= 1 {
+				for int(f.shown.Load()) <= prev {
+					select {
+					case <-shownWake:
+					case <-stop:
+						return
+					}
+				}
 			}
 			if layout {
 				if trace != nil {
@@ -266,6 +286,12 @@ func (f *Fade) Frame(now time.Time) (*gfx.Canvas, bool) {
 	}
 	if r := int(f.ready.Load()); k > r {
 		k = r
+	}
+	if f.shown.Swap(int32(k)) != int32(k) {
+		select {
+		case f.shownWake <- struct{}{}:
+		default:
+		}
 	}
 	if k == 0 {
 		return f.from, true

@@ -26,6 +26,7 @@ type Wall struct {
 	coll    *plex.Item // the collection or folder whose items this wall shows; nil for the library's views
 	pager   *Pager
 	letters []plex.Letter
+	loads   int // load()s so far: letters from an earlier one are dropped
 	cur     int
 	rowY    Anim
 	holes   []gfx.Rect
@@ -35,7 +36,6 @@ type Wall struct {
 	dimFor  *gfx.Image  // the poster dim was made from
 	band    *gfx.Canvas // the info band is composed here (text over posters)
 	bandKey string
-	bandAt  time.Time
 
 	bandBase    *gfx.Canvas // shaded page slice, reused while posters slide over it
 	bandPage    *gfx.Canvas
@@ -48,7 +48,6 @@ type Wall struct {
 	pageBg         string // which backdrop the page holds
 	fade           Fade
 	focusAt        time.Time
-	lingerArt      string
 	blob           *gfx.Canvas // the abstract page for the lingered item's palette
 	blobFor        [4]uint32
 	blobBusy       bool
@@ -60,10 +59,6 @@ type Wall struct {
 
 // LingerRest is how long the cursor must rest before the page follows it.
 const LingerRest = 2 * time.Second
-
-const (
-	WallArtBright = 44 // of 255: the backdrop is barely there
-)
 
 // Wall posters: four across, the focused row whole under the tabs, a
 // scrollbar at the right edge.
@@ -206,17 +201,12 @@ func newWall(app *App, s plex.Section, coll *plex.Item) *Wall {
 }
 
 func (w *Wall) canvasW() int {
-	if sized, ok := w.app.Out.(interface{ LayoutCanvasSize() (int, int) }); ok {
-		width, _ := sized.LayoutCanvasSize()
-		if width > 720 {
-			return width
-		}
-	}
-	return 720
+	cw, _ := layoutCanvasSize(w.app)
+	return max(cw, DesignW)
 }
 
 func (w *Wall) cols() int {
-	if w.canvasW() > 720 {
+	if w.canvasW() > DesignW {
 		return 6
 	}
 	return WallCols
@@ -381,12 +371,19 @@ func (w *Wall) load() {
 		w.pager = w.app.pager(path, q, filter)
 	}
 	w.letters = nil
+	w.loads++
 	if v.az && filter == nil {
+		gen, client, key := w.loads, w.app.Plex, w.section.Key
 		go func() {
-			ls, err := w.app.Plex.FirstChars(w.section.Key, q)
-			if err == nil {
-				w.letters = ls
+			ls, err := client.FirstChars(key, q)
+			if err != nil {
+				return
 			}
+			w.app.Later(func() { // the letters are the UI goroutine's
+				if w.loads == gen {
+					w.letters = ls
+				}
+			})
 		}()
 	}
 	w.cur, w.seek = 0, ""
@@ -636,13 +633,6 @@ func (w *Wall) jump(dir int) {
 		li = len(starts) - 1
 	}
 	w.cur = starts[li]
-}
-
-// Refresh re-reads one item after playback.
-func (w *Wall) Refresh(it *plex.Item) {
-	if fresh, err := w.app.Plex.Item(it.RatingKey); err == nil {
-		w.app.takeFresh(it, fresh)
-	}
 }
 
 // Draw paints the wall.

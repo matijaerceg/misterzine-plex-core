@@ -75,19 +75,6 @@ func TestSubtitleSizeDefaultChoicesAndPersistence(t *testing.T) {
 	}
 }
 
-func TestDeFlickerPreferencePersists(t *testing.T) {
-	c := LoadConfig(filepath.Join(t.TempDir(), "settings.json"))
-	if c.DeFlicker {
-		t.Fatal("de-flicker should default off")
-	}
-	c.DeFlicker = true
-	if err := c.Save(); err != nil {
-		t.Fatal(err)
-	}
-	if loaded := LoadConfig(c.path); !loaded.DeFlicker {
-		t.Fatal("saved de-flicker choice was not restored")
-	}
-}
 func TestConfigFailedSavePreservesPrimary(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	c := LoadConfig(path)
@@ -230,20 +217,22 @@ func TestConfigMalformedWithoutBackup(t *testing.T) {
 	}
 }
 func TestOwnedPlayerRequiresExactMarker(t *testing.T) {
-	for _, env := range []string{"PATH=/usr/bin\x00", "OTHER=ffmpeg\x00", "MISTERZINE_PLEX_OWNER=/other/plexplay.py\x00"} {
-		if ownedPlayer([]byte(env), "/app/plexplay.py") {
+	for _, env := range []string{"PATH=/usr/bin\x00", "OTHER=ffmpeg\x00", "MISTERZINE_PLEX_OWNER=/other/jfplay\x00", "MISTERZINE_JFPLAY_OWNER=/other/jfplay\x00"} {
+		if ownedPlayer([]byte(env), "/app/jfplay") {
 			t.Fatal("unrelated process matched")
 		}
 	}
-	if !ownedPlayer([]byte("MISTERZINE_PLEX_OWNER=/app/plexplay.py\x00"), "/app/plexplay.py") {
-		t.Fatal("owned child not recognized")
+	for _, env := range []string{"MISTERZINE_JFPLAY_OWNER=/app/jfplay\x00", "MISTERZINE_PLEX_OWNER=/app/jfplay\x00"} {
+		if !ownedPlayer([]byte("PATH=/usr/bin\x00"+env), "/app/jfplay") {
+			t.Fatalf("owned child not recognized by %q", env)
+		}
 	}
 }
 
 func TestReapLeavesUnrelatedProcessRunning(t *testing.T) {
-	owner := "/test/misterzine/plexplay.py"
+	owner := "/test/misterzine/jfplay"
 	owned := exec.Command("sleep", "30")
-	owned.Env = append(os.Environ(), "MISTERZINE_PLEX_OWNER="+owner)
+	owned.Env = append(os.Environ(), "MISTERZINE_JFPLAY_OWNER="+owner)
 	unrelated := exec.Command("sleep", "30")
 	for _, cmd := range []*exec.Cmd{owned, unrelated} {
 		if err := cmd.Start(); err != nil {
@@ -251,7 +240,7 @@ func TestReapLeavesUnrelatedProcessRunning(t *testing.T) {
 		}
 		defer cmd.Process.Kill()
 	}
-	(&Player{Script: owner}).Reap()
+	(&Player{Binary: owner}).Reap()
 	if err := owned.Wait(); err == nil {
 		t.Fatal("owned child was not terminated")
 	}

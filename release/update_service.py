@@ -36,7 +36,6 @@ BOOTSTRAP_URL = 'https://raw.githubusercontent.com/MiSTer-devel/Downloader_MiSTe
 BOOTSTRAP_SHA = 'e19ed080deb4ac67f646e4318438427243e2f65fb95c0a1b6e738be4d8ad4903'
 BOOTSTRAP_ZIP_SHA = '93c247f04c0082ba724abbd6e041a166351c7c758fe114e52447575aae9a65ed'
 HELPERS = manager.HELPERS
-SCRIPT_NAMES = ('Run', 'Rollback', 'Diagnostics', 'Uninstall')
 
 
 class Reason(ValueError):
@@ -265,16 +264,6 @@ def verdict(opener=None, now=time.time):
     return None
 
 
-def decoder_error(cause, probe=None):
-    """Why the FFmpeg decoder, fetched from its own site after the release
-    itself, could not be downloaded or saved: the board's card or connection
-    when that is at fault, otherwise the decoder's site."""
-    detail = 'decoder download ' + network_reason(cause)
-    why = local_fault(detail) or (probe or verdict)() or \
-        'GitHub is reachable, but the FFmpeg decoder could not be fetched from its own site. Try again later or report this'
-    return DownloadError('Download failed: ' + why + '.', detail)
-
-
 def fetch_release(card, root, release, opener=None):
     """Stage the release archive directly from its published URL, with the
     same size and digest checks the package gets before installation. The
@@ -441,10 +430,7 @@ def prepare(card, release, downloader=download):
                 shutil.copyfile(archive, snapshot)
                 package = unpack(snapshot, Path(tmp), release)
                 status(root, 'install', release)
-                try:
-                    manager.stage(card, package)
-                except manager.DecoderFetchError as exc:
-                    raise decoder_error(exc.__cause__) from exc
+                manager.stage(card, package)
                 # Ready package survives the worker and contains verified maintenance files.
                 ready = guarded(root, 'updates/ready')
                 if ready.exists():
@@ -693,8 +679,8 @@ def uninstall(card, keep=True):
                 shutil.rmtree(staged)
             (root / 'active.json').unlink(missing_ok=True)
             if keep:
-                for name in ('releases', 'updates', 'ffmpeg', 'decoder.json', 'decoder-notices', 'ffmpeg-7.0.2-armhf-static.tar.xz',
-                             manager.MAINTENANCE):
+                # LEGACY_FILES: what releases from before the H.264 core kept beside their folders.
+                for name in ('releases', 'updates', manager.MAINTENANCE) + manager.LEGACY_FILES:
                     path = guarded(root, name)
                     if path.is_dir():
                         shutil.rmtree(path)
@@ -719,7 +705,7 @@ def main():
     args = p.parse_args()
     if args.action == 'install' and (platform.system() != 'Linux' or platform.machine() != 'armv7l' or not Path('/dev/MiSTer_cmd').exists()):
         raise RuntimeError('Installation requires MiSTer Linux on supported ARM hardware.')
-    root = root_for(args.card)
+    root_for(args.card)             # refuses a card that is not one before any action
     if args.action == 'uninstall':
         print('1. Remove Plex, keep settings and codes (default)\n2. Remove Plex and all its saved data\n3. Cancel')
         choice = input('Choice [1]: ').strip()

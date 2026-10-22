@@ -21,7 +21,9 @@ static void guarded_cleanup(struct jfplay_core_owner *owner, const char *name,
 int main(void)
 {
     assert(jfplay_core_name_owned("H264\n", NULL));
-    assert(jfplay_core_name_owned("H264\n", APP));
+    assert(jfplay_core_name_owned("H264\n", ""));
+    /* Given an app name, the upstream core is another app's. */
+    assert(!jfplay_core_name_owned("H264\n", APP));
     assert(jfplay_core_name_owned(APP "\r\n", APP));
     assert(!jfplay_core_name_owned(APP "\n", NULL));
     assert(!jfplay_core_name_owned(APP "\n", ""));
@@ -52,6 +54,13 @@ int main(void)
     owner = (struct jfplay_core_owner){0};
     assert(!jfplay_core_owner_check(&owner, APP "\n", 1, 7, 2000, 100));
     assert(owner.lost);
+
+    /* With one, an upstream core loaded in its place is not owned. */
+    owner = (struct jfplay_core_owner){ .app_name = APP };
+    writes = (struct fake_cleanup){0};
+    guarded_cleanup(&owner, "H264\n", &writes);
+    assert(owner.lost);
+    assert(writes.pause == 0 && writes.settings == 0);
 
     owner = (struct jfplay_core_owner){ .app_name = APP };
     assert(jfplay_core_owner_check(&owner, APP "\n", 1, 7, 2000, 100));

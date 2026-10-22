@@ -11,8 +11,8 @@
 
 site_name: MiSTer H264
 site_description: User and integrator manual for the MiSTer FPGA H.264 decode core
-# Public URLs: the GitHub repository and its Pages site. The site deploys only on a
-# published release (.github/workflows/docs.yml); otherwise the build is a CI check.
+# Upstream's repository and Pages site. This fork does not publish the site; its
+# build is a local check (site/README.md).
 site_url: https://owenb321.github.io/MiSTer_h264_decoder/
 site_author: owenb321
 
@@ -103,8 +103,7 @@ markdown_extensions:
 
 extra:
   # The newest PUBLISHED release, shown in the announcement bar. "0.0.0" means no
-  # release exists yet; the release process bumps it (and the package workflow
-  # refuses a tag that disagrees with it).
+  # release exists yet; the release process bumps it.
   released_version: "1.1.0"
   social:
     - icon: fontawesome/brands/github

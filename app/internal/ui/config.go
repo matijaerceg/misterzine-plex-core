@@ -19,8 +19,7 @@ type Config struct {
 	RecentSearches     []string `json:"recent_searches,omitempty"`
 	NoTaps             bool     `json:"no_taps"`
 	NoTheme            bool     `json:"no_theme"`
-	Progressive        bool     `json:"progressive"`             // confirmed HDMI 480p preference
-	DeFlicker          bool     `json:"de_flicker"`              // soften fine detail to reduce 480i flicker
+	Progressive        bool     `json:"progressive"`             // legacy 480p choice; now only picks the calibration's line ends
 	FourThree          bool     `json:"only_4x3"`                // hide media wider than 4:3
 	NoAutoplay         bool     `json:"no_autoplay"`             // do not run on to the next episode
 	NoSkipButtons      bool     `json:"no_skip_buttons"`         // no Skip intro / Skip credits button over the markers

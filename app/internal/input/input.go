@@ -2,8 +2,9 @@
 // gamepads and the keyboard -- into key events with auto-repeat. MiSTer
 // main holds every evdev node exclusively while a core runs, so this is
 // the only route to the pad. The H.264 core's input region (region.go) is
-// read whole when the source offers it; the two-word Joy/Key source of the
-// PlexCRT core is still accepted (the tests and older tools use it).
+// read whole when the source offers it, which the ring always does; the
+// two-word Joy/Key source of the PlexCRT core is kept for input_test.go's
+// fake only.
 package input
 
 import (
@@ -61,7 +62,9 @@ type Event struct {
 }
 
 // Source is anything exposing the two PlexCRT status words: joystick_1<<16
-// | joystick_0 in the legacy layout, and key_cnt<<11 | ps2_key[10:0].
+// | joystick_0 in the legacy layout, and key_cnt<<11 | ps2_key[10:0]. Read
+// only from a source that is not a RegionSource: kept for input_test.go's
+// fake only.
 type Source interface {
 	Joy() uint32
 	Key() uint32
@@ -92,7 +95,8 @@ var noTypematic = map[int]bool{0x12: true, 0x59: true, 0x14: true, 0x114: true, 
 // channel.
 func Poll(src Source, stop <-chan struct{}) <-chan Event { return poll(src, stop, false) }
 
-// PollAll is Poll that also delivers the Special events.
+// PollAll is Poll that also delivers the Special events. Not used by the
+// app yet: the UI handles no Special events.
 func PollAll(src Source, stop <-chan struct{}) <-chan Event { return poll(src, stop, true) }
 
 func poll(src Source, stop <-chan struct{}, specials bool) <-chan Event {

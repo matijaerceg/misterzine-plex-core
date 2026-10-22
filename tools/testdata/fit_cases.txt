@@ -1,7 +1,8 @@
-# Where a frame lands on the 720x480 raster, for the presenter (arm/plexfb.c
-# fit) and the app's geometry calibration (app/internal/ui/geometry.go Fit).
-# Both test suites read this file, so the pattern the app draws and the
-# picture the presenter shows cannot drift apart.
+# Where a frame lands on the 720x480 raster, for jfplay's geometry
+# (arm/video_geometry.h, tested by arm/test_video_geometry.c) and the app's
+# calibration (app/internal/ui/geometry.go Fit). Both test suites read this
+# file, so the pattern the app draws and the picture jfplay shows cannot
+# drift apart.
 #
 # left top right bottom width   aspect      lines   x   y   w   h
 # (edges inside the raster's; width in thousandths; aspect as a fraction;

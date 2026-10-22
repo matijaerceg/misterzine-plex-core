@@ -109,7 +109,7 @@ func pagedTestApp(t *testing.T, s *pagedServer) *App {
 	t.Helper()
 	a := &App{Plex: plex.New(s.URL, "tok", t.TempDir(), ""), Wake: make(chan struct{}, 1), pagers: map[string]*Pager{},
 		Cfg: &Config{NoTheme: true}, Log: log.New(io.Discard, "", 0), Art: NewArt(nil, 0, nil)}
-	a.F = Fonts{Title: gfx.Load("med22"), Body: gfx.Load("med18"), Small: gfx.Load("reg16"), SmallBold: gfx.Load("med16"), Big: gfx.Load("bold28")}
+	a.F = appFonts()
 	a.T = gfx.NewTextCache(1, nil)
 	a.stack = []Screen{&splashTestScreen{}}
 	return a

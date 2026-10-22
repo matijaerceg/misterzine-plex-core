@@ -3,16 +3,10 @@
 This directory is the **source of the user manual**. It is not build output: `site/` is
 tracked in git and the build writes to `.site-build/`, which is gitignored.
 
-`site/content/` is the manual. `mkdocs.yml` at the repo root configures it, and
-`.github/workflows/docs.yml` owns it (the two checks below are also run by hand before
-committing). That workflow does two
-separate things:
-
-- **Builds it as a CI check** on every PR and every push to `main` that touches the manual,
-  `mkdocs.yml`, `tools/docs_check.py` or `h264/emu.sv`. This is the parity gate: a broken
-  cross-link or an undocumented OSD option fails next to the change that caused it.
-- **Deploys it only when a release is published**, from that release's own tagged commit,
-  so the published manual always matches the `.rbf` a reader can download.
+`site/content/` is the manual. `mkdocs.yml` at the repo root configures it. This fork
+does not publish the site; build it by hand with the two checks below before committing:
+`python3 tools/docs_check.py && mkdocs build --strict`. They are the parity gate: a broken
+cross-link or an undocumented OSD option fails next to the change that caused it.
 
 ## Preview it locally
 
@@ -22,7 +16,7 @@ source .venv/bin/activate          # fish: source .venv/bin/activate.fish
 pip install -r site/requirements.txt
 
 mkdocs serve                       # http://127.0.0.1:8000, live reload
-mkdocs build --strict              # exactly what CI runs
+mkdocs build --strict              # broken links fail the build
 python3 tools/docs_check.py        # CONF_STR <-> manual parity
 ```
 
@@ -49,8 +43,8 @@ same link natively.
 escapes `docs_dir`. Use the full repository URL for `LICENSE`, `NOTICE` and anything in
 `docs/`.
 
-**Write in the present tense as a feature lands.** The site deploys only on a release, so
-a page never describes a build nobody can download. A page for a feature that does not
+**Write in the present tense as a feature lands.** A page never describes a build nobody
+can download. A page for a feature that does not
 exist yet carries a short "not yet implemented" admonition instead; remove it when the
 feature ships.
 

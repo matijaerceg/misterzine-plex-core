@@ -50,8 +50,9 @@ may not fill the screen; `vscale_mode=0` in the section above fills it.
 The core's refresh rate follows **Output Mode**: 59.94 Hz in the 480-line
 modes, 50 Hz in the 576-line modes. With **Refresh Rate Match** at **50/60**
 it switches family while a video plays, to suit the video, and returns when
-playback ends. With **Native HDMI** a playing video runs at exactly 60 Hz in
-the 60 Hz family.
+playback ends. With **Native HDMI** a playing video at exactly 24, 30 or 60
+frames per second runs at exactly 60 Hz; 23.976 and 29.97 stay at 59.94 Hz,
+and a 25 or 50 fps video gets 50 Hz only with Refresh Rate Match on.
 
 With `vsync_adjust=0` (MiSTer's default), HDMI keeps the rate of `video_mode`
 whatever the core does. When the two differ, frames are dropped or repeated and
@@ -128,10 +129,13 @@ you start the app again from the MiSTer menu.
   50 Hz. With `vsync_adjust=0` the rate is `video_mode`'s. With `vsync_adjust`
   1 or 2, MiSTer follows the core instead, unless `refresh_min` or
   `refresh_max` leaves out the core's rate, or a `video_mode_pal` is set
-  without a `video_mode_ntsc`. For a mismatched Output Mode the note suggests
-  a fixed mode at the right rate (`video_mode=8`, or `9` for the 576-line
-  modes; `0` or `7` for 1280x720). With Refresh Rate Match on it suggests
-  `vsync_adjust=1`, or turning matching off.
+  without a `video_mode_ntsc`, or a custom video mode needs a pixel clock
+  MiSTer cannot make. For a mismatched Output Mode the note suggests a fixed
+  mode at the right rate (`video_mode=8`, or `9` for the 576-line modes; `0`
+  or `7` for 1280x720), with `vsync_adjust=0` when `vsync_adjust` is on. With
+  Refresh Rate Match on it suggests `vsync_adjust=1` when `vsync_adjust` is 0,
+  and otherwise lists what can keep MiSTer from following the core;
+  either way turning matching off is offered when HDMI suits the Output Mode.
 - **HDMI sound: Off (DVI mode)**: `dvi_mode=1` sends no sound over HDMI. Sound
   still plays from the analog audio output.
 - **INI section: Overridden**: a `[MiSTer]` section further down the file

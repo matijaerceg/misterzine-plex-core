@@ -31,7 +31,7 @@ automatically; a wanted fix is cherry-picked and reviewed like any other change.
 Before the build that will ship, set `CORE_VERSION` in its `h264/emu.sv` to
 `plex-` plus the app version it first ships in, and commit it. Then build with
 `USE_DOCKER=1 ./build_release.sh --compile --release` from that clean commit,
-which writes `releases/PlexH264_<version>_<date>_<time>.rbf` and its `.json`
+which writes `releases/PlexH264_plex-<version>_<date>_<time>.rbf` and its `.json`
 manifest. The packager refuses a core that is marginal, failed timing, was
 built from a dirty tree, or carries a version without the `plex-` prefix. Keep
 the generated manifest unchanged; an upstream checked-in RBF is not a

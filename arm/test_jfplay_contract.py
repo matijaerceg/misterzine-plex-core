@@ -49,8 +49,17 @@ def main() -> int:
     if missing:
         print("missing C string literals: " + ", ".join(missing), file=sys.stderr)
         return 1
+    # and the other way: every key the status file is written with is documented
+    documented = set(table_values(doc, "Status keys"))
+    written = re.findall(r'fprintf\(f, "([a-z_]+)=', source)
+    undocumented = sorted(set(written) - documented)
+    if not written or undocumented:
+        print("status keys missing from jfplay.md: " + (", ".join(undocumented) or "none found in jfplay.c"),
+              file=sys.stderr)
+        return 1
     policy_tokens = {
         "in-file seek option": "--start-in-file",
+        "headers from the environment": 'getenv("JFPLAY_HEADERS")',
         "analog aspect option": "--analog-aspect",
         "analog aspect command": "aspect ",
         "anti-twitter option": "--anti-twitter",
@@ -61,7 +70,7 @@ def main() -> int:
         "timestamp preroll": "#define PTS_MARGIN 90000",
         "natural resampler drain": "drain_swr(p)",
         "core ownership monitor": 'fopen("/tmp/CORENAME", "r")',
-        "upstream core name accepted": '"H264"',
+        "upstream core name without --core-name": '"H264"',
         "app core name option": '"--core-name"',
         "app core name launches and owns": "h264ring_launch_core_as(p.cfg.rbf, p.cfg.core_name, 5000)",
         "video writes require ownership": "if (!core_owner_ok(p)) return AVERROR_EXIT;",

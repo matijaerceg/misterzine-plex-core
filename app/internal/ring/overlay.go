@@ -10,9 +10,8 @@ import (
 
 // Overlay is what the playback screens draw over the video: a rectangle of
 // pixels with alpha, the dot (a disc, the scrub and wait marker) and the
-// bar (a filled rectangle). The PlexCRT core had a plane and two sprites
-// in hardware; the H.264 core has the one overlay page, so every change
-// here composes them into the page not on screen -- the lines they cover,
+// bar (a filled rectangle). The core has the one overlay page, so every
+// change here composes them into the page not on screen -- the lines they cover,
 // transparent elsewhere, declared as the band so the core fetches nothing
 // else -- and flips to it. It shares the Ring's two pages: a frame from
 // End replaces it, and a Show replaces the frame.
@@ -375,9 +374,8 @@ func (o *Overlay) Dot(x, y int, rgb uint32, on bool) {
 	o.update()
 }
 
-// DotRun moves the dot vx pixels every field (0 stops), within xmin..xmax,
-// as the old core did: a goroutine redraws it each heartbeat. Read where it
-// is with DotX.
+// DotRun moves the dot vx pixels every field (0 stops), within xmin..xmax:
+// a goroutine redraws it each heartbeat. Read where it is with DotX.
 func (o *Overlay) DotRun(vx, xmin, xmax int) {
 	o.r.mu.Lock()
 	defer o.r.mu.Unlock()

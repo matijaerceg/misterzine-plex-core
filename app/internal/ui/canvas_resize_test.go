@@ -17,7 +17,7 @@ func (*resizeOut) LayoutCanvasSize() (int, int) { return 960, 480 }
 func TestHomeRebuildsPageAfterCanvasResize(t *testing.T) {
 	a := &App{
 		Cfg: &Config{NoTheme: true},
-		F:   Fonts{Title: gfx.Load("med22"), Body: gfx.Load("med18"), Small: gfx.Load("reg16"), SmallBold: gfx.Load("med16"), Big: gfx.Load("bold28")},
+		F:   appFonts(),
 		Art: NewArt(nil, 0, nil),
 		Log: log.New(io.Discard, "", 0),
 	}

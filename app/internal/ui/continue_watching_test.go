@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"plexcrt/internal/gfx"
 	"plexcrt/internal/input"
 	"plexcrt/internal/plex"
 )
@@ -77,7 +76,7 @@ func (s *continueServer) removals() []string {
 
 func continueTestApp(t *testing.T, s *continueServer) *App {
 	a := &App{Plex: plex.New(s.URL, "tok", t.TempDir(), ""), Log: log.New(io.Discard, "", 0), Wake: make(chan struct{}, 1)}
-	a.F = Fonts{Title: gfx.Load("med22"), Body: gfx.Load("med18"), Small: gfx.Load("reg16"), SmallBold: gfx.Load("med16"), Big: gfx.Load("bold28")}
+	a.F = appFonts()
 	return a
 }
 

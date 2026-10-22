@@ -1,4 +1,4 @@
-// Package gfx is the software renderer for the 720x480 CRT frame: a BGRx
+// Package gfx is the software renderer for the app's 480-line frames: a BGRx
 // canvas in the exact byte order of the H.264 core's overlay pages (xRGB8888
 // little endian), so presenting is one copy; fills, blits, alpha-blended glyphs from
 // the prerendered Roboto atlases, and images converted to the same layout.
@@ -26,8 +26,8 @@ type Canvas struct {
 	W, H int
 	Pix  []byte
 	// row is one canvas row of a solid colour in ordinary memory. Fills copy
-	// from it: the canvas may be the write-combined frame ring, which must
-	// never be read. Per canvas, because text workers fill concurrently.
+	// from it: the canvas may be write-combined framebuffer memory (the
+	// overlay pages), which must never be read. Per canvas, because text workers fill concurrently.
 	row    []byte
 	rowCol Color
 }
@@ -193,7 +193,7 @@ func (c *Canvas) BlitExcept(src *Canvas, holes []Rect) {
 }
 
 // FillAlpha blends a rectangle of col at alpha a (0..255) over the canvas.
-// It reads the destination: not for the frame ring.
+// It reads the destination: not for the overlay pages.
 func (c *Canvas) FillAlpha(x, y, w, h int, col Color, a int) {
 	if a >= 255 {
 		c.Fill(x, y, w, h, col)
@@ -259,7 +259,7 @@ func (c *Canvas) BlitClip(x, y int, img *Image, cx, cy, cw, ch int) {
 }
 
 // BlitOver composites a premultiplied-alpha image over the canvas. It reads
-// the destination: for composed pages, never the frame ring.
+// the destination: for composed pages, never the overlay pages.
 func (c *Canvas) BlitOver(x, y int, img *Image) {
 	if img == nil {
 		return
@@ -306,34 +306,6 @@ func (c *Canvas) BlitOverT(x, y int, img *Image, t int) {
 				c.Pix[do+1] = byte(int(img.Pix[so+1])*t>>8 + int(c.Pix[do+1])*ia/255)
 				c.Pix[do+2] = byte(int(img.Pix[so+2])*t>>8 + int(c.Pix[do+2])*ia/255)
 			}
-			so += 4
-			do += 4
-		}
-	}
-}
-
-// BlitDim blits an image darkened to the given brightness (0..255).
-func (c *Canvas) BlitDim(x, y int, img *Image, bright int) { c.BlitDimClip(x, y, img, bright, 0, c.H) }
-
-// BlitDimClip is BlitDim limited to rows cy0..cy1.
-func (c *Canvas) BlitDimClip(x, y int, img *Image, bright, cy0, cy1 int) {
-	if img == nil {
-		return
-	}
-	x0, y0, x1, y1 := c.clip(x, y, img.W, img.H)
-	if cy0 > y0 {
-		y0 = cy0
-	}
-	if cy1 < y1 {
-		y1 = cy1
-	}
-	for yy := y0; yy < y1; yy++ {
-		so := ((yy-y)*img.W + (x0 - x)) * 4
-		do := (yy*c.W + x0) * 4
-		for xx := x0; xx < x1; xx++ {
-			c.Pix[do] = byte(int(img.Pix[so]) * bright / 255)
-			c.Pix[do+1] = byte(int(img.Pix[so+1]) * bright / 255)
-			c.Pix[do+2] = byte(int(img.Pix[so+2]) * bright / 255)
 			so += 4
 			do += 4
 		}

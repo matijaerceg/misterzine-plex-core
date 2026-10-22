@@ -110,7 +110,7 @@ func (r *Ring) Watch(logf func(string, ...any), wake func(), stop <-chan struct{
 					return
 				}
 				logf("watch: framebuffer mode changed from %q to %q", mode, m)
-				mode = keepMappedFor(logf, m, maxPageSize*NPage)
+				mode = keepMapped(logf, m)
 				r.mu.Lock()
 				r.bars = [NPage]barFrame{} // a mode write clears the framebuffer
 				r.mu.Unlock()

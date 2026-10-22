@@ -282,14 +282,7 @@ func subtitleFace(size int) (*gfx.Font, int) {
 // they sit on the safe area's bottom, clear of the tube's overscan.
 func subtitleMargin(h int) int { return h * (480 - SafeBottom) / 480 }
 
-// drawSubtitle paints lines for a w-wide canvas at size (a percentage of
-// Normal): white type, each line centred on its own box, the lines wrapped
-// to the safe width. The panel is w wide, transparent outside the boxes.
-func drawSubtitle(lines []string, size, w int) (*gfx.Canvas, []byte) {
-	return new(subtitlePaint).draw(lines, size, w)
-}
-
-// subtitlePaint is drawSubtitle's storage, kept from one cue to the next
+// subtitlePaint is the subtitle panel's storage, kept from one cue to the next
 // (a cue at Extra large is about a megabyte of it): the panel and its
 // alpha it returns are good until the next draw.
 type subtitlePaint struct {
@@ -310,7 +303,10 @@ func reuse(c *gfx.Canvas, w, h int) {
 	*c = gfx.Canvas{W: w, H: h, Pix: pix}
 }
 
-// draw is drawSubtitle on s's storage.
+// draw paints lines for a w-wide canvas at size (a percentage of Normal),
+// on s's storage: white type, each line centred on its own box, the lines
+// wrapped to the safe width. The panel is w wide, transparent outside the
+// boxes.
 func (s *subtitlePaint) draw(lines []string, size, w int) (*gfx.Canvas, []byte) {
 	f, px := subtitleFace(size)
 	// the scale from the atlas, in 1/256ths

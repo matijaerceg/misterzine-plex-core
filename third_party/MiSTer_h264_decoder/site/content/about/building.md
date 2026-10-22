@@ -21,8 +21,8 @@ to prove each bench can fail; `bench/h264/README.md` lists them).
 
 ## The programs
 
-MisterZine Jellyfin (the app and its player) is built by the MisterZine Jellyfin repository
-this fork lives in ([its build guide](https://github.com/matijaerceg/misterzine-jellyfin/blob/main/docs/BUILD.md));
+MisterZine Plex (the app and its player) is built by the MisterZine Plex repository
+this copy of the fork lives in ([its build guide](https://github.com/matijaerceg/misterzine-plex-core/blob/main/docs/BUILD.md));
 nothing below is part of it. The programs in `clients/` and the client library are ARM programs,
 cross-compiled in their own Docker images. Each client's build writes the SD card's layout
 to its `build/dist/`: copy its contents to the card's root, and put the core you built in
@@ -59,9 +59,9 @@ clients/uvc/tests/run_test.sh
 
 ## Releases
 
-This core is MisterZine Jellyfin's fork. It is released only inside MisterZine Jellyfin
-packages, built by that project's `release/build_package.py` from a `--release` build; see its
-`release/DISTRIBUTION.md`.
+This copy of the core is MisterZine Plex's. It is released only inside MisterZine Plex
+packages, as `PlexH264.rbf`, built by that project's `release/build_package.py` from a
+`--release` build; see its `release/DISTRIBUTION.md`.
 
 ## The manual
 

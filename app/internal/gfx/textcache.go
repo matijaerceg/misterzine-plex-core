@@ -8,7 +8,7 @@ import (
 // TextCache renders text lines off the render thread. A line is an opaque
 // strip (text over a known background) so drawing it is one memmove per
 // row and never reads the destination, which matters when the destination
-// is the write-combined frame ring. A long line not yet rendered is queued
+// is the write-combined overlay pages. A long line not yet rendered is queued
 // and simply absent for a frame; a short one is rendered on the spot.
 //
 // Lines live in two generations: new lines go into cur, and when cur is
@@ -181,13 +181,6 @@ func (c *Canvas) LineClip(tc *TextCache, x, y int, f *Font, col, bg Color, s str
 	}
 }
 
-// LineClipX draws a cached line clipped to columns cx0..cx1.
-func (c *Canvas) LineClipX(tc *TextCache, x, y int, f *Font, col, bg Color, s string, cx0, cx1 int) {
-	if img := tc.Get(f, s, col, bg); img != nil {
-		c.BlitClip(x-1, y, img, cx0, 0, cx1-cx0, c.H)
-	}
-}
-
 // LineRight draws a cached line ending at x.
 func (c *Canvas) LineRight(tc *TextCache, x, y int, f *Font, col, bg Color, s string) {
 	c.Line(tc, x-f.Width(s), y, f, col, bg, s)
@@ -197,6 +190,3 @@ func (c *Canvas) LineRight(tc *TextCache, x, y int, f *Font, col, bg Color, s st
 func (c *Canvas) LineCenter(tc *TextCache, x, y int, f *Font, col, bg Color, s string) {
 	c.Line(tc, x-f.Width(s)/2, y, f, col, bg, s)
 }
-
-// Over wraps existing pixels as a canvas (a frame-ring slot).
-func Over(pix []byte, w, h int) *Canvas { return &Canvas{W: w, H: h, Pix: pix[:w*h*4]} }

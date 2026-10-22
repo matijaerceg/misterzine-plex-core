@@ -16,22 +16,16 @@ import (
 
 // uploadOSD keeps what the list code uploads.
 type uploadOSD struct {
+	nopOSD
 	mu  sync.Mutex
 	got *gfx.Canvas
 }
 
-func (o *uploadOSD) Show(int, int, *gfx.Canvas, []byte) {}
-func (o *uploadOSD) Hide()                              {}
 func (o *uploadOSD) Upload(_ int, c *gfx.Canvas, _ byte) {
 	o.mu.Lock()
 	o.got = c
 	o.mu.Unlock()
 }
-func (o *uploadOSD) ShowAt(int, int, int, int, int)       {}
-func (o *uploadOSD) Dot(int, int, uint32, bool)           {}
-func (o *uploadOSD) DotRun(int, int, int)                 {}
-func (o *uploadOSD) DotX() int                            { return 0 }
-func (o *uploadOSD) Bar(int, int, int, int, uint32, bool) {}
 
 // Optional previews of the playback menu: CROP_PREVIEW_DIR=dir go test -run CropPreview
 func TestCropPreview(t *testing.T) {

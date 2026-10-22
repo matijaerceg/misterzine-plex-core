@@ -64,8 +64,11 @@ included in the playback runtime. Devices remain disabled.
 The target flags are:
 
 ```text
--static -march=armv7-a -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard
+OpenSSL:                 -static -march=armv7-a -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard
+FFmpeg, HPS and jfplay:  -march=armv7-a -mfpu=neon -mfloat-abi=hard
 ```
+
+Every binary is linked statically.
 
 ## Verification
 
@@ -78,24 +81,19 @@ qemu-arm-static build/arm/ffmpeg -version
 Both executables should report `ELF 32-bit LSB executable, ARM, EABI5` and
 `statically linked`.
 
-## Verified build, 2026-10-15 (WSL Ubuntu 24.04, gcc-arm-linux-gnueabihf 13.3, no Docker)
-
-Both scripts ran to completion after these fixes, which are now in the scripts:
+## Why the scripts do this
 
 - `build_hps.sh`: the vendored host test reads `../h264/dec/h264_pkg.sv` for the refusal
   names, so the copy under `build/hps-src/` keeps `hps/` and `h264/dec/` as siblings. The
   `-mcpu=cortex-a9` flag conflicts with `-march=armv7-a+simd` under gcc 13 and the Makefile
   builds with `-Werror`; `-march=armv7-a -mfpu=neon -mfloat-abi=hard` alone is used.
 - `build_ffmpeg.sh`: FFmpeg's configure defaults to `arm-linux-gnueabihf-pkg-config` when
-  cross compiling, which does not exist, so OpenSSL was never found; `--pkg-config=pkg-config`
-  fixes it. With `--disable-everything` the h264 decoder's `h2645_sei.o` needs
-  `aom_film_grain.o`, which only the HEVC SEI config pulls in; `--enable-parser=hevc` resolves
-  the link. `--extra-libs='-ldl -lpthread -latomic'` for static OpenSSL.
-- Outputs: `build/arm/libh264ring.a` (618 KB), `h264play`, `h264stat`, `cavlc2cabac` (about
-  1 MB each, unstripped), `ffmpeg` and `ffprobe` (about 6 MB each, stripped), headers and
-  `.a` files under `build/arm/ffmpeg-prefix/`. Host test: `test_ring: ALL GREEN`.
+  cross compiling, which does not exist, so OpenSSL would not be found;
+  `--pkg-config=pkg-config` fixes it. With `--disable-everything` the h264 decoder's
+  `h2645_sei.o` needs `aom_film_grain.o`, which only the HEVC SEI config pulls in;
+  `--enable-parser=hevc` resolves the link. `--extra-libs='-ldl -lpthread -latomic'` is
+  for static OpenSSL.
 - The static link warns that `getaddrinfo` needs the runtime glibc's NSS libraries; the
-  MiSTer's Linux has them, and `ffprobe` resolving an HTTPS URL on the DE10 is the check.
-- Time: the OpenSSL + FFmpeg build takes a few minutes on 40 threads; the sources are cached
-  under `build/sources/`. If `rm: cannot remove 'ffmpeg-7.1.1': Permission denied` appears,
-  a Windows shell has that directory as its working directory; leave it and rerun.
+  MiSTer's Linux has them, and `ffprobe` resolving an HTTPS URL on the MiSTer is the check.
+- If `rm: cannot remove 'ffmpeg-7.1.1': Permission denied` appears, a Windows shell has
+  that directory as its working directory; leave it and rerun.

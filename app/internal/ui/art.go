@@ -215,10 +215,9 @@ func (a *Art) worker(background bool) {
 	}
 }
 
-// nextWant is called under mu. Discard stale work, then take the newest
-// visible request, falling back to the newest nearby-row request.
-func (a *Art) nextWant() (artReq, bool) { return a.nextRequest(true) }
-
+// nextRequest is called under mu. Discard stale work, then take the newest
+// visible request, falling back (when background allows) to the newest
+// nearby-row request.
 func (a *Art) nextRequest(background bool) (artReq, bool) {
 	background = background && !time.Now().Before(a.backgroundUntil)
 	var next artReq

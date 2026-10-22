@@ -54,6 +54,14 @@ func newFake(t *testing.T, running bool) *fake {
 	return f
 }
 
+// attach builds a Ring over memory a test owns: ctrl words and fb pages.
+func attach(ctrlWords []uint32, fb []byte, fbPhys uint32) *Ring {
+	r := &Ring{cur: -1, blink: -1, fb: fb, fbPhys: fbPhys}
+	r.c.m = ctrlWords
+	r.setPages()
+	return r
+}
+
 func TestGeometryCapability(t *testing.T) {
 	f := newFake(t, false)
 	if f.r.GeometrySupported() {
@@ -73,6 +81,14 @@ func (f *fake) set(w int, lo, hi uint32) {
 	atomic.StoreUint32(&f.m[2*w], lo)
 	atomic.StoreUint32(&f.m[2*w+1], hi)
 }
+
+// field moves the heartbeat to n the way the core does, both words of the
+// seqlock: with only one, every status read retries until it gives up.
+func (f *fake) field(n uint32) {
+	f.set(wSeqTail, n, 0)
+	f.set(wSeqHead, n, 0)
+}
+
 func (f *fake) lo(w int) uint32 { return atomic.LoadUint32(&f.m[2*w]) }
 func (f *fake) hi(w int) uint32 { return atomic.LoadUint32(&f.m[2*w+1]) }
 
@@ -693,32 +709,32 @@ func TestOverlayRepeatedDotAnchorKeepsRunPosition(t *testing.T) {
 	o.DotRun(2, 50, 150)
 	defer o.DotRun(0, 50, 150)
 
-	f.set(wSeqHead, 1, 0)
+	f.field(1)
 	if got := o.DotX(); got != 102 {
 		t.Fatalf("dot after one field = %d, want 102", got)
 	}
 	// waitDot refreshes the same sprite anchor each field. That must not
 	// reset the run origin and pull the moving dot back to x=100.
 	o.Dot(100, 100, 0xFF0000, true)
-	f.set(wSeqHead, 2, 0)
+	f.field(2)
 	if got := o.DotX(); got != 104 {
 		t.Fatalf("dot after repeated anchor and another field = %d, want 104", got)
 	}
 	// Updating the sprite at that same anchor must preserve the active run,
 	// whether the appearance or visibility changes.
 	o.Dot(100, 100, 0x00FF00, true)
-	f.set(wSeqHead, 3, 0)
+	f.field(3)
 	if got := o.DotX(); got != 106 {
 		t.Fatalf("dot after color change = %d, want 106", got)
 	}
 	o.Dot(100, 100, 0x00FF00, false)
-	f.set(wSeqHead, 4, 0)
+	f.field(4)
 	if got := o.DotX(); got != 108 {
 		t.Fatalf("dot after visibility change = %d, want 108", got)
 	}
 	// A genuinely new anchor repositions the sprite and starts the run there.
 	o.Dot(120, 100, 0x00FF00, false)
-	f.set(wSeqHead, 5, 0)
+	f.field(5)
 	if got := o.DotX(); got != 122 {
 		t.Fatalf("dot after new anchor = %d, want 122", got)
 	}

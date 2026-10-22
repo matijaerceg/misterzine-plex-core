@@ -4,7 +4,6 @@ import hashlib
 import io
 import json
 from pathlib import Path
-import struct
 import tempfile
 import unittest
 from unittest import mock
@@ -180,21 +179,6 @@ class InstallerTests(unittest.TestCase):
         manager.menu_entries(self.card, enable=False)
         self.assertFalse(entry.exists() or old.exists())
 
-    def test_core_already_loaded_by_the_menu_entry_needs_no_reload(self):
-        proc = self.base / 'proc/40'
-        proc.mkdir(parents=True)
-        (proc / 'comm').write_text('MiSTer_Zaparoo\n')
-        (proc / 'cmdline').write_bytes(b'/media/fat/zaparoo/MiSTer_Zaparoo\0/media/fat/x/PlexH264.rbf\0')
-        corename = self.base / 'CORENAME'
-        core = Path('/media/fat/x/PlexH264.rbf')
-        self.assertFalse(manager.core_loaded(core, proc.parent, corename, wait=0))
-        corename.write_text('MENU\n')
-        self.assertFalse(manager.core_loaded(core, proc.parent, corename, wait=0))
-        corename.write_text('PlexH264\n')
-        self.assertTrue(manager.core_loaded(core, proc.parent, corename, wait=0))
-        (proc / 'comm').write_text('python3\n')
-        self.assertFalse(manager.core_loaded(core, proc.parent, corename, wait=0))
-
     def test_core_launch_keeps_browser_at_card_root(self):
         import xml.etree.ElementTree as ET
         folder = self.root / 'releases/alpha-1'
@@ -234,35 +218,6 @@ class InstallerTests(unittest.TestCase):
                                                          corename=corename, cmd=command))
         self.assertFalse(command.exists())
 
-    def test_framebuffer_is_left_for_the_go_app_and_mister(self):
-        params = self.base / 'framebuffer'
-        params.mkdir()
-        mode = params / 'mode'
-        mode.write_text('8888 1 640 480 2560')
-        self.assertFalse(manager.prepare_framebuffer(params))
-        self.assertEqual(mode.read_text(), '8888 1 640 480 2560')
-
-    def test_large_framebuffer_is_left_alone(self):
-        params = self.base / 'framebuffer'
-        params.mkdir()
-        mode = params / 'mode'
-        original = '8888 1 1920 1080 7680'
-        mode.write_text(original)
-        manager.prepare_framebuffer(params)
-        self.assertEqual(mode.read_text(), original)
-
-    def test_core_status_wiped_for_a_field_is_not_a_lost_core(self):
-        mem = bytearray(4096)
-        struct.pack_into('<I', mem, 0x6c, 0x56500001)
-        self.assertIsNone(manager.lost_core_status(mem, sleep=self.fail))
-        # A framebuffer mode write clears the word until the core's next vsync.
-        struct.pack_into('<I', mem, 0x6c, 0)
-        rewritten = lambda _: struct.pack_into('<I', mem, 0x6c, 0x56500002)
-        self.assertIsNone(manager.lost_core_status(mem, sleep=rewritten))
-        # Another core never writes it back.
-        struct.pack_into('<I', mem, 0x6c, 0)
-        self.assertEqual(manager.lost_core_status(mem, sleep=lambda _: None), 0)
-
     def test_only_the_exit_status_asks_for_the_menu(self):
         self.assertTrue(manager.app_finished(manager.EXIT_TO_MENU))
         self.assertFalse(manager.app_finished(0))
@@ -290,6 +245,36 @@ class InstallerTests(unittest.TestCase):
             for after in (plex, {13: b'/media/fat/_Console/NES.rbf'}):
                 with mock.patch.object(manager, 'mister_processes', side_effect=[plex] + [after] * 100):
                     self.assertFalse(manager.load_menu(self.card, cmd, wait=.1))
+
+    def test_run_loads_the_menu_after_an_exit(self):
+        folder = self.root / 'releases/alpha-1'
+        folder.mkdir(parents=True)
+        manager.write_json(self.root / 'active.json', {'current': 'alpha-1', 'previous': None})
+
+        def launch(status, menu):
+            app = mock.Mock(pid=1)
+            app.wait.return_value = status
+            with mock.patch.object(manager, 'recover_activation', return_value=True), \
+                    mock.patch.object(manager.subprocess, 'run'), \
+                    mock.patch.object(manager.subprocess, 'Popen', return_value=app), \
+                    mock.patch.object(manager, 'ensure_selected_core', return_value=True), \
+                    mock.patch.object(manager, 'display_env', return_value=''), \
+                    mock.patch.object(manager, 'rotate_log'), \
+                    mock.patch.object(manager, 'open', mock.mock_open(), create=True), \
+                    mock.patch.object(manager, 'trace'), \
+                    mock.patch.object(manager, 'load_menu', return_value=menu) as load_menu:
+                return manager.run(self.root), load_menu
+        # Exit to the MiSTer menu: the app only says so, run() loads it.
+        to_menu, load_menu = launch(manager.EXIT_TO_MENU, True)
+        self.assertTrue(to_menu)
+        load_menu.assert_called_once_with(self.card)
+        with self.assertRaisesRegex(RuntimeError, 'Could not return to the MiSTer menu'):
+            launch(manager.EXIT_TO_MENU, False)
+        to_menu, load_menu = launch(0, True)
+        self.assertFalse(to_menu)
+        load_menu.assert_not_called()
+        with self.assertRaisesRegex(RuntimeError, 'status 1'):
+            launch(1, True)
 
     def test_a_lock_held_for_a_moment_is_waited_for(self):
         import fcntl
@@ -604,9 +589,11 @@ class ReportTests(unittest.TestCase):
             manager.send_report('x')
 
     def test_account_name_never_reaches_the_report(self):
-        (self.root / 'plexcrt.json').write_text('{"token":"TESTtoken","account_name":"TESTaccount"}')
-        (self.tmp / 'misterzine-plex.log').write_text('signed in as TESTaccount\n')
-        self.assertNotIn('TESTaccount', self.report())
+        for key in ('account_name', 'home_user_title'):     # the account's and the Plex Home user's
+            with self.subTest(key=key):
+                (self.root / 'plexcrt.json').write_text(json.dumps({'token': 'TESTtoken', key: 'TESTaccount'}))
+                (self.tmp / 'misterzine-plex.log').write_text('signed in as TESTaccount\n')
+                self.assertNotIn('TESTaccount', self.report())
 
     def test_diagnostics_entry_always_waits_for_a_key(self):
         manager.wrappers(self.card)
@@ -615,26 +602,19 @@ class ReportTests(unittest.TestCase):
         rollback = (self.card / 'Scripts/MisterZine-Plex-Rollback.sh').read_text()
         self.assertIn('if [ "$result" -ne 0 ]; then read -r -p', rollback)
 
-    def test_framebuffer_preparation_does_not_write(self):
-        params = self.base / 'params'
-        params.mkdir()
-        (params / 'mode').write_text('8888 1 640 480 2560\n')
-        self.assertFalse(manager.prepare_framebuffer(params))
-        self.assertFalse(manager.prepare_framebuffer(params))
-
     def test_report_reads_the_active_alternative_ini_by_number(self):
         (self.card / 'MiSTer_Bench.ini').write_text('[MiSTer]\nvrr_mode=2\n[MisterZine Plex Core]\nvideo_mode=8\n')
         facts = manager.system_facts(self.root, [], self.proc.parent, altcfg=lambda: 1)
         self.assertEqual(facts['ini'], 'alternative 1')
         self.assertEqual(facts['video_settings'], {'MiSTer': {'vrr_mode': '2'}, 'MisterZine Plex Core': {'video_mode': '8'}})
-        self.assertEqual(facts['plex_video'], {'vrr_mode': '2', 'video_mode': '8', 'vrr': 'forced', 'hdmi_hz': None,
+        self.assertEqual(facts['ini_video'], {'vrr_mode': '2', 'video_mode': '8', 'vrr': 'forced', 'hdmi_hz': None,
                                                'hdmi_mode': '', 'dvi': False, 'overridden': [], 'conditional': [],
                                                'own_section': True, 'section_in': ''})
         self.assertNotIn('Bench', json.dumps(facts))
         facts = manager.system_facts(self.root, [], self.proc.parent, altcfg=lambda: None)
         self.assertEqual(facts['ini'], 'unknown')
-        self.assertEqual(facts['plex_video']['hdmi_hz'], 60.0)          # MiSTer.ini stands in
-        self.assertEqual(facts['plex_video']['section_in'], 'alternative 1')
+        self.assertEqual(facts['ini_video']['hdmi_hz'], 60.0)          # MiSTer.ini stands in
+        self.assertEqual(facts['ini_video']['section_in'], 'alternative 1')
         self.assertNotIn('Bench', json.dumps(facts))
 
 

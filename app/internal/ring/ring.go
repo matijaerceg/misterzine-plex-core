@@ -1,6 +1,6 @@
 // Package ring is the Go app's side of the H.264 decoder core's HPS
 // interface (third_party/MiSTer_h264_decoder, interface 1.x): the app's
-// 720x480 frames go into one of two overlay pages in the Linux framebuffer
+// frames go into one of two overlay pages in the Linux framebuffer
 // (/dev/fb0), described to the core by the eight descriptor words 72-79 of
 // the control block, which the core composites over the video (or over
 // black); the status words and the input region are read from the same
@@ -11,8 +11,12 @@
 //	            32-38 the player's session words; 72-79 the overlay descriptor
 //	0x31800000  the ring (8 MB): the player's alone, never mapped here
 //	0x22000000  MiSTer_fb's region (8 MB); /dev/fb0 maps the first smem_len
-//	            bytes of it. Page p is at fb + p*pageSize: 720x480 ARGB8888,
-//	            stride 2880, alpha forced opaque.
+//	            bytes of it. Page p is at fb + p*opage: ARGB8888 sized to
+//	            the core's raster (word 80), at most 1280x720, alpha forced
+//	            opaque.
+//
+// The app draws a 480-line canvas, 720 wide (960 for a 16:9 display
+// shape), which publishing scales onto a page, centred on the raster.
 //
 // The player (jfplay, libh264ring) is a separate process that holds the
 // library's advisory lock (an exclusive flock on /tmp/h264ring.lock) for
@@ -42,8 +46,6 @@ const (
 	stride      = W * 4
 	pageSize    = stride * H // 1,382,400: a multiple of 8
 	maxPageSize = 1280 * 720 * 4
-	// NSlot is kept for callers of the old frame ring: the pages.
-	NSlot = NPage
 	// ackWait bounds the wait for the core to read a descriptor (it reads
 	// them once a refresh, 16.7 or 20 ms) before a page is drawn again.
 	ackWait = 60 * time.Millisecond
@@ -97,7 +99,6 @@ type Ring struct {
 	lastT, waitedT, endedT time.Time
 	cadence                bool
 	cadenceField           uint32
-	video                  VideoControl
 	blink                  int // fbcon's cursor blink to put back (-1: unknown)
 	sessionAt              time.Time
 	lastKey                uint32 // Key()'s last value, for a torn read
@@ -128,7 +129,9 @@ func CoreFile() string {
 
 // Open loads the core if another is running, maps its control block and
 // the framebuffer, and makes sure a session is open so the overlay shows.
-func Open() (*Ring, error) {
+// What it works around (a framebuffer mode it cannot enlarge, a session it
+// cannot start) goes to logf.
+func Open(logf func(string, ...any)) (*Ring, error) {
 	rbf := CoreFile()
 	if err := LaunchCore(rbf, 15*time.Second); err != nil {
 		return nil, fmt.Errorf("loading the H.264 core (%s): %w", rbf, err)
@@ -152,26 +155,18 @@ func Open() (*Ring, error) {
 		w, h := outputSize(st)
 		r.setOutput(w, h)
 	}
-	if from, err := enlargeModeFor(maxPageSize * NPage); err != nil {
-		fmt.Fprintf(os.Stderr, "ring: framebuffer mode %q maps one page and could not be changed: %v\n", from, err)
+	if from, err := enlargeMode(); err != nil {
+		logf("ring: framebuffer mode %q maps less than two overlay pages and could not be changed: %v", from, err)
 	}
-	if err := r.mapFB(); err != nil {
+	if err := r.mapFB(logf); err != nil {
 		syscall.Munmap(cm)
 		return nil, err
 	}
 	r.blink = quietCursor()
 	if err := r.ensureSession(); err != nil {
-		fmt.Fprintf(os.Stderr, "ring: %v\n", err)
+		logf("ring: %v", err)
 	}
 	return r, nil
-}
-
-// attach builds a Ring over memory a test owns: ctrl words and fb pages.
-func attach(ctrlWords []uint32, fb []byte, fbPhys uint32) *Ring {
-	r := &Ring{cur: -1, blink: -1, fb: fb, fbPhys: fbPhys}
-	r.c.m = ctrlWords
-	r.setPages()
-	return r
 }
 
 func (r *Ring) setPages() {
@@ -264,18 +259,6 @@ func (r *Ring) syncOutput(st Status) bool {
 	return true
 }
 
-// OverlaySize is the largest raster the app can draw directly into. A
-// native output above the two-page framebuffer budget falls back to the
-// familiar centered 720x480 canvas.
-func (r *Ring) OverlaySize() (w, h int) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.ow == 0 || r.oh == 0 {
-		return W, H
-	}
-	return r.ow, r.oh
-}
-
 // PlaybackCanvasSize returns a logical canvas with the selected display
 // shape and raster height. 16:9 adds room at the sides.
 func playbackCanvasSize(st Status, ok bool, ow, oh int) (w, h int) {
@@ -287,7 +270,7 @@ func playbackCanvasSize(st Status, ok bool, ow, oh int) (w, h int) {
 		wide = st.ARX*2 > st.ARY*3
 		if st.RasterW > ow || st.RasterH > oh {
 			// The framebuffer map could not hold two native pages. Keep the
-			// centered legacy canvas proportional in that fallback.
+			// centred legacy canvas proportional in that fallback.
 			wide = ow*480 > oh*720
 		}
 	}
@@ -337,21 +320,8 @@ func (r *Ring) CoreRunning(within time.Duration) bool { return r.c.alive(within)
 // kept writing it, which a running core never does for long).
 func (r *Ring) Status() (Status, bool) { return r.c.status() }
 
-// Raster is the size of the core's output, which the 720x480 canvas is
-// centred on (720x480, 720x576 at 50 Hz, the video's own size on Native).
-func (r *Ring) Raster() (w, h int) {
-	st, _ := r.c.status()
-	return st.RasterW, st.RasterH
-}
-
 // Heartbeat is the core's seq_head: +1 every frame while it runs.
 func (r *Ring) Heartbeat() uint32 { return r.c.lo(wSeqHead) }
-
-// Live is the core's live flags (Live*).
-func (r *Ring) Live() uint8 { return uint8(r.c.lo(wState) >> 16) }
-
-// OSDOpen reports whether MiSTer's menu is open.
-func (r *Ring) OSDOpen() bool { return r.Live()&LiveOSDOpen != 0 }
 
 // Begin returns the canvas to draw the next frame into (ordinary memory,
 // so reading it back is fine; nothing of the last frame is guaranteed).
@@ -414,7 +384,7 @@ func (r *Ring) EndBand(first, last int) {
 	r.publishFrame(r.back.Pix, first, last)
 }
 
-// Present copies a 720x480 design-space canvas into the next page and publishes it.
+// Present copies a canvas the size of Begin's into the next page and publishes it.
 func (r *Ring) Present(c *gfx.Canvas) error { return r.PresentBand(c, 0, H-1) }
 
 // PresentBand is Present for lines first..last only.
@@ -759,7 +729,7 @@ func (r *Ring) AckLate() int {
 }
 
 // Foreign reports whether the player's video is on screen and has moved
-// on since our last End (the old frame ring's "another process published").
+// on since our last End.
 func (r *Ring) Foreign() bool {
 	st, ok := r.c.status()
 	return ok && st.Picture && st.Shown != r.shown0
@@ -951,16 +921,6 @@ func (r *Ring) PublishTimes() (ack, fill time.Duration) {
 // Missed reports whether the heartbeat moved on between the last
 // WaitField and the last End: the frame took longer than a field.
 func (r *Ring) Missed() bool { return r.ended != r.waited }
-
-// Slot returns the pixels of the page last described (for frame dumps).
-// Reading the framebuffer is slow: for diagnostics only.
-func (r *Ring) Slot() []byte {
-	if r.npage == 0 {
-		return nil
-	}
-	p := max(0, r.cur)
-	return r.fb[p*r.opage : (p+1)*r.opage]
-}
 
 // fillOpaque copies BGRx pixels into a page as ARGB8888 with alpha 255,
 // each channel scaled by level/256 (Full: unchanged, and copied in blocks

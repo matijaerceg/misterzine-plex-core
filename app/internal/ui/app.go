@@ -1,5 +1,5 @@
-// Package ui is the PlexCRT front end: screens drawn into a 720x480 canvas
-// at 60 fps while anything moves, idle otherwise.
+// Package ui is the MisterZine Plex Core front end: screens drawn into a
+// 720x480 canvas at 60 fps while anything moves, idle otherwise.
 package ui
 
 import (
@@ -33,9 +33,12 @@ type Fonts struct {
 	Small     *gfx.Font // 16 Regular
 	SmallBold *gfx.Font // 16 Medium: facts over pictures (Regular flickers on 480i)
 	Big       *gfx.Font // 28 Bold
-	Mark      *gfx.Font // 24 Condensed Bold: "Plex" in the wordmark
-	MarkZ     *gfx.Font // 26 Black: the Z
-	MarkM     *gfx.Font // 17 Black: the M, smaller and raised
+}
+
+// appFonts loads the type scale.
+func appFonts() Fonts {
+	return Fonts{Title: gfx.Load("med22"), Body: gfx.Load("med18"), BodyLight: gfx.Load("reg18"),
+		Small: gfx.Load("reg16"), SmallBold: gfx.Load("med16"), Big: gfx.Load("bold28")}
 }
 
 // Backer is a screen that wants first refusal on Back; it returns true
@@ -129,6 +132,7 @@ type App struct {
 	Cfg            *Config
 	Showcase       bool // session-only capture privacy
 	Version, Build string
+	FFmpeg         string // the decoder executable, for theme music
 	// Display is what the launcher read in the MiSTer INI; Options warn
 	// about settings that hurt playback.
 	Display DisplayCheck
@@ -193,9 +197,7 @@ func New(c *plex.Client, out Presenter, player *Player, lg *log.Logger) *App {
 	if c != nil {
 		go a.loadSectionsFor(c)
 	}
-	a.F = Fonts{Title: gfx.Load("med22"), Body: gfx.Load("med18"), BodyLight: gfx.Load("reg18"),
-		Small: gfx.Load("reg16"), SmallBold: gfx.Load("med16"), Big: gfx.Load("bold28"), Mark: gfx.Load("condit24"),
-		MarkZ: gfx.Load("blackit26"), MarkM: gfx.Load("blackit17")}
+	a.F = appFonts()
 	a.Mark = NewWordmark()
 	warmFades(layoutCanvasSize(a)) // 960 wide on a 16:9 display
 	return a
@@ -355,7 +357,7 @@ func (a *App) PlayAt(it *plex.Item, offset int) { a.PlayQueue(it, offset, nil, 0
 // the overlay's Prev and Next can move along them. The screen cuts to
 // black at once, with the title, the bar and the times on the overlay
 // and the wait dot running in the middle while the stream comes up;
-// when the presenter publishes its first frame the dot goes and the UI
+// when the player (jfplay) publishes its first frame the dot goes and the UI
 // drives the overlay until playback ends. Then after, if given, learns
 // the item the queue stopped on (it, when nothing played) and whether
 // that one finished (Playing.finished), so a season page can move on to
@@ -623,8 +625,8 @@ func (a *App) playLoop(sess *Session, ctl *Playing) (int, bool) {
 				a.Notice, a.NoticeAt = plex.Fold(err.Error()), time.Now()
 			}
 			if a.osd != nil {
-				// the menus use neither the plane nor the sprites, and the
-				// wait dot may still be running
+				// the menus use neither the overlay nor its dot and bar, and
+				// the wait dot may still be running
 				updateOverlay(a.osd, func() {
 					a.osd.Hide()
 					ctl.end()
@@ -686,9 +688,9 @@ func (a *App) playLoop(sess *Session, ctl *Playing) (int, bool) {
 			}
 			a.idle(time.Now(), up && ctl.paused)
 			if !up {
-				// Up is the presenter's first frame, not its launch: it starts
-				// long before the stream gives it a picture. Without the ring
-				// there is no frame to see, only the presenter's status file.
+				// Up is the player's (jfplay's) first frame, not its launch: it
+				// starts long before the stream gives it a picture. Without the
+				// ring there is no frame to see, only the player's status file.
 				foreign := a.Out.Foreign()
 				if foreign || a.osd == nil && a.Player.Started(a.Starting) {
 					if foreign {
@@ -713,7 +715,7 @@ func (a *App) playLoop(sess *Session, ctl *Playing) (int, bool) {
 				continue
 			}
 			if a.osd != nil {
-				// a frame from the presenter (a wiped header is none): the
+				// a frame from the player (jfplay; a wiped header is none): the
 				// picture is moving, so no wait dot
 				updateOverlay(a.osd, func() {
 					if frames != nil {
@@ -1200,13 +1202,6 @@ func (a *App) homeUpdating() bool {
 func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
 	defer a.theme.Stop()
 	defer a.flushSettings()
-	if r, ok := a.Out.(*ring.Ring); ok {
-		mode := uint32(0)
-		if a.Cfg.Progressive {
-			mode = 2
-		}
-		defer r.StartVideo(mode, a.Log.Printf)()
-	}
 	a.events = events
 	a.dirty = true
 	runtime.LockOSThread()
@@ -1469,7 +1464,7 @@ func (a *App) textOver(c, page *gfx.Canvas, x, y int, f *gfx.Font, col gfx.Color
 // render thread only).
 func (a *App) scratch(w, h int) *gfx.Canvas {
 	if a.scr == nil || len(a.scr.Pix) < w*h*4 {
-		a.scr = gfx.NewCanvas(max(w, 720), max(h, 64))
+		a.scr = gfx.NewCanvas(max(w, DesignW), max(h, 64))
 	}
 	return &gfx.Canvas{W: w, H: h, Pix: a.scr.Pix[:w*h*4]}
 }

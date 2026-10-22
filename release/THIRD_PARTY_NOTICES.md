@@ -20,8 +20,9 @@ and is GPL-3.0-or-later. Its upstream `LICENSE` and detailed per-file `NOTICE`
 remain in that directory. The notice identifies MiSTer framework files with
 GPL-2.0-or-later or GPL-3.0-or-later terms, with contributions by MiSTer-devel
 and the other authors identified in the source; the combined core is
-GPL-3.0-or-later. Both GPL version texts are included. The associated HPS
-client library under `hps/` is separately MIT-licensed; see `hps/LICENSE`.
+GPL-3.0-or-later. The associated HPS client library under `hps/` is separately
+MIT-licensed; see `hps/LICENSE`. The GPL texts are in
+`release/licenses/GPL-2.0.txt` and `GPL-3.0.txt`.
 
 ## ARM playback worker
 

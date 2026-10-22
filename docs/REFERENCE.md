@@ -127,8 +127,8 @@ primary account. Automatic sign-in uses the saved server connection at startup.
 - With the controls hidden, Left and Right show a strip with the title, the
   progress bar and the times, and work the same way: taps and holds add up into
   one seek. The last picture stays on screen until the new position plays.
-- The progress bar shows how far is downloaded in pale purple. A seek inside
-  that range can reuse what is already downloaded.
+- The progress bar shows how far is downloaded in pale lilac (cyan in the VCR
+  controls). A seek inside that range can reuse what is already downloaded.
 - **Audio** and **Subs** open a list of tracks. A change is kept for the movie
   or show. Another audio track, or a subtitle track the server burns in,
   restarts the stream at the same position; a subtitle track the app draws
@@ -174,7 +174,8 @@ Options lists, in groups:
   section). Select one for the file to change and what to add. See
   [HDMI setup](HDMI.md#settings-options-warn-about).
 - **Surround downmix boost**, **Subtitle size** (see Subtitles), **Theme
-  music** (a show's theme song on its pages) and **Navigation sounds**.
+  music** (a show's theme song on its pages) and **Navigation sounds** (no
+  sound plays with the H.264 core).
 - **Show beta features**, and the beta features a MisterZine code covers.
 - **Switch user** and **Sign in automatically** for a Plex Home (see
   Household profiles), **Choose server again**, and **Sign out**, with the
@@ -186,10 +187,10 @@ Options lists, in groups:
 - **Version**. The foot of the screen shows the build.
 
 Up and Down wrap between the first and last rows, skipping group gaps. OK,
-Left or Right turns a setting on or off; a setting with more choices (look,
-bitrate, crop, downmix boost, subtitle size) changes with Left and Right only,
-shown by the arrows either side of its value when it is selected. A scrollbar
-on the right shows where the list is.
+Left or Right turns a setting on or off; a setting with more choices (playback
+controls, bitrate, crop, downmix boost, subtitle size) changes with Left and
+Right only, shown by the arrows either side of its value when it is selected.
+A scrollbar on the right shows where the list is.
 
 An update waiting under Options is marked with a purple UPDATE mark at the top
 of Home and a dot in the menu.

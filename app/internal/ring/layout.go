@@ -15,7 +15,7 @@ const (
 	fbByte    = 0x22000000         // H264RING_FB_BYTE: MiSTer_fb's region, where the overlay's pages lie
 	fbSize    = 0x800000           // H264RING_FB_SIZE
 	coreMagic = 0x343632485453694D // "MiSTH264", word 0
-	ifMajor   = 1                  // H264RING_VERSION 0x101: same major, minor >= 1
+	ifMajor   = 1                  // H264RING_VERSION is 0x104 (major<<8|minor): same major, minor >= ifMinor
 	ifMinor   = 1
 
 	wMagic     = 0

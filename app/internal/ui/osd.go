@@ -11,8 +11,8 @@ type OSD interface {
 	Hide()
 	Upload(off int, c *gfx.Canvas, alpha byte) // raw content into the region
 	ShowAt(x, y, w, h, off int)                // show uploaded content: a header store
-	Dot(x, y int, rgb uint32, on bool)         // the core's dot sprite, frame pixels
-	DotRun(vx, xmin, xmax int)                 // the core moves the dot vx px per field
-	DotX() int                                 // where the core has it
-	Bar(x, y, w, h int, rgb uint32, on bool)   // the core's bar sprite
+	Dot(x, y int, rgb uint32, on bool)         // the dot, composed into the overlay page; frame pixels
+	DotRun(vx, xmin, xmax int)                 // moved vx px per field (ring.Overlay redraws it each heartbeat)
+	DotX() int                                 // where it is now
+	Bar(x, y, w, h int, rgb uint32, on bool)   // the bar, a filled rectangle in the overlay page
 }

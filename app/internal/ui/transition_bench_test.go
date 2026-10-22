@@ -20,10 +20,10 @@ func BenchmarkTransitionBackdrop(b *testing.B) {
 
 // Run only on an idle DE10. Writes an unpublished slot, never changes scanout.
 func BenchmarkTransitionRingCopy(b *testing.B) {
-	if os.Getenv("PLEX_BENCH_RING") != "1" {
-		b.Skip("requires idle hardware and PLEX_BENCH_RING=1")
+	if os.Getenv("PLEXCRT_BENCH_RING") != "1" {
+		b.Skip("requires idle hardware and PLEXCRT_BENCH_RING=1")
 	}
-	r, err := ring.Open()
+	r, err := ring.Open(b.Logf)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -36,10 +36,10 @@ func BenchmarkTransitionRingCopy(b *testing.B) {
 }
 
 func BenchmarkTransitionComposition(b *testing.B) {
-	if os.Getenv("PLEX_BENCH_RING") != "1" {
-		b.Skip("requires idle hardware and PLEX_BENCH_RING=1")
+	if os.Getenv("PLEXCRT_BENCH_RING") != "1" {
+		b.Skip("requires idle hardware and PLEXCRT_BENCH_RING=1")
 	}
-	r, err := ring.Open()
+	r, err := ring.Open(b.Logf)
 	if err != nil {
 		b.Fatal(err)
 	}

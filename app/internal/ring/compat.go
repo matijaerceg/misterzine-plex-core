@@ -1,17 +1,15 @@
 package ring
 
 import (
-	"sync"
 	"sync/atomic"
-	"time"
 
 	"plexcrt/internal/input"
 )
 
-// What the PlexCRT core did in hardware and the H.264 core does not: the
-// CRT video-mode lease, the brightness word, the audio tap. The methods
-// stay so the UI builds unchanged; the brightness is now applied to the
-// pixels as they are copied into a page.
+// The Ring's side of what the UI asks of its output: the picture-rectangle
+// interface, brightness (done in software, on the pixels as they are copied
+// into a page), the input region, and Tap, a no-op kept for the Navigation
+// sounds option (the PlexCRT core clicked; the H.264 core has no click).
 
 // Full is full brightness.
 const Full = 256
@@ -43,63 +41,6 @@ func (r *Ring) Brightness() (level int, supported bool) {
 	return int(Full - r.dim), true
 }
 
-// VideoControl held the PlexCRT core's CRT-profile request. The H.264 core
-// takes its video settings from MiSTer's menu (or a settings request), so
-// what is kept here is only the preference, which nothing on screen reads.
-type VideoControl struct {
-	mu             sync.Mutex
-	mode, previous uint32
-	deadline       time.Time
-}
-
-// StartVideo is a no-op lease; the returned function ends it.
-func (r *Ring) StartVideo(mode uint32, logf func(string, ...any)) func() {
-	r.SetVideo(mode)
-	return func() {}
-}
-
-// SetVideo records a preference.
-func (r *Ring) SetVideo(mode uint32) {
-	r.video.mu.Lock()
-	defer r.video.mu.Unlock()
-	if mode != 2 {
-		mode = 0
-	}
-	r.video.mode = mode
-	r.video.deadline = time.Time{}
-}
-
-// VideoStatus: the H.264 core has no CRT-profile word (supported false).
-func (r *Ring) VideoStatus() (mode uint32, override, supported bool) { return 0, false, false }
-
-// VideoLocked: there is no CRT-profile interlock.
-func (r *Ring) VideoLocked() bool { return false }
-
-// TryVideo starts a 15 s trial of a preference (kept for the UI).
-func (r *Ring) TryVideo(mode uint32) time.Time {
-	r.video.mu.Lock()
-	defer r.video.mu.Unlock()
-	r.video.previous = r.video.mode
-	r.video.mode = mode
-	r.video.deadline = time.Now().Add(15 * time.Second)
-	return r.video.deadline
-}
-
-// FinishVideo ends a trial, keeping or reverting the preference.
-func (r *Ring) FinishVideo(keep bool) bool {
-	r.video.mu.Lock()
-	defer r.video.mu.Unlock()
-	valid := !r.video.deadline.IsZero() && time.Now().Before(r.video.deadline)
-	if !valid {
-		return false
-	}
-	if !keep {
-		r.video.mode = r.video.previous
-	}
-	r.video.deadline = time.Time{}
-	return keep
-}
-
 // Tap was a click into the PlexCRT core's audio mixer; the H.264 core's
 // audio is the player's.
 func (r *Ring) Tap() {}
@@ -109,7 +50,8 @@ func (r *Ring) Tap() {}
 func (r *Ring) InputRegion(dst *[input.RegionWords]uint64) bool { return r.c.input(dst) }
 
 // Joy returns pads 1 and 0 in the old status word's layout (pad1<<16 |
-// pad0, see input.LegacyJoy). For the input package's legacy path only.
+// pad0, see input.LegacyJoy). Joy and Key only make the Ring an
+// input.Source: Poll reads it through InputRegion.
 func (r *Ring) Joy() uint32 {
 	var in [input.RegionWords]uint64
 	if !r.c.input(&in) {

@@ -26,9 +26,10 @@ the [component notices](../release/THIRD_PARTY_NOTICES.md) before distributing
 binaries.
 
 Saved video geometry is sent only to a core advertising HPS interface 1.2 or
-later; older cores keep calibration in preview-only mode. The app's 14:9 crop
-uses the same geometry interface. On older cores it falls back to Off, while
-the core receives its valid Letterbox setting.
+later. The core shipped with the app (interface 1.4) applies saved geometry;
+older H.264 cores keep calibration preview-only. The app's 14:9 crop uses the
+same geometry interface. On older cores it falls back to Off, while the core
+receives its valid Letterbox setting.
 
 The core OSD's **Output Mode**, **Refresh Rate Match**, **Display Shape**,
 **De-flicker**, **240p Playback**, and **Play 24fps at 25fps** controls use
@@ -77,6 +78,12 @@ cd ..
 The executable retains its historical `plexcrt` name. It runs on MiSTer Linux;
 it is not a desktop media player. Unit tests can run on a Linux desktop.
 Normal source builds are unlocked. The app's version is shown with `-version`.
+
+The font atlases in `app/internal/gfx/fonts` are committed and embedded in the
+build. `app/tools/genatlas.ps1` generates them on Windows from the installed
+Roboto, Roboto Medium, Roboto Black and Roboto Condensed fonts
+(`powershell -File app\tools\genatlas.ps1`); run it only to change a face or
+size, and keep every atlas the app loads by name.
 
 For a build with an explicit release channel, version and ID, as a package
 needs, use `release/beta_release.py`. It writes `app/dist/plexcrt` and the
@@ -161,8 +168,8 @@ Publishing is described in [distribution](../release/DISTRIBUTION.md).
 ## Development install
 
 Use a separate directory on the MiSTer's SD card. Copy `plexcrt`, `jfplay`, and
-`ffmpeg` into it and make them executable. The application preflight requires
-the `ffmpeg` executable alongside the app.
+`ffmpeg` into it and make them executable. `ffmpeg` decodes show theme music, so
+the preflight requires it alongside the app.
 
 Copy a core built as above to the SD card's `_Other` folder as
 `PlexH264.rbf`. See its [launch instructions](../third_party/MiSTer_h264_decoder/site/content/integrating/launch.md).
@@ -190,13 +197,13 @@ and public-content scan. Playback changes also need real hardware tests covering
 both direct streams and transcodes, pause/resume, repeated seeks, stop, saved
 resume position, and the absence of leftover player processes.
 
-The pure-C video geometry helper can be tested on a native Linux or WSL host
-without the ARM toolchain or device:
+The worker's C helpers, the pure-C video geometry helper among them, are
+tested on a native Linux or WSL host without the ARM toolchain or device:
 
 ```sh
-cc -std=c99 -Wall -Wextra -Werror -Iarm arm/test_video_geometry.c -o /tmp/test_video_geometry
-/tmp/test_video_geometry
+make -C arm test
 ```
 
-The test reads the shared expected rectangles in `tools/testdata/fit_cases.txt`
-and checks NTSC/PAL alignment, crop and fit behavior, and invalid inputs.
+The geometry test reads the shared expected rectangles in
+`tools/testdata/fit_cases.txt` and checks NTSC/PAL alignment, crop and fit
+behavior, and invalid inputs.

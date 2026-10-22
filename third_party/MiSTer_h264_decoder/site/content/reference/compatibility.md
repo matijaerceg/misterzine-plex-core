@@ -7,7 +7,7 @@ Current as of: release 1.1.0.
 | Test pattern on HDMI and analog | Works |
 | Output signals: 480p, 480i (15 kHz, composite sync with equalizing pulses), at 59.94 or exactly 60 Hz; 576p / 576i (PAL) at 50 Hz | Work; the rate follows the stream on Auto. Checked on NTSC CRTs and through a RetroTINK; 576i has not been checked on a PAL CRT |
 | Native (HDMI): the core's signal at the video's own size, up to 2,048 pixels a side | Works on HDMI; Video Output's Auto picks it unless `MiSTer.ini` sets up an analog display ([Video output](../video/output.md)) |
-| The interface for programs (version 1.1) | Works: a program on the MiSTer plays H.264 through it ([Integrating a program](../integrating/overview.md)); frozen at 1.0: a program built for 1.0 runs on every later 1.x core, one built for 1.1 needs a 1.1 core |
+| The interface for programs (version 1.4) | Works: a program on the MiSTer plays H.264 through it ([Integrating a program](../integrating/overview.md)); frozen at 1.0: a program built for 1.0 runs on every later 1.x core, one built for a later version needs a core of that version or later |
 | H.264 decoding, Main profile | Works, pictures up to 3,600 macroblocks (for example 1280x720, 720x576, 720x480, 854x480, 640x480), any aspect ratio |
 | H.264 decoding, High profile (what a stock Moonlight / Sunshine host sends): the 8x8 transform, 8x8 intra prediction, scaling matrices | Works, pictures up to 3,600 macroblocks (1280x720), 8-bit 4:2:0 |
 | High profile variants: monochrome (4:0:0), 4:2:2, 4:4:4, 10-bit, lossless | Refused (the refusal is shown in the status block) |

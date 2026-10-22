@@ -31,9 +31,10 @@ or Main, level 4.1, 8-bit, at the **Video bitrate** setting (8 Mbit/s at
 most), and stereo AAC audio, so the server downmixes surround sound. The
 bitrate steps below 3 Mbit/s also make the transcode smaller, so a low bitrate
 is spent on fewer pixels: at most 854x480 below 3 Mbit/s and 640x360 below
-1 Mbit/s; 1280x720 otherwise. Above 854 pixels wide, a 50 or 60 frames per
-second source is asked for at half its rate (25 or 29.97). When the server
-refuses to transcode, playback fails with the server's reason.
+1 Mbit/s; 1280x720 otherwise. At a Video bitrate of 3 Mbit/s or more, a
+source of 45 frames per second or more is asked for at half its rate (25 or
+29.97); below that the limit is 60. When the server refuses to transcode,
+playback fails with the server's reason.
 
 One transcode session ID serves a whole playback. A seek, a track change or a
 restart asks for a new decision on the same session, and the server replaces
@@ -79,8 +80,10 @@ keyframe spacing determine whether a fast-path hit is possible. Neither path
 promises frame-exact seeking or instant startup.
 
 The playback progress bar shows verified buffered audio/video coverage in pale
-purple, with played video in the normal purple. It does not infer a video range
-from the audio-only queue, and clears unavailable coverage during seeking.
+lilac, the server's intro and credits markers in slate, and played video in
+amber. In the VCR look the played blocks are green, buffered ones cyan, markers
+magenta and the rest white. The bar does not infer a video range from the
+audio-only queue, and clears unavailable coverage during seeking.
 Buffered coverage indicates downloaded media, not a guarantee that every point
 within it has a suitable keyframe for a fast seek.
 Seeking or changing audio while paused keeps the replacement paused. Resume
@@ -113,8 +116,8 @@ retained. Geometry is separate from the crop setting and is limited to fitted
 480- or 576-line output; Native HDMI output is not supported.
 
 De-flicker is an option of the core's OSD, not of the app: on interlaced
-output it softens thin horizontal detail in frame-based video and in the app's
-screens so it flickers less between fields. It is On by default. Video recorded
+output it softens thin horizontal lines in frame-based video and in the app's
+screens so they flicker less between fields. It is On by default. Video recorded
 as interlaced fields is not filtered. The app does not pass `jfplay` an
 Anti-Twitter request, so the OSD choice stays in force during playback.
 
@@ -170,9 +173,9 @@ changes preserve the position and pause state.
 `jfplay` accepts a direct stream or transcode URL, request headers, an optional
 base time and in-file seek, volume, audio stream index, control FIFO, status
 file, analog aspect, the core's file and name (`--rbf`, `--core-name`), and (on
-capable core versions) saved video geometry. With `--core-name` it treats a
-core reporting that name, or the upstream name `H264`, as its own. The app
-passes saved geometry only when the running core reports interface 1.2 or
+capable core versions) saved video geometry. With `--core-name` it treats
+only a core reporting that name as its own and loads its core over an
+upstream `H264`, which may be another app's. The app passes saved geometry only when the running core reports interface 1.2 or
 later. Its full command line and status/control contract are documented in
 [`arm/jfplay.md`](../arm/jfplay.md). Seeks go to the running worker as `seek`
 commands; when it cannot seek in place, the app restarts it with an in-file

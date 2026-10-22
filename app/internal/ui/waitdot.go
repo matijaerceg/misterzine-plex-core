@@ -96,9 +96,6 @@ func (d *waitDot) radii(frame int) [3]float64 {
 	return r
 }
 
-// width is the dots' box, side to side.
-func (d *waitDot) width() int { return 2*d.gap + 2*WaitDotRMax + 2 }
-
 // draw paints the frame's three dots centred on cx, cy into c, with their
 // coverage in alpha (a byte a pixel, c.W a row): a disc's edge is sampled
 // 4 x 4 a pixel, so the swell grows smoothly rather than a line at a time.
@@ -198,7 +195,7 @@ func (p *Playing) waitPanel(frame int, strip *gfx.Canvas, stripAlpha []byte) (c 
 	return c, alpha, top
 }
 
-// framed notes a frame published by the presenter: a held picture moves
+// framed notes a frame published by the player (jfplay): a held picture moves
 // on, the first one ends the start, and the first of a new stream ends a
 // seek's hush.
 func (p *Playing) framed(now time.Time) {

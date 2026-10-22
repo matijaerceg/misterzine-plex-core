@@ -51,6 +51,12 @@ class ProcessTests(unittest.TestCase):
 
     def test_start_check_counts_exit_to_the_menu_as_a_start(self):
         real_sleep = time.sleep
+        real_start = service.start_manager
+        children = []
+
+        def start_manager(root, env=None):
+            children.append(real_start(root, env))
+            return children[-1]
         for status, runs, started in ((manager.EXIT_TO_MENU, .3, True), (None, 1.5, True), (0, .3, False), (1, .3, False)):
             with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
@@ -60,8 +66,11 @@ class ProcessTests(unittest.TestCase):
                     'import os, sys, time\n'
                     'open(os.environ["MISTERZINE_PLEX_READY_FILE"], "w").write("ready")\n'
                     'time.sleep(%s)\nsys.exit(%d)\n' % (runs, status or 0))
-                with patch.object(service.time, 'sleep', lambda s: real_sleep(min(s, .6))):
+                with patch.object(service.time, 'sleep', lambda s: real_sleep(min(s, .6))), \
+                        patch.object(service, 'start_manager', start_manager):
                     self.assertEqual(service.start_and_check(root, timeout=10), started)
+                # A start counted good leaves the app running; it ends by itself.
+                children.pop().wait(timeout=10)
 
     def test_an_update_launch_writes_a_log_of_its_own(self):
         name = Path(service.LAUNCH_LOG).name
@@ -318,8 +327,11 @@ class UpdateTests(unittest.TestCase):
         other_app = self.card / 'misterzine'; other_app.mkdir(); (other_app / 'keep').touch()
         for name in ('plexcrt.json', 'cache/art', 'beta-unlocks/fixture.receipt', 'beta-keys/fixture.key'):
             path = self.root / name; path.parent.mkdir(exist_ok=True); path.write_text('keep')
+        for name in manager.LEGACY_FILES:       # left by a release from before the H.264 core
+            (self.root / name).write_text('old')
         service.uninstall(self.card)
         self.assertFalse((self.root / 'releases').exists())
+        self.assertEqual([name for name in manager.LEGACY_FILES if (self.root / name).exists()], [])
         self.assertFalse((self.root / 'active.json').exists())
         self.assertFalse((self.card / 'downloader_misterzine_plex.ini').exists())
         self.assertEqual((self.root / 'beta-unlocks/fixture.receipt').read_text(), 'keep')
@@ -465,7 +477,6 @@ class UpdateTests(unittest.TestCase):
         r, z, _ = self.release()
         (self.card / 'Scripts').mkdir(); (self.card / 'Scripts/downloader.sh').touch()
         (self.root / 'updates').mkdir()
-        e = service.urllib.error
         # A library error message, such as a malformed redirect that urlsplit
         # rejects, may carry an address or credentials: it is named only.
         self.assertEqual(service.network_reason(ValueError('Invalid IPv6 URL https://user:hunter2@evil.example/')), 'failed with ValueError')
@@ -640,6 +651,7 @@ class UpdateTests(unittest.TestCase):
 
     def test_a_failed_launch_still_resumes_holders_and_the_console(self):
         sleeper = subprocess.Popen(['sleep', '30'])
+        self.addCleanup(sleeper.wait)          # cleanups run last first: kill, then reap
         self.addCleanup(sleeper.kill)
         released = []
         class Console:
@@ -786,6 +798,9 @@ class UpdateTests(unittest.TestCase):
             manager.install(self.card, fresh('two'))
             self.assertIn('load_path = "misterzine-plex/releases/two/PlexH264"', entry.read_text())
             self.assertIn('category = "Other"', entry.read_text())
+            # Listed by the app's name; the id stays, so existing pins keep working.
+            self.assertIn('name = "MisterZine Plex"\n', entry.read_text())
+            self.assertIn('id = "misterzine-plex"\n', entry.read_text())
             count = len(reloads)
             manager.repair_menu_entry(self.card)            # unchanged: no rewrite, no reload
             self.assertEqual(len(reloads), count)

@@ -3,7 +3,7 @@
 Watch your Plex library on MiSTer. Built for CRTs, with controller navigation
 and HDMI support. The Go application handles browsing and playback controls;
 `jfplay` sends compressed H.264 video and decoded stereo audio to this
-project's fork of Ben Owen's
+project's fork of owenb321's
 [MiSTer H.264 decoder](third_party/MiSTer_h264_decoder/README.md) core, which
 ships with the app. The app's source is available in this repository.
 

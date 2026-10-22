@@ -276,13 +276,6 @@ func fadeT(age time.Duration) int {
 	return 256 - int(age*256/FadeIn)
 }
 
-// compose draws the whole page into c: the still layer, then the column.
-func (p *Preplay) compose(c *gfx.Canvas, now time.Time) bool {
-	st := p.still(c.W, c.H)
-	y := p.drawStill(c, &st)
-	return p.drawColumn(c, y, now) || st.fading()
-}
-
 // still looks up what the still layer shows this frame.
 func (p *Preplay) still(w, h int) preplayStill {
 	it := p.item

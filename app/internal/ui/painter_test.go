@@ -8,6 +8,7 @@ import (
 )
 
 type painterTestOSD struct {
+	nopOSD
 	mu    sync.Mutex
 	order []string
 }
@@ -19,12 +20,6 @@ func (o *painterTestOSD) add(s string) {
 }
 func (o *painterTestOSD) Show(int, int, *gfx.Canvas, []byte) { o.add("show") }
 func (o *painterTestOSD) Hide()                              { o.add("hide") }
-func (*painterTestOSD) Upload(int, *gfx.Canvas, byte)        {}
-func (*painterTestOSD) ShowAt(int, int, int, int, int)       {}
-func (*painterTestOSD) Dot(int, int, uint32, bool)           {}
-func (*painterTestOSD) DotRun(int, int, int)                 {}
-func (*painterTestOSD) DotX() int                            { return 0 }
-func (*painterTestOSD) Bar(int, int, int, int, uint32, bool) {}
 
 func TestPainterCloseCancelsQueuedWorkThenHidesAndExits(t *testing.T) {
 	p := newPainter()

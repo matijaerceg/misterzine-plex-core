@@ -37,7 +37,7 @@ type stage struct {
 }
 
 func newPainter(size ...int) *painter {
-	w, h := 720, 480
+	w, h := DesignW, DesignH
 	if len(size) >= 2 && size[0] > 0 && size[1] > 0 {
 		w, h = size[0], size[1]
 	}

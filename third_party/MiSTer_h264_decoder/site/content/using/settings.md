@@ -28,7 +28,7 @@ integer scaling (`vscale_mode`) is turned on for all cores, the picture may not 
 screen. Add a section for this core to `MiSTer.ini` to fill it:
 
 ```ini
-[MisterZine Jellyfin]
+[MisterZine Plex Core]
 vscale_mode=0
 ```
 

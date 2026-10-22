@@ -151,10 +151,12 @@ func TestPlayerLaunchesAndReports(t *testing.T) {
 			p := f.player(t)
 			p.Kbps, p.Crop, p.Geometry = func() int { return 6000 }, func() Crop { return Crop14x9 }, func() string { return "12,8,10,6,940" }
 			var args []string
+			var cmd *exec.Cmd
 			p.exec = func(_ string, a ...string) *exec.Cmd {
 				args = append([]string(nil), a...)
 				script := "printf 'state=playing\\nposition=121\\nduration=300\\n' > '" + p.Status + "'; echo synthetic-token >&2; sleep 1"
-				return exec.Command("sh", "-c", script)
+				cmd = exec.Command("sh", "-c", script)
+				return cmd
 			}
 			s, err := p.Start(playItem(), 120)
 			if err != nil {
@@ -166,6 +168,18 @@ func TestPlayerLaunchesAndReports(t *testing.T) {
 				t.Fatal("player did not exit")
 			}
 			joined := strings.Join(args, " ")
+			if strings.Contains(joined, "synthetic-token") || strings.Contains(joined, "--headers") {
+				t.Fatalf("the token is on the command line: %s", joined)
+			}
+			headers := ""
+			for _, kv := range cmd.Env {
+				if v, ok := strings.CutPrefix(kv, "JFPLAY_HEADERS="); ok {
+					headers = v
+				}
+			}
+			if headers != "X-Plex-Token: synthetic-token\r\nX-Plex-Client-Identifier: device\r\n" {
+				t.Fatalf("JFPLAY_HEADERS = %q, want the token and the client identifier", headers)
+			}
 			if !strings.Contains(joined, "--analog-aspect 4") {
 				t.Fatalf("missing crop argument: %s", joined)
 			}
@@ -174,9 +188,6 @@ func TestPlayerLaunchesAndReports(t *testing.T) {
 			}
 			if !strings.Contains(joined, "--geometry 12,8,10,6,940") {
 				t.Fatalf("missing saved calibration argument: %s", joined)
-			}
-			if !containsArgPair(args, "--headers", "X-Plex-Token: synthetic-token\r\nX-Plex-Client-Identifier: device\r\n") {
-				t.Fatalf("stream headers: %q", args)
 			}
 			stream := args[len(args)-1]
 			if strings.Contains(stream, "synthetic-token") {
@@ -426,25 +437,17 @@ func TestPlayerSeekCoalescingKeepsTrackChangeOrder(t *testing.T) {
 	}
 }
 
+// TestPlayerChildWait is a helper process, not a test: lifecyclePlayer's
+// first worker, which ignores stop until it is killed.
 func TestPlayerChildWait(t *testing.T) {
-	if testingValue("run") == "^TestPlayerChildWait$" {
+	if os.Getenv("PLEXCRT_PLAYER_HELPER") == "wait" {
 		time.Sleep(time.Minute)
 	}
 }
 
+// TestPlayerChildExit is a helper process, not a test: a worker that exits
+// at once.
 func TestPlayerChildExit(t *testing.T) {}
-
-func testingValue(name string) string {
-	for i, arg := range os.Args {
-		if arg == "-test."+name && i+1 < len(os.Args) {
-			return os.Args[i+1]
-		}
-		if strings.HasPrefix(arg, "-test."+name+"=") {
-			return strings.TrimPrefix(arg, "-test."+name+"=")
-		}
-	}
-	return ""
-}
 
 // lifecyclePlayer plays the film as stored; it counts PlaybackInfo calls
 // (metadata fetches) and stopped reports, and notes whether a replacement
@@ -460,7 +463,12 @@ func lifecyclePlayer(t *testing.T) (*Player, *atomic.Int32, *atomic.Int32, *atom
 		}
 	}
 	p := f.player(t)
+	// the first worker never answers stop: a short grace keeps the tests quick
+	p.stopGrace = 100 * time.Millisecond
 	var launches atomic.Int32
+	// the player sets the worker's environment from its own: the helper
+	// reads this one (only TestPlayerChildWait acts on it)
+	t.Setenv("PLEXCRT_PLAYER_HELPER", "wait")
 	var firstMu sync.Mutex
 	var first *exec.Cmd
 	var replacementAfterReap atomic.Bool
@@ -587,6 +595,7 @@ func TestPlayerToggleReportsIntendedStateWhenStatusUpdatesImmediately(t *testing
 	}
 	s := &Session{
 		p:       &Player{Client: f.client, Status: status},
+		client:  f.client,
 		state:   plex.PlayState{RatingKey: "item", Position: 12},
 		started: true,
 		writeCommand: func(line string) {
@@ -643,6 +652,104 @@ func TestPlayerStartAsyncCanBeCanceledDuringPlaybackInfo(t *testing.T) {
 	}
 	if got := launches.Load(); got != 0 {
 		t.Fatalf("launched %d child processes after startup was canceled", got)
+	}
+}
+
+// A session reports to the server it started on: signing in elsewhere
+// during playback (the Player's client replaced) leaves its reports where
+// they belong.
+func TestPlayerSessionReportsToItsOwnServer(t *testing.T) {
+	f, other := newPlayServer(t, playVideoDirect), newPlayServer(t, playVideoDirect)
+	p := f.player(t)
+	p.exec = func(_ string, _ ...string) *exec.Cmd {
+		return exec.Command("sh", "-c", "printf 'state=playing\\nposition=12\\nduration=300\\n' > '"+p.Status+"'; sleep 0.5")
+	}
+	s, err := p.StartAsync(playItem(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Client = other.client
+	select {
+	case <-s.Done:
+	case <-time.After(4 * time.Second):
+		t.Fatal("player did not exit")
+	}
+	select {
+	case <-s.ReportsDone():
+	case <-time.After(2 * time.Second):
+		t.Fatal("the stopped report was not sent")
+	}
+	if got := f.events(); len(got) == 0 || got[len(got)-1] != "timeline stopped" {
+		t.Fatalf("the session's server saw %v, want its stopped report last", got)
+	}
+	if got := other.requests("/:/timeline"); len(got) != 0 {
+		t.Fatalf("the other server got the session's reports: %+v", got)
+	}
+}
+
+// The next start's PlaybackInfo waits for the last session's stopped
+// report (which selects a burned-in subtitle again), but not for long.
+func TestPlayerStartAsyncWaitsForTheLastStoppedReport(t *testing.T) {
+	for _, held := range []bool{false, true} {
+		t.Run(map[bool]string{false: "sent", true: "held"}[held], func(t *testing.T) {
+			stopping := make(chan struct{})
+			release := make(chan struct{})
+			var once sync.Once
+			var metadata atomic.Int32
+			f := newPlayServer(t, playVideoDirect)
+			f.onMetadata = func(int) { metadata.Add(1) }
+			f.onTimeline = func(state string) {
+				if state == "stopped" {
+					once.Do(func() {
+						close(stopping)
+						<-release
+					})
+				}
+			}
+			var releaseOnce sync.Once
+			free := func() { releaseOnce.Do(func() { close(release) }) }
+			defer free()
+			p := f.player(t)
+			p.reportWait = 2 * time.Second
+			if held {
+				p.reportWait = 200 * time.Millisecond
+			}
+			p.exec = func(_ string, _ ...string) *exec.Cmd {
+				return exec.Command("sh", "-c", "printf 'state=playing\\nposition=12\\nduration=300\\n' > '"+p.Status+"'; sleep 0.2")
+			}
+			first, err := p.StartAsync(playItem(), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-stopping:
+			case <-time.After(4 * time.Second):
+				t.Fatal("the first session did not report stopped")
+			}
+			second, err := p.StartAsync(playItem(), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(second.StopUI)
+			if held {
+				// the report never comes: the start goes ahead after reportWait
+				waitUntil(t, "the second PlaybackInfo", func() bool { return metadata.Load() == 2 })
+				free()
+			} else {
+				time.Sleep(300 * time.Millisecond)
+				if got := metadata.Load(); got != 1 {
+					t.Fatalf("PlaybackInfo calls before the stopped report = %d, want 1", got)
+				}
+				free()
+				waitUntil(t, "the second PlaybackInfo", func() bool { return metadata.Load() == 2 })
+			}
+			<-first.ReportsDone()
+			select {
+			case <-second.Done:
+			case <-time.After(4 * time.Second):
+				t.Fatal("the second session did not finish")
+			}
+		})
 	}
 }
 

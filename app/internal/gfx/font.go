@@ -27,7 +27,7 @@ func (f *Font) Height() int { return f.cellH }
 
 var fonts = map[string]*Font{}
 
-// Load returns the named atlas (reg16, med18, bold22, cond18, ...).
+// Load returns the named atlas (reg16, med18, bold22, blackit26, ...).
 func Load(name string) *Font {
 	if f, ok := fonts[name]; ok {
 		return f

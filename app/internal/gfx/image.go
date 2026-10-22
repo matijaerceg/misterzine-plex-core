@@ -7,6 +7,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"os"
+	"strconv"
 )
 
 // Decode turns a JPEG or PNG into canvas layout.
@@ -124,28 +125,9 @@ func (im *Image) Shrink(w, h int) *Image {
 // WritePPM saves the canvas as a binary PPM (for off-CRT checks).
 func (c *Canvas) WritePPM(path string) error {
 	out := make([]byte, 0, c.W*c.H*3+20)
-	out = append(out, []byte("P6\n720 480\n255\n")...)
-	if c.W != 720 || c.H != 480 {
-		out = out[:0]
-		out = append(out, []byte("P6\n")...)
-		out = append(out, []byte(itoa(c.W)+" "+itoa(c.H)+"\n255\n")...)
-	}
+	out = append(out, "P6\n"+strconv.Itoa(c.W)+" "+strconv.Itoa(c.H)+"\n255\n"...)
 	for i := 0; i < len(c.Pix); i += 4 {
 		out = append(out, c.Pix[i+2], c.Pix[i+1], c.Pix[i])
 	}
 	return os.WriteFile(path, out, 0o644)
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b [12]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
 }

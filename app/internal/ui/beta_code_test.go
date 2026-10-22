@@ -26,7 +26,7 @@ func betaTestApp(t *testing.T) *App {
 	sum := sha256.Sum256([]byte("012345"))
 	beta.Channel, beta.Batch, beta.CodeSHA256, beta.KeySHA256 = "beta", "fixture", hex.EncodeToString(sum[:]), ""
 	a := &App{Cfg: &Config{path: filepath.Join(t.TempDir(), "settings.json"), NoTheme: true}, Version: "v0.2.0-beta.3", Build: "fixture", Log: log.New(io.Discard, "", 0)}
-	a.F = Fonts{Title: gfx.Load("med22"), Body: gfx.Load("med18"), Small: gfx.Load("reg16"), SmallBold: gfx.Load("med16"), Big: gfx.Load("bold28")}
+	a.F = appFonts()
 	a.Mark = NewWordmark()
 	a.T = gfx.NewTextCache(1, nil)
 	a.stack = []Screen{&splashTestScreen{}}

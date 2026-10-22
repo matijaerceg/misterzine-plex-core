@@ -15,9 +15,11 @@ import (
 	"plexcrt/internal/plex"
 )
 
-// Helpers exercise real pipes/process ownership without opening the sound device.
+// TestThemeProcess is a helper process, not a test: the theme's decoder and
+// player, exercising real pipes/process ownership without opening the sound
+// device.
 func TestThemeProcess(t *testing.T) {
-	role := os.Getenv("PLEX_THEME_HELPER")
+	role := os.Getenv("PLEXCRT_THEME_HELPER")
 	if role == "" {
 		return
 	}
@@ -36,7 +38,7 @@ func TestThemeProcess(t *testing.T) {
 		time.Sleep(time.Hour)
 	}
 	if role == "audio" {
-		f, err := os.Create(os.Getenv("PLEX_THEME_CAPTURE"))
+		f, err := os.Create(os.Getenv("PLEXCRT_THEME_CAPTURE"))
 		if err != nil {
 			os.Exit(2)
 		}
@@ -67,7 +69,7 @@ func TestThemeFadeAndRelease(t *testing.T) {
 				playThemeCommands(ctx, func(hard context.Context) (*exec.Cmd, *exec.Cmd) {
 					makeCmd := func(role string) *exec.Cmd {
 						cmd := exec.CommandContext(hard, os.Args[0], "-test.run=^TestThemeProcess$")
-						cmd.Env = append(os.Environ(), "PLEX_THEME_HELPER="+role, "PLEX_THEME_CAPTURE="+file)
+						cmd.Env = append(os.Environ(), "PLEXCRT_THEME_HELPER="+role, "PLEXCRT_THEME_CAPTURE="+file)
 						return cmd
 					}
 					decode, output = makeCmd(role), makeCmd("audio")
@@ -125,7 +127,7 @@ func TestThemeNavigationDoesNotWaitForTheFade(t *testing.T) {
 	var playing, most int
 	var order []string
 	started := make(chan string, 4)
-	themePlay = func(ctx context.Context, file string) {
+	themePlay = func(ctx context.Context, _, file string) {
 		mu.Lock()
 		playing++
 		most = max(most, playing)
@@ -159,17 +161,17 @@ func TestThemeNavigationDoesNotWaitForTheFade(t *testing.T) {
 	}
 	var th Theme
 	c := &plex.Client{}
-	th.Select(c, "a", "")
+	th.Select(c, "", "a", "")
 	waitStarted("a")
-	quick("moving to another show", func() { th.Select(c, "b", "") })
-	quick("and on to a third", func() { th.Select(c, "c", "") })
+	quick("moving to another show", func() { th.Select(c, "", "b", "") })
+	quick("and on to a third", func() { th.Select(c, "", "c", "") })
 	select {
 	case got := <-started:
 		t.Fatalf("%s played during the last theme's fade", got)
 	case <-time.After(fade / 2):
 	}
 	waitStarted("c")
-	quick("leaving for a page without music", func() { th.Select(c, "", "") })
+	quick("leaving for a page without music", func() { th.Select(c, "", "", "") })
 	t0 := time.Now()
 	th.Stop()
 	if d := time.Since(t0); d < fade*9/10 {

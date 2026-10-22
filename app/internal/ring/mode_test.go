@@ -12,10 +12,10 @@ func TestModeTooSmall(t *testing.T) {
 	for mode, want := range map[string]bool{
 		"8888 1 1920 1080 7680": false,
 		"8888 1 2048 1024 8192": false,
-		"8888 1 1280 720 5120":  false, // a 720p HDMI mode holds two 720x480 pages
-		"8888 1 720 480 2880":   true,  // a 480p mode, or direct video: one page
-		"565 1 1920 1080 3840":  false, // the format does not matter, only the size
-		"565 1 720 480 1440":    true,
+		"8888 1 1280 720 5120":  true,  // a 720p HDMI mode holds one 1280x720 page
+		"8888 1 720 480 2880":   true,  // a 480p mode, or direct video
+		"565 1 3840 2160 7680":  false, // the format does not matter, only the size
+		"565 1 1920 1080 3840":  true,
 		"":                      false, // no MiSTer_fb: leave it alone
 		"8888 1 1920 1080":      false,
 		"8888 1 1920 x 7680":    false,
@@ -41,11 +41,11 @@ func TestEnlargeModeWritesOnlyWhenTooSmall(t *testing.T) {
 	}
 
 	// A large enough mode is never rewritten: each write clears the framebuffer.
-	os.WriteFile(path, []byte("8888 1 1280 720 5120\n"), 0o644)
+	os.WriteFile(path, []byte("8888 1 2048 1024 8192\n"), 0o644)
 	if from, err := enlargeMode(); from != "" || err != nil {
 		t.Fatalf("enlargeMode() on a large mode = %q, %v", from, err)
 	}
-	if got := readMode(); got != "8888 1 1280 720 5120" {
+	if got := readMode(); got != "8888 1 2048 1024 8192" {
 		t.Fatalf("large mode rewritten to %q", got)
 	}
 }

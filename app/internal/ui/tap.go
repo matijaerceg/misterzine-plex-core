@@ -37,8 +37,6 @@ func (a *App) focusPosition() focusPosition {
 		f.a = s.cur
 	case *Chooser:
 		f.a = s.cur
-	case *List:
-		f.a = s.cur
 	case *Preplay:
 		f.a = s.cur
 	}

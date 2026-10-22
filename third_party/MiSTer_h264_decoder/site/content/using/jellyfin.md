@@ -26,10 +26,10 @@ address, then Jellyfin **Quick Connect** or a user name and password.
 
 Files the core can certainly play are streamed as they are stored: H.264 High or
 Main, 8-bit, up to 1280x720 at 30 frames per second or up to 854 pixels wide at
-60, within a bitrate the core keeps up with. Anything else, and anything with
-subtitles turned on, is converted by your server as it sends it (a
-**transcode**) to H.264 within the same limits. Subtitles are burned into the
-picture by the server.
+60, within a bitrate the core keeps up with. Anything else is converted by your
+server as it sends it (a **transcode**) to H.264 within the same limits. Text
+subtitles are drawn by the app over the video; picture subtitles (PGS, VobSub),
+and text in a script the app's fonts lack, are burned in by the server.
 
 The output follows the core's [Settings](settings.md): **Output Mode**, **Display
 Shape**, **Refresh Rate Match**, **240p Playback** and **Play 24fps at 25fps**.

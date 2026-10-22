@@ -9,14 +9,17 @@
  * MiSTer writes the core's own name there (the first entry of its CONF_STR,
  * not the rbf file name): "H264" for an upstream build of the core, or the
  * name an app's build gives itself, which the app passes as --core-name
- * (app_name; NULL or empty accepts only H264). */
+ * (app_name). Given an app name, only that name is owned: an upstream core
+ * may be another app's, drawing its own overlay. NULL or empty accepts
+ * only H264. */
 static inline int jfplay_core_name_owned(const char *name, const char *app_name)
 {
     size_t n;
     if (!name) return 0;
     n = strcspn(name, "\r\n");
-    if (n == 4 && !memcmp(name, "H264", 4)) return 1;
-    return app_name && *app_name && n == strlen(app_name) && !memcmp(name, app_name, n);
+    if (app_name && *app_name)
+        return n == strlen(app_name) && !memcmp(name, app_name, n);
+    return n == 4 && !memcmp(name, "H264", 4);
 }
 
 struct jfplay_core_owner {

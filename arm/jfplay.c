@@ -286,6 +286,13 @@ static int parse_args(int argc, char **argv, struct config *c)
         } else if (argv[i][0] == '-' || c->url) return -1;
         else c->url = argv[i];
     }
+    /* The app passes the headers (they carry the token) in the environment:
+     * /proc/<pid>/cmdline is readable by every process, environ only by the
+     * owner. --headers stays for runs by hand. */
+    if (!c->headers) {
+        const char *env = getenv("JFPLAY_HEADERS");
+        if (env && *env) c->headers = env;
+    }
     return c->url ? 0 : -1;
 }
 

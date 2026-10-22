@@ -59,14 +59,13 @@ type Playing struct {
 	alpha                  []byte
 	dirty                  bool
 	last                   string // what the overlay last showed, to skip identical redraws
-	// the sprites the core draws: set by compose, sent by Tick
+	// the dot and the bar in the overlay page: set by compose, sent by Tick
 	dotX, dotY int
 	dotOn      bool
 	barX, barY int
 	barW       int
-	barH       int
 	barOn      bool
-	btnX, btnW [8]int // button places from the last compose, for the bar sprite
+	btnX, btnW [8]int // button places from the last compose, for the bar
 	btnY       int
 	pillY      int
 	composed   bool
@@ -84,13 +83,12 @@ type Playing struct {
 	skip     *plex.Marker
 	skipOff  bool // the skip button was dismissed for this marker
 	skipAt   time.Time
-	restart  bool // the stream must restart for a new track: seek to here
 	// the wait dot (waitdot.go): it runs in the middle while the picture
 	// is held up, from the start until the first frame and on any stall
-	starting   bool        // no frame from the presenter yet
+	starting   bool        // no frame from the player (jfplay) yet
 	ending     bool        // stopping: no more dot
 	frameAt    time.Time   // the last frame, or now while paused: stalls are timed from it
-	lastFrame  time.Time   // the last frame the presenter published
+	lastFrame  time.Time   // the last frame the player (jfplay) published
 	hushAt     time.Time   // a seek was sent: its wait shows no dot, the strip says where it goes
 	wait       *waitDot    // the dots, while they run
 	waitSpec   string      // PLEXCRT_WAIT_DOT, for tuning on a set
@@ -157,9 +155,7 @@ func (p *Playing) closePainter(osd OSD) <-chan struct{} {
 	}
 	if p.painter != nil {
 		p.painter.close(osd)
-		if sized, ok := osd.(interface{ SetCanvasSize(int, int) }); ok {
-			sized.SetCanvasSize(720, 480)
-		}
+		setOSDCanvasSize(osd, DesignW, DesignH)
 		return p.painter.done
 	}
 	done := make(chan struct{})
@@ -239,16 +235,11 @@ var osdButtons = []string{"-10", "Pause", "+10", "Prev", "Next", "Audio", "Subs"
 func NewPlaying(app *App, it *plex.Item, queue []*plex.Item, idx int, send func(string)) *Playing {
 	p := &Playing{app: app, item: it, queue: queue, idx: idx, send: send, focus: 1}
 	p.dur = float64(it.Duration)
-	w, h := 720, 480
-	if sized, ok := app.Out.(interface{ PlaybackCanvasSize() (int, int) }); ok {
-		w, h = sized.PlaybackCanvasSize()
-	}
+	w, h, _ := playbackCanvasSize(app)
 	p.canvas = gfx.NewCanvas(w, h)
 	p.alpha = make([]byte, w*h)
 	p.painter = newPainter(w, h)
-	if sized, ok := app.osd.(interface{ SetCanvasSize(int, int) }); ok {
-		sized.SetCanvasSize(w, h)
-	}
+	setOSDCanvasSize(app.osd, w, h)
 	if l, ok := app.osd.(dotLiner); ok {
 		l.SetDotLine(app.Cfg.vcr()) // the VCR playhead is a line
 	}
@@ -269,13 +260,13 @@ func NewPlaying(app *App, it *plex.Item, queue []*plex.Item, idx int, send func(
 
 func (p *Playing) canvasWidth() int {
 	if p.canvas == nil || p.canvas.W == 0 {
-		return 720
+		return DesignW
 	}
 	return p.canvas.W
 }
 func (p *Playing) canvasHeight() int {
 	if p.canvas == nil || p.canvas.H == 0 {
-		return 480
+		return DesignH
 	}
 	return p.canvas.H
 }
@@ -616,15 +607,6 @@ func (p *Playing) burnsSubtitle() bool {
 	for _, s := range p.item.Subs {
 		if s.Selected {
 			return !p.app.drawsSubtitle(p.item.RatingKey, s)
-		}
-	}
-	return false
-}
-
-func activeSubtitle(it *plex.Item) bool {
-	for _, s := range it.Subs {
-		if s.Selected {
-			return true
 		}
 	}
 	return false
@@ -980,7 +962,7 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 			off := (l.at - l.base) * OsdListW * 4
 			p.painter.do(func() { osd.ShowAt(0, SafeY, OsdListW, OsdListH, off) })
 		}
-		// the cursor is the core's bar sprite, beside its row
+		// the cursor is the overlay's bar, beside its row
 		by := SafeY + OsdListTop + l.cur*OsdListRowH - l.at
 		osd.Bar(p.menuX()-MenuBarGap-BarW, by+2, BarW, p.app.F.Body.Height()-4, p.barColour(),
 			by >= SafeY && by+OsdListRowH <= SafeY+OsdListH)
@@ -1073,11 +1055,10 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 // core. The old painter drains and hides its panel before the replacement
 // canvas is installed, so no stale-sized write can land afterward.
 func (p *Playing) resizeCanvas(osd OSD) {
-	sized, ok := p.app.Out.(interface{ PlaybackCanvasSize() (int, int) })
+	w, h, ok := playbackCanvasSize(p.app)
 	if !ok {
 		return
 	}
-	w, h := sized.PlaybackCanvasSize()
 	if p.canvas != nil && p.canvas.W == w && p.canvas.H == h {
 		return
 	}
@@ -1094,9 +1075,7 @@ func (p *Playing) resizeCanvas(osd OSD) {
 	p.composed = false
 	p.painter = newPainter(w, h)
 	p.shaking.Store(false) // a shake queued on the old painter was dropped
-	if sized, ok := osd.(interface{ SetCanvasSize(int, int) }); ok {
-		sized.SetCanvasSize(w, h)
-	}
+	setOSDCanvasSize(osd, w, h)
 	p.dirty = true
 }
 

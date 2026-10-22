@@ -16,7 +16,6 @@ import re
 import shutil
 import shlex
 import signal
-import struct
 import subprocess
 import sys
 import tempfile
@@ -366,13 +365,13 @@ def maintains_zaparoo(root):
 
 def zaparoo_body(root, folder=None):
     load = core_file(root, folder).relative_to(root.parent).with_suffix('').as_posix()
-    return ('# MisterZine Plex Core in Zaparoo\'s Other list. Written by the Plex installer and\n'
+    return ('# MisterZine Plex in Zaparoo\'s Other list. Written by the Plex installer and\n'
             '# rewritten on every update; do not edit. Uninstalling Plex removes it.\n'
             '[[launchers.custom]]\n'
             'id = "misterzine-plex"\n'
             'kind = "virtual_system"\n'
             'backend = "mister_core"\n'
-            'name = "MisterZine Plex Core"\n'
+            'name = "MisterZine Plex"\n'
             'category = "Other"\n'
             'load_path = ' + json.dumps(load) + '\n').encode()
 
@@ -441,7 +440,7 @@ def startup_text(card, text, enable):
         command = 'setsid python3 ' + shlex.quote(str(root / 'menu_launcher.py')) + ' --card ' + shlex.quote(str(card))
         block = BOOT_START + '\n' + command + ' >/tmp/misterzine-plex-menu.log 2>&1 </dev/null &\n' + BOOT_END + '\n'
         # Put the hook ahead of any existing early exit in user-startup.sh.
-        first, sep, rest = text.partition('\n')
+        first, _, rest = text.partition('\n')
         text = first + '\n' + block + rest if first.startswith('#!') else '#!/bin/bash\n' + block + text
     return text
 
@@ -769,13 +768,8 @@ def locked(root, patience=0):
         yield
 
 
-class DecoderFetchError(RuntimeError):
-    """Kept for the updater's error wording: releases before the H.264 core
-    downloaded FFmpeg separately; this one ships it in the payload."""
-
-
-def decoder(root, archive=None):
-    """Check the release's bundled ARM FFmpeg; nothing is fetched separately."""
+def decoder(root):
+    """Check the release's bundled ARM FFmpeg; updates never fetch a second binary."""
     ff = Path(root) / 'ffmpeg'
     if not ff.is_file() or not os.access(ff, os.X_OK):
         raise ValueError('The release is missing its bundled FFmpeg decoder')
@@ -805,7 +799,7 @@ def wrappers(card):
     return changed
 
 
-def stage(card, package, archive=None):
+def stage(card, package):
     root = card / 'misterzine-plex'
     manifest = json.loads((package / 'manifest.json').read_text())
     files = manifest['files']
@@ -846,9 +840,9 @@ def stage(card, package, archive=None):
     return manifest
 
 
-def install(card, package, archive=None):
+def install(card, package):
     root = card / 'misterzine-plex'
-    manifest = stage(card, package, archive)
+    manifest = stage(card, package)
     ident = manifest['id']
     # Activate only after every executable and dependency has been verified.
     state = read_state(root) if (root / 'active.json').exists() else {}
@@ -1358,7 +1352,7 @@ def display_check(card, altcfg=read_altcfg):
     """What the app's Options show about the MiSTer INI: which file main read
     for the core and ini_findings for it. vrr is 'unknown' when the file main read
     cannot be told or read."""
-    path, number = active_ini(card, altcfg)
+    path, _ = active_ini(card, altcfg)
     if path is None:
         return {'ini': '', 'vrr': 'unknown'}
     try:
@@ -1494,9 +1488,9 @@ def system_facts(root, secrets, proc_root=Path('/proc'), altcfg=read_altcfg, dme
         findings = ini_findings(entries)
         for key in ('vrr_mode', 'vsync_adjust'):   # the raw values below say it
             del findings[key]
-        facts['plex_video'] = {key: values[key][:40] for key in VIDEO_KEYS if key in values}
+        facts['ini_video'] = {key: values[key][:40] for key in VIDEO_KEYS if key in values}
         elsewhere = '' if own else section_elsewhere(card, ini or card / 'MiSTer.ini')
-        facts['plex_video'].update(findings, own_section=own, section_in=ini_label(card, elsewhere))
+        facts['ini_video'].update(findings, own_section=own, section_in=ini_label(card, elsewhere))
     except OSError:
         pass
     try:
@@ -1603,7 +1597,8 @@ def report_secrets(root):
     for path in (root / 'plexcrt.json', root / 'plexcrt.json.bak'):
         try:
             cfg = json.loads(path.read_text())
-            secrets += [cfg.get(k, '') for k in ('token', 'server_token', 'server_url', 'server_name', 'client_id', 'account_name')]
+            secrets += [cfg.get(k, '') for k in ('token', 'account_name', 'home_token', 'home_user_title', 'server_token',
+                                                 'server_url', 'server_name', 'server_id', 'client_id')]
             # a plain HTTP server URL is a bare address, which network errors quote without the URL
             secrets.append(urllib.parse.urlsplit(str(cfg.get('server_url') or '')).hostname or '')
         except (OSError, ValueError):
@@ -1747,28 +1742,6 @@ def stop_child(child):
             child.wait()
 
 
-def cleanup_player(folder):
-    marker = ('MISTERZINE_PLEX_OWNER=' + str(folder / 'jfplay')).encode()
-    owned = []
-    for proc in Path('/proc').iterdir():
-        if not proc.name.isdigit() or int(proc.name) == os.getpid():
-            continue
-        try:
-            if marker in (proc / 'environ').read_bytes().split(b'\0'):
-                os.kill(int(proc.name), signal.SIGTERM)
-                owned.append(proc)
-        except OSError:
-            pass
-    if owned:
-        time.sleep(0.5)
-    for proc in owned:
-        try:
-            if marker in (proc / 'environ').read_bytes().split(b'\0'):
-                os.kill(int(proc.name), signal.SIGKILL)
-        except OSError:
-            pass
-
-
 def core_file(root, folder=None):
     if folder is None:
         folder = root / 'releases' / read_state(root)['current']
@@ -1797,12 +1770,6 @@ def core_launch_entry(root, folder):
     return entry
 
 
-def prepare_framebuffer(parameters=Path('/sys/module/MiSTer_fb/parameters')):
-    """Kept for older callers: the Go app sizes the framebuffer itself now
-    (app/internal/ring), so the launcher writes nothing."""
-    return False
-
-
 def mister_processes(proc_root=Path('/proc')):
     """PID and first argument (the loaded core) of each MiSTer main process."""
     found = {}
@@ -1827,25 +1794,6 @@ def selected_core(core, proc_root=Path('/proc'), before=()):
     happened even when the same core was already loaded."""
     return any(pid not in before and arg == str(core).encode()
                for pid, arg in mister_processes(proc_root).items())
-
-
-def core_loaded(core, proc_root=Path('/proc'), corename=Path('/tmp/CORENAME'), wait=3):
-    """True when the main-menu entry already loaded this core, so no reload is needed.
-
-    The core name appears a moment before the restarted main process does,
-    so give the process a little time rather than reloading over it."""
-    deadline = time.monotonic() + wait
-    while True:
-        try:
-            if corename.read_text().strip() != core.stem:
-                return False
-        except OSError:
-            return False
-        if selected_core(core, proc_root):
-            return True
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(.05)
 
 
 def ensure_selected_core(card, root, folder, wait=20, proc_root=Path('/proc'),
@@ -2107,27 +2055,6 @@ def screen_to_ourselves(holders=fb_holders, console=GraphicsConsole):
                 signal.signal(signal.SIGTERM, previous)
 
 
-def lost_core_status(mem, recheck=0.1, sleep=time.sleep):
-    """The ring's status word when it no longer carries the H264 core's
-    signature, else None. A framebuffer mode write zeroes it until the core's
-    next vsync, so a bad reading counts only if it is still bad a few fields
-    later."""
-    for attempt in range(2):
-        status = struct.unpack_from('<I', mem, 0x6c)[0]
-        if status & 0xfffffff0 == 0x56500000:
-            return None
-        if attempt == 0:
-            sleep(recheck)
-    return status
-
-
-def fb_mode(parameters=Path('/sys/module/MiSTer_fb/parameters')):
-    try:
-        return (parameters / 'mode').read_text().strip()
-    except OSError:
-        return '?'
-
-
 # The app's exit status after the menu's Exit (exitToMenu in app/cmd/plexcrt/main.go).
 EXIT_TO_MENU = 3
 
@@ -2139,7 +2066,7 @@ def app_finished(returncode):
     if returncode == EXIT_TO_MENU:
         return True
     if returncode not in (None, 0):
-        raise RuntimeError('App could not start. Run MisterZine-Plex-Diagnostics and check the report.')
+        raise RuntimeError('The Plex application exited with status %s; check its launch log.' % returncode)
     return False
 
 
@@ -2152,8 +2079,8 @@ def menu_core(arg):
 
 def load_menu(card, cmd=Path('/dev/MiSTer_cmd'), wait=10):
     """Return to the MiSTer menu, as a short OSD Reboot does. Only once the app
-    and its player have stopped: the menu draws its background into the
-    framebuffer, and a mode write of ours after that would clear its top.
+    has stopped: the menu draws its background into the framebuffer, and a
+    mode write of ours after that would clear its top.
     MiSTer restarts its main process to load a core, so a new one running a
     menu shows it came up. False when it did not."""
     rbf = card / 'menu.rbf'
@@ -2223,18 +2150,19 @@ def run(root):
         return False
     finally:
         signal.signal(signal.SIGTERM, original_term)
-    if code == EXIT_TO_MENU:
-        return True
-    if code not in (None, 0):
-        raise RuntimeError('The Plex application exited with status %s; check its launch log.' % code)
-    return False
+    # The app only says it wants the menu (exit status 3); loading it is ours.
+    to_menu = app_finished(code)
+    if to_menu and not load_menu(card):
+        raise RuntimeError('Could not return to the MiSTer menu. Use the OSD to leave MisterZine Plex.')
+    return to_menu
+
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('action', choices=['install', 'run', 'rollback', 'remove', 'diagnostics', 'report', 'maintain'])
     parser.add_argument('--card', type=Path, default=Path('/media/fat'))
     parser.add_argument('--package', type=Path, default=Path(__file__).resolve().parent)
-    parser.add_argument('--decoder-archive', type=Path)
+    parser.add_argument('--decoder-archive', type=Path, help='accepted for older menu scripts; the release bundles its decoder')
     parser.add_argument('--no-upload', action='store_true', help='write the report without sending it')
     args = parser.parse_args()
     root = args.card / 'misterzine-plex'
@@ -2268,7 +2196,7 @@ def main():
         # never turns a fresh install's launch into a "running" error.
         with locked(root, patience=30):
             if args.action == 'install':
-                install(args.card, args.package, args.decoder_archive)
+                install(args.card, args.package)
                 prune_releases(root)
             elif args.action == 'run':
                 to_menu = run(root)

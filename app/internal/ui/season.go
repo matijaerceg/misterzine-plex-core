@@ -935,25 +935,6 @@ func (s *Season) layText(it *plex.Item) epText {
 	return epText{epKey: epKeyOf(it), facts: facts, fitted: f.Body.Fit(it.Title, SafeW), lines: wrap(f.SmallBold, it.Summary, SafeW, 2)}
 }
 
-// dotsLine is dots for the frame: cached text lines on the background.
-func (s *Season) dotsLine(c *gfx.Canvas, x, y int, f *gfx.Font, col gfx.Color, tokens []string) {
-	for i, t := range tokens {
-		if i > 0 {
-			c.Fill(x+8, (y+f.Height()/2)&^1-1, 4, 4, col)
-			x += 20
-		}
-		s.app.text(c, x, y, f, col, t)
-		x += f.Width(t)
-	}
-}
-
-// drawPage composes the header (backdrop strip, logo, facts) once per
-// season and picture state, cross-fading between states.
-func (s *Season) drawPage(c *gfx.Canvas, now time.Time) bool {
-	show, fading := s.preparePage(c, now)
-	return s.paintPage(c, show, fading, now)
-}
-
 // preparePage brings the page up to date and returns the one to show now
 // (mid-fade: a step) and whether it is fading.
 func (s *Season) preparePage(c *gfx.Canvas, now time.Time) (*gfx.Canvas, bool) {

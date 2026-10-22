@@ -132,10 +132,13 @@ static int corename_is(const char *want)
     return strcmp(buf, want) == 0;
 }
 
-/* the core is loaded: CORENAME is its own name, or the name an app's build gives it */
+/* the core is loaded: CORENAME is the name an app's build gives it, or, without one,
+ * the core's own name */
 static int core_loaded(const char *core_name)
 {
-    return corename_is("H264") || (core_name && *core_name && corename_is(core_name));
+    if (core_name && *core_name)
+        return corename_is(core_name);
+    return corename_is("H264");
 }
 
 int h264ring_launch_core(const char *rbf, unsigned timeout_ms)

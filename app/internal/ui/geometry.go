@@ -7,7 +7,6 @@ import (
 
 	"plexcrt/internal/gfx"
 	"plexcrt/internal/input"
-	"plexcrt/internal/ring"
 )
 
 // Geometry is where video goes on the 720x480 raster, set on the calibration
@@ -122,8 +121,8 @@ func (a *App) calibrationLabel() string {
 }
 
 // The core leaves the first 12 and the last 8 pixels of every line black in
-// 480i and 240p (core/rtl/ddr_scanout.v, "Line ends"), so an edge placed
-// inside them could not be seen. The calibration shows the left and right
+// 480i and 240p (the PlexCRT core did; unverified on the H.264 core), so an
+// edge placed inside them could not be seen. The calibration shows the left and right
 // edges past them, and an edge the user moves is saved past its end. An edge
 // left alone keeps its saved value: the geometry is shared with 480p, and a
 // picture area that reaches into the ends only loses what the core blanks.
@@ -133,15 +132,10 @@ const (
 )
 
 // lineEnds is how far in the calibration keeps the left and right edges: the
-// blanked line ends, except in 480p, which keeps every pixel.
+// blanked line ends, except in 480p (a preference older versions saved),
+// which keeps every pixel.
 func (a *App) lineEnds() (left, right int) {
-	progressive := a.Cfg.Progressive
-	if r, ok := a.Out.(*ring.Ring); ok {
-		if mode, _, supported := r.VideoStatus(); supported {
-			progressive = mode == 2
-		}
-	}
-	if progressive {
+	if a.Cfg.Progressive {
 		return 0, 0
 	}
 	return LineEndLeft, LineEndRight

@@ -56,7 +56,7 @@ func (s *Session) playbackInfo(ctx context.Context, kbps, offset int, audio, sub
 	req := plex.PlaybackRequest{RatingKey: s.item.RatingKey, Session: session, StartSeconds: float64(offset),
 		VideoKbps: kbps, AudioStream: audio, SubtitleStream: subtitle, SubtitleSize: size, AudioBoost: 100,
 		ForceTranscode: force}
-	info, err := p.Client.PlaybackInfo(ctx, req)
+	info, err := s.client.PlaybackInfo(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -121,9 +121,9 @@ func (s *Session) fallbackLocked(err error) bool {
 	if started && ps.Session != "" {
 		// end the direct play session; the transcode reports its own start
 		if s.async {
-			s.p.reportAsync(func() { _ = s.p.Client.ReportStopped(context.Background(), ps) }, false)
+			s.p.reportAsync(func() { _ = s.client.ReportStopped(context.Background(), ps) }, false)
 		} else {
-			_ = s.p.Client.ReportStopped(context.Background(), ps)
+			_ = s.client.ReportStopped(context.Background(), ps)
 		}
 	}
 	_ = os.Remove(s.p.Status)

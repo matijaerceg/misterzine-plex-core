@@ -102,7 +102,8 @@ void h264ring_close(h264ring *r);
 int  h264ring_launch_core(const char *rbf, unsigned timeout_ms);
 /* the same for an app's own build of the core, whose CONF_STR names it core_name (what
  * /tmp/CORENAME reads once it is loaded; MiSTer writes the core's name there, not the rbf
- * file's): loaded when CORENAME is H264 or core_name. NULL core_name: H264 only. */
+ * file's): loaded when CORENAME is core_name (an upstream H264 is loaded over). NULL
+ * core_name: H264 only. */
 int  h264ring_launch_core_as(const char *rbf, const char *core_name, unsigned timeout_ms);
 /* the heartbeat advances (the core is loaded and running now, not a previous load's words) */
 int  h264ring_alive(h264ring *r, unsigned timeout_ms);
