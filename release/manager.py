@@ -1555,7 +1555,6 @@ def system_facts(root, secrets, proc_root=Path('/proc'), altcfg=read_altcfg, dme
                            'bitrate': cfg.get('bitrate'), 'progressive': cfg.get('progressive')}
     except (OSError, ValueError):
         pass
-    facts['decoder_present'] = (root / 'ffmpeg').is_file() and os.access(root / 'ffmpeg', os.X_OK)
     # The card's mount and the kernel's word on it: a card remounted read-only
     # after an error fails every write and drags the board until a reboot.
     try:
