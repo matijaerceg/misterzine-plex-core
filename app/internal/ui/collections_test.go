@@ -301,7 +301,7 @@ func TestWallOpensCollection(t *testing.T) {
 	if coll.tabs {
 		t.Fatal("Up put a collection on tabs it does not have")
 	}
-	a.key(input.Event{Key: input.Enter}, now)
+	a.key(input.Event{Key: input.Enter, Keyboard: true, ScanCode: 0x29}, now) // Space is OK in the menus
 	if p, ok := a.top().(*Preplay); !ok || p.item.RatingKey != "23" {
 		t.Fatalf("OK on a film in the collection opened %T", a.top())
 	}

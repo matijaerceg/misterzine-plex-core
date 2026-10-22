@@ -114,6 +114,10 @@ primary account. Automatic sign-in uses the saved server connection at startup.
   a button and skip the ones with nothing to do (Prev on the first episode,
   Audio with one track); OK presses it. The controls hide after four seconds
   unless paused. Down closes them.
+- On a USB keyboard, Space or P pauses and resumes playback in one press; a
+  pause brings up the controls showing **Play**. A USB remote whose play key
+  MiSTer does not pass through can be remapped to Space in MiSTer's keyboard
+  mapping.
 - Back steps out one level at a time. The first Back clears what is on screen:
   a list, the scrubber, the seek strip, a skip button or the controls. With
   nothing on screen, the next Back stops playback. A second Back within half

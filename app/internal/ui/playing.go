@@ -622,7 +622,37 @@ func (p *Playing) cropMatters() bool { return p.item.Aspect <= 0 || p.item.Aspec
 
 // Key handles a pad event during playback; returns true when playback
 // should stop (or move along the queue: Next is set).
+// pauseKey reports a keyboard's Space or P: they pause and resume
+// directly during playback. MiSTer main passes Space as scan code 0x29,
+// which the input map reads as OK, so every other screen keeps it as OK.
+func pauseKey(ev input.Event) bool {
+	return ev.Keyboard && (ev.ScanCode == 0x29 || ev.ScanCode == 0x4D)
+}
+
+// togglePause is the Pause button: the launcher pauses or resumes, and the
+// panel shows Play while paused.
+func (p *Playing) togglePause(now time.Time) {
+	p.paused = !p.paused
+	p.pausedAt = now // the launcher's report lags: believed again once it caught up
+	p.send("toggle")
+	p.dirty = true
+}
+
 func (p *Playing) Key(ev input.Event, now time.Time) bool {
+	if pauseKey(ev) && p.list == nil {
+		if ev.Release || ev.Repeat {
+			return false
+		}
+		p.togglePause(now)
+		if p.paused && !p.visible {
+			// the panel is where a pause shows (Play in place of Pause), and
+			// it stays up while paused, as after OK, Pause
+			p.show(now)
+			p.peekAt = time.Time{}
+		}
+		p.shownAt = now
+		return false
+	}
 	if ev.Release {
 		if ev.Key == input.Left || ev.Key == input.Right {
 			if p.running(now) {
@@ -760,10 +790,7 @@ func (p *Playing) Key(ev input.Event, now time.Time) bool {
 		case "+10":
 			p.seekBy(10)
 		case "Pause":
-			p.paused = !p.paused
-			p.pausedAt = now // the launcher's report lags: believed again once it caught up
-			p.send("toggle")
-			p.dirty = true
+			p.togglePause(now)
 		case "Prev":
 			if p.idx > 0 {
 				p.Next = -1

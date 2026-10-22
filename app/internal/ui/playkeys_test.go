@@ -173,3 +173,41 @@ func TestDownMovesInCropList(t *testing.T) {
 		t.Fatalf("Down in crop list did not move its cursor: %+v", p.list)
 	}
 }
+
+// Space (and P) on a keyboard pause and resume in one press, with the
+// controls closed or open; a held key's repeats do not toggle again.
+func TestSpacePausesAndResumes(t *testing.T) {
+	p := waitPlaying(t)
+	c := &coreOSD{}
+	toggles := 0
+	p.send = func(cmd string) {
+		if cmd == "toggle" {
+			toggles++
+		}
+	}
+	now := time.Now()
+	p.framed(now)
+	p.Tick(now, c, true)
+	space := input.Event{Key: input.Enter, Keyboard: true, ScanCode: 0x29}
+	p.Key(space, now)
+	held := space
+	held.Repeat = true
+	for i := 0; i < 5; i++ {
+		p.Key(held, now.Add(time.Duration(400+140*i)*time.Millisecond))
+	}
+	p.Key(input.Event{Key: input.Enter, Keyboard: true, ScanCode: 0x29, Release: true}, now.Add(time.Second))
+	if !p.paused || toggles != 1 {
+		t.Fatalf("a held Space: paused %v after %d toggles, want paused after 1", p.paused, toggles)
+	}
+	if !p.visible || osdButtons[p.focus] != "Pause" {
+		t.Fatal("the pause did not show on the controls")
+	}
+	now = now.Add(2 * time.Second)
+	p.Key(input.Event{Key: input.None, Keyboard: true, ScanCode: 0x4D}, now) // P
+	if p.paused || toggles != 2 {
+		t.Fatalf("P with the controls up: paused %v after %d toggles", p.paused, toggles)
+	}
+	if p.list != nil || p.Next != 0 {
+		t.Fatal("P did more than resume")
+	}
+}
