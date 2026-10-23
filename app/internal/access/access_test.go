@@ -89,10 +89,15 @@ func TestFeatureLifecycle(t *testing.T) {
 	if (Feature{Premium: true}).Allowed(202610, true) {
 		t.Fatal("missing threshold fails open")
 	}
+	theme := false
 	for _, e := range Catalog() {
+		theme = theme || (e.ID == "playback-theme" && e.Feature == PlaybackTheme)
 		if !e.Premium || !e.Since.Valid() {
 			t.Fatal("catalogue entry without a threshold", e)
 		}
+	}
+	if !theme || PlaybackTheme.Since != 202610 || PlaybackTheme.Beta {
+		t.Fatal("the playback theme is not a supporter extra from October 2026")
 	}
 }
 

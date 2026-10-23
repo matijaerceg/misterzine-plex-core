@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"slices"
 	"time"
 
+	"plexcrt/internal/access"
 	"plexcrt/internal/gfx"
 	"plexcrt/internal/input"
 	"plexcrt/internal/plex"
@@ -77,15 +79,18 @@ func (o *Options) items() []option {
 		{label: "Only show 4:3 media", get: func() bool { return cfg.FourThree }, set: func(v bool) { cfg.FourThree = v }, after: o.app.Reconfigured, busy: o.app.homeUpdating},
 		{label: "Autoplay next episode", get: func() bool { return !cfg.NoAutoplay }, set: func(v bool) { cfg.NoAutoplay = !v }},
 		{label: "Skip intro and credits buttons", get: func() bool { return !cfg.NoSkipButtons }, set: func(v bool) { cfg.NoSkipButtons = !v }},
-		{label: "Playback UI theme", val: func() string { return PlaybackLooks[cfg.playbackLookIndex()].Label }, step: func(d int) {
-			cfg.PlaybackLook = PlaybackLooks[max(0, min(len(PlaybackLooks)-1, cfg.playbackLookIndex()+d))].Value
-		}, at: func() (int, int) { return cfg.playbackLookIndex(), len(PlaybackLooks) }},
 		{label: "Video bitrate", val: func() string {
 			return Bitrates[cfg.bitrateIndex()].Label
 		}, step: func(d int) {
 			i := max(0, min(len(Bitrates)-1, cfg.bitrateIndex()+d))
 			cfg.Bitrate = Bitrates[i].Kbps
 		}, at: func() (int, int) { return cfg.bitrateIndex(), len(Bitrates) }},
+	}
+	theme := option{label: "Playback UI theme", val: func() string { return PlaybackLooks[cfg.playbackLookIndex()].Label }, step: func(d int) {
+		cfg.PlaybackLook = PlaybackLooks[max(0, min(len(PlaybackLooks)-1, cfg.playbackLookIndex()+d))].Value
+	}, at: func() (int, int) { return cfg.playbackLookIndex(), len(PlaybackLooks) }}
+	if row, ok := o.app.gated(theme, access.PlaybackTheme); ok {
+		items = slices.Insert(items, 3, row) // after the skip buttons
 	}
 	items = o.app.libraryOptions(items)
 	items = append(items, []option{

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"plexcrt/internal/access"
 )
 
 // Config is the app's settings and sign-in, kept as JSON on the SD card.
@@ -218,15 +220,25 @@ func (c *Config) playbackLookIndex() int {
 	return 0
 }
 
+// playbackLook is the look the playback controls take: the saved one when
+// a code covers the themes (access.PlaybackTheme), else Standard. The saved
+// value stays, so it comes back once the card has the code.
+func (a *App) playbackLook() string {
+	if a.Cfg == nil || !a.allowed(access.PlaybackTheme) {
+		return ""
+	}
+	return a.Cfg.PlaybackLook
+}
+
 // vcr reports whether the playback controls take the VCR look.
-func (c *Config) vcr() bool { return c.PlaybackLook == "vcr" || c.vcrClear() }
+func (a *App) vcr() bool { l := a.playbackLook(); return l == "vcr" || l == "vcr-clear" }
 
 // icons reports whether the playback bar's buttons are drawn as icons;
 // everything else about that look is the standard one.
-func (c *Config) icons() bool { return c.PlaybackLook == "icons" }
+func (a *App) icons() bool { return a.playbackLook() == "icons" }
 
 // vcrClear reports whether the VCR controls go without their band.
-func (c *Config) vcrClear() bool { return c.PlaybackLook == "vcr-clear" }
+func (a *App) vcrClear() bool { return a.playbackLook() == "vcr-clear" }
 
 func (c *Config) subtitleSizeIndex() int {
 	for i, s := range SubtitleSizes {

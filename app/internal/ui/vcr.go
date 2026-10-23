@@ -61,7 +61,7 @@ type dotLiner interface{ SetDotLine(on bool) }
 
 // dotColour is the playhead's colour in the look in force.
 func (p *Playing) dotColour() uint32 {
-	if p.app.Cfg.vcr() {
+	if p.app.vcr() {
 		return uint32(vcrText)
 	}
 	return uint32(gfx.White)
@@ -70,7 +70,7 @@ func (p *Playing) dotColour() uint32 {
 // barColour is the focus bar's, beside a list row or under a key: the
 // highlight green in the VCR look, which has no greys.
 func (p *Playing) barColour() uint32 {
-	if p.app.Cfg.vcr() {
+	if p.app.vcr() {
 		return uint32(vcrText)
 	}
 	return uint32(gfx.GreyHi)
@@ -86,7 +86,7 @@ type jitterer interface {
 // VCR look do, the subtitles and the wait dots do not. It goes through the
 // painter, so it lands in order with the panels.
 func (p *Playing) setJitter(osd OSD, on bool) {
-	on = on && p.app.Cfg.vcr()
+	on = on && p.app.vcr()
 	j, ok := osd.(jitterer)
 	if !ok || on == p.jittering {
 		return

@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"plexcrt/internal/access"
 	"sync"
 	"testing"
 	"time"
@@ -127,6 +128,7 @@ func TestCropPreview(t *testing.T) {
 		}),
 		"options": options(),
 	}
+	a.access = access.PlaybackTheme.Since // the looks need a code
 	a.Cfg.PlaybackLook = "icons"
 	shots["bar-icons"] = bar(1.78, false)
 	shots["bar-icons-paused"] = bar(1.78, true)

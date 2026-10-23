@@ -157,7 +157,7 @@ func (p *Playing) waiting(now time.Time) {
 	}
 	if held := p.heldUp(now); held && p.wait == nil {
 		p.wait = newWaitDot(p.waitSpec, now)
-		p.wait.tape = p.app.Cfg.vcr()
+		p.wait.tape = p.app.vcr()
 	} else if !held {
 		p.stopWait()
 	}

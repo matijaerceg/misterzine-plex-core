@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"plexcrt/internal/access"
 	"slices"
 	"sync"
 	"testing"
@@ -21,6 +22,7 @@ func TestVCRPanelFitsAndKeepsTheSpritesPlaces(t *testing.T) {
 			a.Out = &wideFakeOut{&fakeOut{c: gfx.NewCanvas(720, 480)}}
 		}
 		a.osd = &painterTestOSD{}
+		a.access = access.PlaybackTheme.Since // the looks need a code
 		a.Cfg.PlaybackLook = "vcr"
 		it := &plex.Item{Type: "episode", GrandTitle: "A show with a rather long name indeed", Title: "An episode", Parent: 2, Index: 7, Duration: 1460}
 		p := NewPlaying(a, it, nil, 0, func(string) {})
@@ -68,6 +70,7 @@ func (s *shakeOSD) seen() ([]bool, int) {
 func TestVCRControlsShakeWhileUp(t *testing.T) {
 	for _, look := range []string{"vcr", ""} {
 		p := waitPlaying(t)
+		p.app.access = access.PlaybackTheme.Since // the looks need a code
 		p.app.Cfg.PlaybackLook = look
 		o := &shakeOSD{}
 		at := time.Now()
@@ -111,6 +114,7 @@ func TestVCRControlsShakeWhileUp(t *testing.T) {
 
 func TestOptionsStepThePlaybackLook(t *testing.T) {
 	a := betaTestApp(t)
+	a.access = access.PlaybackTheme.Since // the looks need a code
 	o := NewOptions(a)
 	a.Push(o)
 	row := func() option { return o.items()[optionRow(o, "Playback UI theme")] }
@@ -143,6 +147,7 @@ func TestVCRWithoutTheBandIsClearBetweenItsText(t *testing.T) {
 	a := betaTestApp(t)
 	a.Out = &fakeOut{c: gfx.NewCanvas(720, 480)}
 	a.osd = &painterTestOSD{}
+	a.access = access.PlaybackTheme.Since // the looks need a code
 	a.Cfg.PlaybackLook = "vcr-clear"
 	p := NewPlaying(a, &plex.Item{Title: "A film", Duration: 1460}, nil, 0, func(string) {})
 	defer func() { <-p.closePainter(a.osd) }()
@@ -165,7 +170,7 @@ func TestVCRWithoutTheBandIsClearBetweenItsText(t *testing.T) {
 		!opaque(p.safeX()+p.safeW()/2-60, p.timeY, 120, vcrBig.Height()) {
 		t.Fatal("the title, the blocks or the running time is not opaque")
 	}
-	if !a.Cfg.vcr() {
+	if !a.vcr() {
 		t.Fatal("VCR, no band is not a VCR look")
 	}
 }
@@ -175,6 +180,7 @@ func TestVCRWithoutTheBandIsClearBetweenItsText(t *testing.T) {
 // spokes; it wavers with the controls.
 func TestVCRWaitTapeTurns(t *testing.T) {
 	p := waitPlaying(t)
+	p.app.access = access.PlaybackTheme.Since // the looks need a code
 	p.app.Cfg.PlaybackLook = "vcr"
 	o := &shakeOSD{}
 	now := time.Now()
@@ -224,6 +230,7 @@ func TestVCRPlayheadIsAGreenLine(t *testing.T) {
 		a.Out = &fakeOut{c: gfx.NewCanvas(720, 480)}
 		o := &lineOSD{}
 		a.osd = o
+		a.access = access.PlaybackTheme.Since // the looks need a code
 		a.Cfg.PlaybackLook = look
 		p := NewPlaying(a, &plex.Item{Title: "A film", Duration: 1460}, nil, 0, func(string) {})
 		vcr := look != ""
@@ -234,5 +241,54 @@ func TestVCRPlayheadIsAGreenLine(t *testing.T) {
 		if o.line {
 			t.Fatalf("look %q: the overlay keeps the line after the playback", look)
 		}
+	}
+}
+
+// The looks other than Standard are a supporter extra: without a code the
+// row is starred and locked (left and right change nothing, OK opens the
+// code entry), and a saved look plays as Standard until a code covers it,
+// coming back then without being chosen again.
+func TestPlaybackThemeNeedsACode(t *testing.T) {
+	a := betaTestApp(t)
+	a.Cfg.PlaybackLook = "vcr"
+	o := NewOptions(a)
+	a.Push(o)
+	row := func() option { return o.items()[optionRow(o, "Playback UI theme")] }
+	if r := row(); !r.locked || !r.supporter || r.val() != unlockForever {
+		t.Fatalf("the theme row without a code: locked %v, supporter %v, %q", r.locked, r.supporter, r.val())
+	}
+	pressOption(t, o, "Playback UI theme", input.Right)
+	pressOption(t, o, "Playback UI theme", input.Left)
+	if a.Cfg.PlaybackLook != "vcr" {
+		t.Fatalf("a locked row stepped the look to %q", a.Cfg.PlaybackLook)
+	}
+	if a.playbackLook() != "" || a.vcr() || a.vcrClear() || a.icons() {
+		t.Fatal("a saved look played without a code")
+	}
+	c := gfx.NewCanvas(720, 480)
+	o.cur = optionRow(o, "Playback UI theme")
+	o.Draw(c, time.Now())
+	star := supporterStar()
+	_, top, _, h := a.F.Body.InkBounds("H")
+	x0 := MenuX + a.F.Body.Width("Playback UI theme") + supporterStarGap
+	y0 := ListY0 + focusY(c) + 9 + top + h/2 - star.H/2
+	n := 0
+	for y := y0; y < y0+star.H; y++ {
+		for x := x0; x < x0+star.W; x++ {
+			if optionPixel(c, x, y) == gfx.Purple {
+				n++
+			}
+		}
+	}
+	if n < star.W*star.H/5 {
+		t.Fatalf("the theme row's star has %d purple pixels", n)
+	}
+	pressOption(t, o, "Playback UI theme", input.Enter)
+	if _, isEntry := a.top().(*BetaAccess); !isEntry {
+		t.Fatalf("OK on the locked theme row opened %T", a.top())
+	}
+	a.access = access.PlaybackTheme.Since
+	if r := row(); r.locked || !r.supporter || r.val() != "VCR" || !a.vcr() {
+		t.Fatalf("the covered theme row: locked %v, %q, vcr %v", r.locked, r.val(), a.vcr())
 	}
 }

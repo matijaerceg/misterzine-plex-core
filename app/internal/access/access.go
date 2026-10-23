@@ -66,6 +66,9 @@ var (
 	Screensaver = Feature{Premium: true, Since: 202609}
 	RandomSort  = Feature{Premium: true, Beta: true, Since: 202609}
 	NoHomeLogo  = Feature{Premium: true, Since: 202609}
+	// PlaybackTheme is the playback controls' looks other than Standard
+	// (Options > Playback UI theme).
+	PlaybackTheme = Feature{Premium: true, Since: 202610}
 )
 
 // Entry names a feature for the access overview and the coverage register.
@@ -80,6 +83,7 @@ func Catalog() []Entry {
 		{"screensaver", "Screensaver", Screensaver},
 		{"random-sort", "Random library order", RandomSort},
 		{"no-home-logo", "Hide the Home logo", NoHomeLogo},
+		{"playback-theme", "Playback UI theme", PlaybackTheme},
 	}
 }
 

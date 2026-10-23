@@ -168,7 +168,7 @@ func (p *Playing) closePainter(osd OSD) <-chan struct{} {
 		p.preview.Close()
 		p.preview, p.pvImg = nil, nil
 	}
-	if l, ok := osd.(dotLiner); ok && p.app.Cfg.vcr() {
+	if l, ok := osd.(dotLiner); ok && p.app.vcr() {
 		l.SetDotLine(false)
 	}
 	if j, ok := osd.(jitterer); ok && p.jittering {
@@ -263,7 +263,7 @@ func NewPlaying(app *App, it *plex.Item, queue []*plex.Item, idx int, send func(
 	p.painter = newPainter(w, h)
 	setOSDCanvasSize(app.osd, w, h)
 	if l, ok := app.osd.(dotLiner); ok {
-		l.SetDotLine(app.Cfg.vcr()) // the VCR playhead is a line
+		l.SetDotLine(app.vcr()) // the VCR playhead is a line
 	}
 	if (len(it.Markers) == 0 || it.PartID == "") && app.Plex != nil {
 		p.metadata = make(chan *plex.Item, 1)
@@ -1214,7 +1214,7 @@ func (p *Playing) compose(peek bool) {
 		// alpha: the panel, its top edge eased in; the same for every panel
 		for y := 0; y < c.H; y++ {
 			a := OsdAlpha
-			if y < 20 && !p.app.Cfg.vcr() { // the VCR band has a hard edge
+			if y < 20 && !p.app.vcr() { // the VCR band has a hard edge
 				a = OsdAlpha * y / 20
 			}
 			row := alpha[y*c.W : (y+1)*c.W]
@@ -1232,7 +1232,7 @@ func (p *Playing) compose(peek bool) {
 	if p.static == nil {
 		p.static = gfx.NewCanvas(p.canvas.W, p.osdHeight())
 	}
-	vcr := p.app.Cfg.vcr()
+	vcr := p.app.vcr()
 	if key != p.staticFor {
 		if vcr {
 			p.composeStaticVCR(p.static, peek, timed)
@@ -1247,7 +1247,7 @@ func (p *Playing) compose(peek bool) {
 	} else if timed {
 		c.TextCenter(p.safeX()+p.safeW()/2, p.timeY, p.app.F.Body, gfx.White, clock(int(p.scrubTo)))
 	}
-	if vcr && p.app.Cfg.vcrClear() {
+	if vcr && p.app.vcrClear() {
 		p.vcrClearBand(c, alpha)
 	}
 	if lift > 0 {
@@ -1336,7 +1336,7 @@ func (p *Playing) composeStatic(c *gfx.Canvas, peek, timed bool) {
 		if p.dimmed(i) {
 			col = ChevronOff
 		}
-		if p.app.Cfg.icons() {
+		if p.app.icons() {
 			osdIcon(c, f, b, x, y, w, f.Body.Height(), col)
 		} else {
 			c.Text(x, y, f.Body, col, b) // a colour change on focus would miss the cache for a frame
@@ -1348,7 +1348,7 @@ func (p *Playing) composeStatic(c *gfx.Canvas, peek, timed bool) {
 // btnCellW is the width of button label b's cell: its word's, or in the
 // Icons look its glyph's where that is wider.
 func (p *Playing) btnCellW(b string) int {
-	if p.app.Cfg.icons() {
+	if p.app.icons() {
 		return iconCellW(p.app.F, b)
 	}
 	return p.app.F.Body.Width(b)
@@ -1369,7 +1369,7 @@ func (p *Playing) composeSkip() {
 	if p.skip != nil && strings.Contains(p.skip.Type, "credit") {
 		label = "Skip credits"
 	}
-	if p.app.Cfg.vcr() {
+	if p.app.vcr() {
 		p.composeSkipVCR(c, label)
 		return
 	}
@@ -1395,7 +1395,7 @@ func (p *Playing) uploadList(osd OSD) {
 	// list must be this list's background, not what was there before
 	rows := max(min(h-base, maxRows), OsdListH)
 	c := gfx.NewCanvas(OsdListW, rows)
-	if p.app.Cfg.vcr() {
+	if p.app.vcr() {
 		p.drawListVCR(c, base)
 		l.base, l.uploaded, l.loaded = base, rows, true
 		p.painter.do(func() { osd.Upload(0, c, 240) })

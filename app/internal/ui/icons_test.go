@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"plexcrt/internal/access"
 	"slices"
 	"strings"
 	"testing"
@@ -57,6 +58,7 @@ func TestIconButtonsStayInTheirCells(t *testing.T) {
 func TestIconsLookCellsHoldTheirGlyphs(t *testing.T) {
 	a := betaTestApp(t)
 	cells := func(look string, paused bool) ([]int, []int, int, []byte) {
+		a.access = access.PlaybackTheme.Since // the looks need a code
 		a.Cfg.PlaybackLook = look
 		p := playingCrop(a, 1.78)
 		p.paused = paused
@@ -97,7 +99,7 @@ func TestIconsLookCellsHoldTheirGlyphs(t *testing.T) {
 		t.Fatal("pausing did not change the icon bar")
 	}
 	a.Cfg.PlaybackLook = "icons"
-	if a.Cfg.vcr() || !a.Cfg.icons() {
+	if a.vcr() || !a.icons() {
 		t.Fatal("the Icons look is not the standard path with icons")
 	}
 }
