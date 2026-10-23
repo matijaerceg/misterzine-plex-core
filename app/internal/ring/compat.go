@@ -8,8 +8,8 @@ import (
 
 // The Ring's side of what the UI asks of its output: the picture-rectangle
 // interface, brightness (done in software, on the pixels as they are copied
-// into a page) and the input region. Tap, the Navigation sounds tick, is in
-// tick.go.
+// into a page), the input region, and Tap, a no-op kept for the Navigation
+// sounds option (the PlexCRT core clicked; the H.264 core has no click).
 
 // Full is full brightness.
 const Full = 256
@@ -40,6 +40,10 @@ func (r *Ring) Brightness() (level int, supported bool) {
 	defer r.mu.Unlock()
 	return int(Full - r.dim), true
 }
+
+// Tap was a click into the PlexCRT core's audio mixer; the H.264 core's
+// audio is the player's.
+func (r *Ring) Tap() {}
 
 // InputRegion copies the core's input region (words 48-71) consistently:
 // the input package's RegionSource.

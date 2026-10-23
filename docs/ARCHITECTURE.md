@@ -130,8 +130,7 @@ the meaning carried over (`compat.go`).
   `Field()` is the heartbeat; `Foreign`/`Published` follow the display's
   `fetch_changes` (word 13) while a picture is shown. Idle dimming is the
   software brightness applied as frames are copied into a page; `Tap`, the
-  navigation tick, writes a short synthesised note straight to
-  `/dev/MrAudio` from a background goroutine (`tick.go`).
+  PlexCRT core's click, is a no-op (`compat.go`).
 - **Launch.** `ring.Open` calls `LaunchCore` (MGL in `/tmp/h264ring.mgl`,
   `load_core` written once to `/dev/MiSTer_cmd`, only when `/tmp/CORENAME`
   does not already name the app's core, `MisterZine Plex Core`, the only name
