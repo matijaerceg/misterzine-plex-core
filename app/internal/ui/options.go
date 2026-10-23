@@ -120,8 +120,9 @@ func (o *Options) items() []option {
 		}, at: func() (int, int) { return cfg.subtitleSizeIndex(), len(SubtitleSizes) }},
 		{label: "Subtitle background", get: func() bool { return cfg.SubtitleBox }, set: func(v bool) { cfg.SubtitleBox = v }},
 		{label: "Theme music", get: func() bool { return !cfg.NoTheme }, set: func(v bool) { cfg.NoTheme = !v }, after: o.app.syncTheme},
-		// no effect on the H.264 core: its Tap is a no-op (the PlexCRT core clicked)
-		{label: "Navigation sounds", get: func() bool { return !cfg.NoTaps }, set: func(v bool) { cfg.NoTaps = !v }},
+		// Navigation sounds (Config.NoTaps) has no row while the H.264 core has no
+		// path for the tick: its audio is the video's only (the PlexCRT core clicked
+		// in its mixer). The saved setting is kept for when it comes back.
 		optionGap(),
 	}...)
 	items = extraOptions(o.app, items)

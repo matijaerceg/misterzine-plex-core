@@ -211,8 +211,10 @@ Options lists, in groups:
   [HDMI setup](HDMI.md#settings-options-warn-about).
 - **Surround downmix boost**, **Subtitle size** and **Subtitle background**
   (see Subtitles), **Theme
-  music** (a show's theme song on its pages) and **Navigation sounds** (no
-  sound plays with the H.264 core).
+  music** (a show's theme song on its pages). No sound plays with the H.264
+  core yet: its audio path carries the video's sound only, so the theme song
+  and the menus' navigation sounds are silent for now, and the Navigation
+  sounds row is left out of the list.
 - Supporter extras, in builds that have them, each with the purple star (see
   [Patreon beta access](#misterzine-plex-core---patreon-beta-access)): **Screensavers** and, with a saver
   running, **Screensaver**, **Screensaver after**, and for Media art **Art
@@ -339,7 +341,7 @@ quieter than a stereo track, so **Surround downmix boost** raises the level of
 surround sources: Off, Small or Large (the default). Stereo tracks are passed
 through unchanged. The MiSTer applies the boost in both cases, so Left and
 Right on **More > Downmix boost** in the playback controls change it at once, without
-restarting the video.
+Theme music can be turned off in Options; with the H.264 core it plays no sound yet.
 
 Theme music and navigation sounds can be turned off in Options.
 
