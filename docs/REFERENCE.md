@@ -353,6 +353,11 @@ background at startup and every six hours while browsing; failed background
 checks stay quiet and are tried again after five minutes. An update found by
 an earlier check is still offered while the network is down.
 
+The updater installed with 0.1.0-beta.27 and earlier cannot install the H.264
+releases and stops with "Unexpected package payload": run the beta installer
+script again. 0.1.0-beta.27.1, the same app and core with the new update
+support, bridges the gap while Updates offers it.
+
 Updates offers only versions newer than the one running. It never reinstalls
 the current version or goes back to an older one; **MisterZine-Plex-Rollback**
 does that. Public builds notify about newer public releases. Beta

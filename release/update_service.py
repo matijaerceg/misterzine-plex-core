@@ -369,7 +369,7 @@ def unpack(archive, destination, release):
     manifest = json.loads((package / 'manifest.json').read_text())
     if not releases.manifest_matches(manifest, release):
         raise ValueError('Package does not match the selected release. Check for updates again.')
-    if set(manifest.get('files', {})) != manager.PAYLOAD:
+    if set(manifest.get('files', {})) not in (manager.PAYLOAD, manager.LEGACY_PAYLOAD):
         raise ValueError('Unexpected package payload')
     for name, sha in manifest['files'].items():
         if not releases.HASH.fullmatch(str(sha)) or manager.digest(package / 'payload' / name) != sha:
@@ -554,7 +554,7 @@ def activate(card, launch=start_and_check):
                 dropin = card / 'downloader_misterzine_plex.ini'
                 old_registration = dropin.read_bytes() if dropin.exists() else None
                 for name, sha in manifest.get('files', {}).items():
-                    if name not in manager.PAYLOAD or manager.digest(package / 'payload' / name) != sha:
+                    if name not in manager.PAYLOAD | manager.LEGACY_PAYLOAD or manager.digest(package / 'payload' / name) != sha:
                         raise ValueError('Prepared payload changed. Check for updates again.')
         except Exception as exc:
             # Nothing has changed yet; the reason still belongs on the screen,

@@ -803,7 +803,10 @@ def stage(card, package):
     root = card / 'misterzine-plex'
     manifest = json.loads((package / 'manifest.json').read_text())
     files = manifest['files']
-    if set(files) != PAYLOAD:
+    # A release of the shape before the H.264 core (LEGACY_PAYLOAD) is the
+    # bridge release, beta.27's app and core with these helpers; it stages
+    # like any other and uses the FFmpeg kept beside the release folders.
+    if set(files) not in (PAYLOAD, LEGACY_PAYLOAD):
         raise ValueError('Unexpected package file list')
     ident = manifest['id']
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,95}', ident):
@@ -824,8 +827,9 @@ def stage(card, package):
             raise ValueError('Unsafe release payload')
         if not target.exists() or digest(target) != expected:
             atomic(target, (package / 'payload' / name).read_bytes())
-        target.chmod(0o644 if name == 'PlexH264.rbf' else 0o755)
-    decoder(dest)
+        target.chmod(0o644 if name.endswith('.rbf') else 0o755)
+    if set(files) == PAYLOAD:
+        decoder(dest)
     write_json(dest / 'manifest.json', manifest)
     if (package / 'BETA_ACCESS.md').is_file():
         atomic(dest / 'BETA_ACCESS.md', (package / 'BETA_ACCESS.md').read_bytes())

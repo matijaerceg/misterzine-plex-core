@@ -345,6 +345,24 @@ class InstallerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'bundled FFmpeg'):
             manager.decoder(self.root)
 
+    def test_a_package_of_the_shape_before_the_h264_core_installs(self):
+        # The bridge release: beta.27's app and core packaged with these
+        # helpers, so a card on beta.27 can take the H.264 releases next.
+        files = {}
+        for name in manager.PAYLOAD:
+            (self.package / 'payload' / name).unlink(missing_ok=True)
+        for name in manager.LEGACY_PAYLOAD:
+            data = ('bridge' + name).encode()
+            (self.package / 'payload' / name).write_bytes(data)
+            files[name] = hashlib.sha256(data).hexdigest()
+        manager.write_json(self.package / 'manifest.json', {'id': 'bridge-1', 'files': files})
+        manager.install(self.card, self.package)
+        self.assertEqual(manager.read_state(self.root)['current'], 'bridge-1')
+        self.assertEqual(manager.core_file(self.root), self.root / 'releases/bridge-1/MisterZine Plex Core.rbf')
+        self.package_version('new-1')
+        manager.install(self.card, self.package)
+        self.assertEqual(manager.read_state(self.root), {'current': 'new-1', 'previous': 'bridge-1'})
+
     def test_rollback_to_a_release_before_the_h264_core(self):
         # The release before this one shipped the PlexCRT core and the Python
         # player; a rollback right after the update must still select it.
