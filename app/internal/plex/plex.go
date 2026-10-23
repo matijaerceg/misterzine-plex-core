@@ -147,6 +147,7 @@ type Item struct {
 	Colors     [4]uint32 // the server's poster palette (top-left, top-right, bottom-right, bottom-left), 0 if none
 	Markers    []Marker  // intro and credits, when the server has found them
 	PartID     string    // the first media part, whose streams can be chosen
+	Indexes    string    // the part's preview indexes: "sd" when the server has made them (PartIndex)
 	Audio      []Stream  // its audio streams
 	Subs       []Stream  // its subtitle streams
 	Library    string    // the key of its library, when the server says (search results do)
@@ -327,6 +328,7 @@ type xmlPart struct {
 	Key       string      `xml:"key,attr"`
 	Container string      `xml:"container,attr"`
 	Duration  int64       `xml:"duration,attr"` // ms
+	Indexes   string      `xml:"indexes,attr"`
 	Streams   []xmlStream `xml:"Stream"`
 }
 
@@ -383,7 +385,7 @@ func (x *xmlItem) item() *Item {
 		it.Aspect = x.Medias[0].Aspect
 		if len(x.Medias[0].Parts) > 0 {
 			part := x.Medias[0].Parts[0]
-			it.PartID = part.ID
+			it.PartID, it.Indexes = part.ID, part.Indexes
 			for _, st := range part.Streams {
 				title := st.Ext // "Commentary (English AC3 Stereo)"; the plain title lacks the name
 				if title == "" {
@@ -903,6 +905,13 @@ func (c *Client) ContinueWatching() (map[string]bool, error) {
 // (Plex Media Server 1.43).
 func (c *Client) RemoveFromContinueWatching(ratingKey string) error {
 	return c.Put("/actions/removeFromContinueWatching", url.Values{"ratingKey": {ratingKey}})
+}
+
+// PartIndex fetches a part's preview index: a Roku BIF file of small
+// frames, one every ten seconds. It is a few megabytes, so it gets the
+// longer timeout.
+func (c *Client) PartIndex(partID string) ([]byte, error) {
+	return c.fetch(c.slow, "/library/parts/"+url.PathEscape(partID)+"/indexes/sd", url.Values{"interval": {"10000"}})
 }
 
 // Art fetches a transcoded picture (poster or backdrop) at w x h, cropped by

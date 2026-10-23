@@ -117,6 +117,17 @@ type Playing struct {
 	jittering bool
 	shakeTick int
 	shaking   atomic.Bool
+	// the scrub's preview (preview.go): the backend (nil for none), whether
+	// it was asked for, the hold that put it up, whether that hold paused
+	// the playback, the frame the overlay shows and a count of its changes
+	preview   previewer
+	pvTried   bool
+	pvOn      bool
+	pvHold    time.Time
+	pvPaused  bool
+	pvImg     *gfx.Image
+	pvGen     int
+	alphaLift int // the lift the panel's alpha was drawn at
 }
 
 // panelState is what panelKey describes, kept to compare every field.
@@ -153,6 +164,10 @@ type listMode struct {
 
 // closePainter stops further overlay work and hides the OSD after playback ends.
 func (p *Playing) closePainter(osd OSD) <-chan struct{} {
+	if p.preview != nil {
+		p.preview.Close()
+		p.preview, p.pvImg = nil, nil
+	}
 	if l, ok := osd.(dotLiner); ok && p.app.Cfg.vcr() {
 		l.SetDotLine(false)
 	}
@@ -425,6 +440,12 @@ func (p *Playing) seekTo_(t float64) {
 	p.seekAt = time.Now()
 	p.bufferStart, p.bufferEnd = 0, 0
 	p.hushAt = p.seekAt
+	if p.pvOn || p.pvPaused {
+		// the gesture's seek: the preview goes, and a playback the hold
+		// paused resumes, before the seek: a seek keeps a pause, and a
+		// transcode's restart starts held while the session says paused
+		p.endPreview(p.seekAt)
+	}
 	p.send("seek " + ftoa(p.seekTo))
 	p.dirty = true
 }
@@ -601,7 +622,8 @@ func pauseKey(ev input.Event) bool {
 // panel shows Play while paused.
 func (p *Playing) togglePause(now time.Time) {
 	p.paused = !p.paused
-	p.pausedAt = now // the launcher's report lags: believed again once it caught up
+	p.pausedAt = now   // the launcher's report lags: believed again once it caught up
+	p.pvPaused = false // the user's own pause or play from here on: the scrub leaves it be
 	p.send("toggle")
 	p.dirty = true
 }
@@ -854,12 +876,22 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 	if p.metadata != nil {
 		select {
 		case fresh := <-p.metadata:
-			p.item.Markers, p.item.PartID = fresh.Markers, fresh.PartID
+			p.item.Markers, p.item.PartID, p.item.Indexes = fresh.Markers, fresh.PartID, fresh.Indexes
 			p.item.Audio, p.item.Subs = fresh.Audio, fresh.Subs
 			p.app.applyStreams(p.item)
+			p.pvTried = p.preview != nil // the part may have previews after all
 			p.dirty = true
 		default:
 		}
+	}
+	if !p.pvTried {
+		p.pvTried = true
+		start := p.pos
+		if start == 0 {
+			start = float64(p.item.ViewOffset)
+		}
+		w, h := previewSize(p.canvasWidth(), p.canvasHeight())
+		p.preview = newPreviewer(p.app, p.item, w, h, start)
 	}
 	p.syncSubtitles()
 	p.takeSubtitles()
@@ -907,6 +939,7 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 			p.settle = false
 		}
 	}
+	p.previewTick(now)
 	if m := p.marker(); m != p.skip {
 		p.skip = m
 		p.skipOff = false
@@ -985,7 +1018,7 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 		// the title, the bar and the times, along the bottom edge; the dot
 		// on the bar while a hold scrubs
 		osd.Bar(0, 0, 0, 0, 0, false)
-		key = "peek|" + itoa(int(p.pos)) + "|" + itoa(btoi(p.peekScrub)) + "|" + itoa(int(p.scrubTo)) + p.bufferKey()
+		key = "peek|" + itoa(int(p.pos)) + "|" + itoa(btoi(p.peekScrub)) + "|" + itoa(int(p.scrubTo)) + p.bufferKey() + p.previewKey()
 		frame := -1
 		if p.wait != nil {
 			frame = p.wait.frameAt(now) // the dots over the start strip: repainted as they swell
@@ -995,7 +1028,7 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 			p.setJitter(osd, true)
 			p.last = key
 			p.compose(true)
-			h := p.peekStripH()
+			h := p.peekStripH() + p.lift() // the preview's rows above it, when up
 			strip, alpha := &gfx.Canvas{W: p.canvas.W, H: h, Pix: p.canvas.Pix[:p.canvas.W*h*4]}, p.alpha[:p.canvas.W*h]
 			if p.wait != nil {
 				p.wait.frame = frame
@@ -1043,7 +1076,7 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 		}
 		osd.Bar(p.barX, p.barY, p.barW, BarW, p.barColour(), p.barOn)
 	}
-	key = p.panelKey()
+	key = p.panelKey() + p.previewKey()
 	if key == p.last && p.composed {
 		return // nothing to repaint
 	}
@@ -1059,7 +1092,8 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 	}
 	p.last = key
 	p.setJitter(osd, true)
-	p.painter.show(osd, 0, p.osdY(), &gfx.Canvas{W: p.canvas.W, H: p.osdHeight(), Pix: p.canvas.Pix[:p.canvas.W*p.osdHeight()*4]}, p.alpha[:p.canvas.W*p.osdHeight()])
+	lh := p.lift() + p.osdHeight() // the preview's rows above the panel, when up
+	p.painter.show(osd, 0, p.osdY()-p.lift(), &gfx.Canvas{W: p.canvas.W, H: lh, Pix: p.canvas.Pix[:p.canvas.W*lh*4]}, p.alpha[:p.canvas.W*lh])
 	p.dirty = false
 }
 
@@ -1171,20 +1205,24 @@ func (p *Playing) peeking(now time.Time) bool {
 // compose paints the panel; for a peek only the title, the bar and the
 // times, and peekH is set to the rows they take.
 func (p *Playing) compose(peek bool) {
-	c := &gfx.Canvas{W: p.canvas.W, H: p.osdHeight(), Pix: p.canvas.Pix[:p.canvas.W*p.osdHeight()*4]}
-	if !p.alphaDone {
+	// the panel starts lift rows down while a preview floats above it
+	lift := p.lift()
+	base := lift * p.canvas.W
+	c := &gfx.Canvas{W: p.canvas.W, H: p.osdHeight(), Pix: p.canvas.Pix[base*4 : (base+p.canvas.W*p.osdHeight())*4]}
+	alpha := p.alpha[base : base+c.W*c.H]
+	if !p.alphaDone || p.alphaLift != lift {
 		// alpha: the panel, its top edge eased in; the same for every panel
 		for y := 0; y < c.H; y++ {
 			a := OsdAlpha
 			if y < 20 && !p.app.Cfg.vcr() { // the VCR band has a hard edge
 				a = OsdAlpha * y / 20
 			}
-			row := p.alpha[y*c.W : (y+1)*c.W]
+			row := alpha[y*c.W : (y+1)*c.W]
 			for x := range row {
 				row[x] = byte(a)
 			}
 		}
-		p.alphaDone = true
+		p.alphaDone, p.alphaLift = true, lift
 	}
 	// everything but the running time is drawn once per state into the
 	// static panel; a scrub then repaints the time over a copy each field
@@ -1210,7 +1248,10 @@ func (p *Playing) compose(peek bool) {
 		c.TextCenter(p.safeX()+p.safeW()/2, p.timeY, p.app.F.Body, gfx.White, clock(int(p.scrubTo)))
 	}
 	if vcr && p.app.Cfg.vcrClear() {
-		p.vcrClearBand(c)
+		p.vcrClearBand(c, alpha)
+	}
+	if lift > 0 {
+		p.drawPreview(lift) // per compose, over the static copy's rows above
 	}
 }
 
