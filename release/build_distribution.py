@@ -73,6 +73,11 @@ def build(package, tag, notes, out, previous=None, source_archive=None):
                'source': {'filename': source['filename'], 'size': source['size'], 'sha256': source['sha256'],
                           'url': base + source['filename']}}
     catalogue.entry(release)
+    # The channel being published is replaced whole, so its old entry is not
+    # validated: a catalogue written before the corresponding-source metadata
+    # existed (beta.27 and earlier) is still a valid starting point.
+    if previous is not None:
+        previous = dict(previous, releases={c: r for c, r in previous.get('releases', {}).items() if c != channel})
     cat = catalogue.catalogue(previous) if previous is not None else {'schema': 1, 'releases': {}}
     cat['releases'][channel] = release
     for missing in {'public', 'beta'} - set(cat['releases']):
