@@ -10,8 +10,39 @@ import (
 // previewer gives the scrub its small frames of the film. Frame returns
 // the frame ready for film time t at display size, or nil; it never waits.
 // Near tells the backend where the scrub is, so it prepares the frames
-// there. Close drops everything when the playback ends. The backend is the
-// server's (newPreviewer): nil is an item without previews.
+// there; it is called every Tick: with the scrub's place while a scrub is
+// up, else with the playing position, so the frames round the picture are
+// ready before a hold starts. Close drops everything when the playback
+// ends. The backend is the server's (newPreviewer): nil is an item without
+// previews.
+//
+// What a backend keeps and prepares, whatever its server serves:
+//   - From its creation (the first Tick, at the start position) it
+//     prepares round that position without waiting for a Near: a hold
+//     in the first seconds either way has frames as soon as they can be
+//     made.
+//   - It keeps what holds the frames either side of the last Near, both
+//     ways: for frames in sheets, the sheet under the position AND the one
+//     before AND the one after (three, each fetched and decoded once while
+//     it stays one of them), dropping a sheet only once it is none of the
+//     three. It prepares them in that order: the one under the position,
+//     then the neighbour the scrub moves towards (Near's direction: later
+//     than the last Near is forward; forward before any), then the other.
+//   - For single frames (the Plex BIF), it decodes first the frame the
+//     dot will be at when the decode is done (its speed from successive
+//     Nears times the decode time; the one under it when it stands), then
+//     works outward from there, a few frames ahead the way the scrub moves
+//     for each one behind, so a fast run finds frames where the dot is
+//     going, not where it was.
+//   - Frame returns the nearest ready frame to t within a few frames (more
+//     during a fast run: the dot moves faster than frames decode) and nil
+//     only when none is near.
+//   - Its worker runs at nice 10 as the art workers do, but at normal
+//     priority while a held run waits on it (the playback is paused
+//     then): on the device a decode at nice 10 during a run took ten
+//     times as long, and the run outpaced every frame.
+//   - It never fetches or decodes on the caller's thread, and a failed
+//     fetch or decode is retried a bounded number of times, not forever.
 type previewer interface {
 	Frame(t float64) *gfx.Image
 	Near(t float64)
@@ -74,18 +105,37 @@ func (p *Playing) previewTick(now time.Time) {
 	if !p.scrub && (p.pvOn || p.pvPaused) {
 		p.endPreview(now) // dropped: Back, Down without a seek, the timeout
 	}
+	// the backend prepares where the scrub is, or where the picture is
+	// before any: the first hold then finds its frames ready
+	if p.scrub {
+		p.preview.Near(p.scrubTo)
+	} else {
+		p.preview.Near(p.pos)
+	}
 	var img *gfx.Image
 	if p.pvOn && p.wait == nil {
-		p.preview.Near(p.scrubTo)
 		img = p.preview.Frame(p.scrubTo)
 	}
 	if img != nil && (previewLift+p.osdHeight())*p.canvasWidth()*4 > ring.RegionSize {
 		img = nil // no room above the panel in the overlay region
 	}
 	if img != p.pvImg {
+		if img == nil {
+			// the overlay page keeps what is not drawn over: the next
+			// two panels (one for each page) still take the rows, clear
+			p.pvClear = 2
+		}
 		p.pvImg = img
 		p.pvGen++
 		p.dirty = true
+	}
+}
+
+// shownLift notes a panel shown with lift rows above it: once the frame
+// is gone, each one so shown is a page the rows are clear on.
+func (p *Playing) shownLift(lift int) {
+	if lift > 0 && p.pvImg == nil && p.pvClear > 0 {
+		p.pvClear--
 	}
 }
 
@@ -101,28 +151,33 @@ func (p *Playing) endPreview(now time.Time) {
 	}
 }
 
-// lift is the rows above the panel this compose takes for the preview.
+// lift is the rows above the panel this compose takes for the preview:
+// while a frame shows, and for the panels that clear them after it.
 func (p *Playing) lift() int {
-	if p.pvImg == nil {
+	if p.pvImg == nil && p.pvClear == 0 {
 		return 0
 	}
 	return previewLift
 }
 
-// previewKey tells the overlay's keys apart while a frame shows.
+// previewKey tells the overlay's keys apart while a frame shows or its
+// rows are being cleared.
 func (p *Playing) previewKey() string {
-	if p.pvImg == nil {
+	if p.pvImg == nil && p.pvClear == 0 {
 		return ""
 	}
-	return "|pv" + itoa(p.pvGen)
+	return "|pv" + itoa(p.pvGen) + "." + itoa(p.pvClear)
 }
 
 // drawPreview paints the frame into the lift rows above the panel: clear
-// but for the frame, which is opaque, over the dot's place.
+// but for the frame, which is opaque, over the dot's place. The rows are
+// cleared whole every time, pixels and alpha: the page is written as it
+// is given, and an earlier frame or strip left in them would stay there.
 func (p *Playing) drawPreview(lift int) {
 	w := p.canvas.W
 	c := &gfx.Canvas{W: w, H: lift, Pix: p.canvas.Pix[:w*lift*4]}
 	alpha := p.alpha[:w*lift]
+	clear(c.Pix)
 	clear(alpha)
 	img := p.pvImg
 	if img == nil || p.dur <= 0 {

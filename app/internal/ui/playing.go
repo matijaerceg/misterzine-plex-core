@@ -127,6 +127,7 @@ type Playing struct {
 	pvPaused  bool
 	pvImg     *gfx.Image
 	pvGen     int
+	pvClear   int // panels still to show the lift rows clear, after a frame
 	alphaLift int // the lift the panel's alpha was drawn at
 }
 
@@ -265,7 +266,8 @@ func NewPlaying(app *App, it *plex.Item, queue []*plex.Item, idx int, send func(
 	if l, ok := app.osd.(dotLiner); ok {
 		l.SetDotLine(app.vcr()) // the VCR playhead is a line
 	}
-	if (len(it.Markers) == 0 || it.PartID == "") && app.Plex != nil {
+	// a listing's item may lack the markers, the part or its previews
+	if (len(it.Markers) == 0 || it.PartID == "" || it.Indexes == "") && app.Plex != nil {
 		p.metadata = make(chan *plex.Item, 1)
 		client, id := app.Plex, it.RatingKey
 		go func() {
@@ -1037,6 +1039,7 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 			} else {
 				p.painter.show(osd, 0, p.canvasHeight()-h, strip, alpha)
 			}
+			p.shownLift(p.lift())
 		}
 		if p.scrub && p.dur > 0 {
 			// the dot: loaded at the press (hidden, so the run starts from
@@ -1094,6 +1097,7 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 	p.setJitter(osd, true)
 	lh := p.lift() + p.osdHeight() // the preview's rows above the panel, when up
 	p.painter.show(osd, 0, p.osdY()-p.lift(), &gfx.Canvas{W: p.canvas.W, H: lh, Pix: p.canvas.Pix[:p.canvas.W*lh*4]}, p.alpha[:p.canvas.W*lh])
+	p.shownLift(p.lift())
 	p.dirty = false
 }
 

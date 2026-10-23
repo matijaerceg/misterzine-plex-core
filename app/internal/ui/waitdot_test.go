@@ -31,12 +31,14 @@ type coreOSD struct {
 	showX, showY int
 	showW, showH int
 	showAlpha    []byte
+	showPix      []byte
 	shows        int // Show calls so far
 }
 
 func (c *coreOSD) Show(x, y int, cv *gfx.Canvas, alpha []byte) {
 	c.shown, c.showX, c.showY, c.showW, c.showH = true, x, y, cv.W, cv.H
 	c.showAlpha = append(c.showAlpha[:0], alpha[:cv.W*cv.H]...)
+	c.showPix = append(c.showPix[:0], cv.Pix[:cv.W*cv.H*4]...)
 	c.shows++
 }
 func (c *coreOSD) Hide() { c.shown = false }

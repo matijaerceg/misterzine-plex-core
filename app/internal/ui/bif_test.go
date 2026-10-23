@@ -2,7 +2,12 @@ package ui
 
 import (
 	"encoding/binary"
+	"fmt"
+	"sync"
 	"testing"
+	"time"
+
+	"plexcrt/internal/gfx"
 )
 
 // bifFile makes a BIF of n frames every ten seconds with the given unit
@@ -92,5 +97,46 @@ func TestBIFPreviewKeepsAFewFrames(t *testing.T) {
 	}
 	if len(b.frames) != bifCache || b.frames[0] != nil || b.frames[bifCache+4] == nil {
 		t.Fatalf("kept %d frames", len(b.frames))
+	}
+}
+
+// The decodes lead the way the scrub moves: the frame under it, then
+// more ahead than behind, and the other way round when it turns.
+func TestBIFDecodesAheadOfTheScrub(t *testing.T) {
+	idx, err := parseBIF(bifFile(100, 0, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &bifPreview{want: -1, dir: 1, frames: map[int]*bifFrame{}, index: idx}
+	b.cond = sync.NewCond(&b.mu)
+	order := func() string {
+		var got []int
+		for i := b.next(); i >= 0 && len(got) < 5; i = b.next() {
+			got = append(got, i)
+			b.frames[i] = &bifFrame{img: &gfx.Image{}}
+		}
+		clear(b.frames)
+		return fmt.Sprint(got)
+	}
+	b.Near(500)
+	if got := order(); got != "[50 51 52 53 49]" {
+		t.Fatalf("at the start: %s", got)
+	}
+	b.Near(400)
+	if got := order(); got != "[40 39 38 37 41]" {
+		t.Fatalf("going back: %s", got)
+	}
+	// a run: the decodes aim where the dot will be when they are done
+	b.Near(500)
+	b.speed, b.dec, b.movedAt = 40, 0.1, time.Now()
+	if got := order(); got != "[56 57 58 59 55]" {
+		t.Fatalf("in a run: %s", got)
+	}
+	b.movedAt = time.Now().Add(-time.Second)
+	if got := order(); got != "[50 51 52 53 49]" {
+		t.Fatalf("at rest again: %s", got)
+	}
+	if len(bifOrder) != 1+bifAhead+bifBehind {
+		t.Fatalf("order %v", bifOrder)
 	}
 }
