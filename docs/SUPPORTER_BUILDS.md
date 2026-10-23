@@ -18,7 +18,14 @@ The private build exports a specific public commit and adds files marked with
 the `premium` Go build tag. It may only add files; it cannot replace public
 ones. Small extension points in the public app have no-op implementations in
 `premium_free.go`, and their names and signatures are what the private files
-build against. Compiling this public repository alone with `-tags premium` is
+build against.
+
+The Home logo hook, `premiumHomeLogo`, returns the logo Home draws at its top
+left. The public build always returns the app's wordmark; a supporter build
+may return another picture made with `NewMark` (the wordmark's shadow around
+it), or nil for no logo (`access.NoHomeLogo`).
+
+Compiling this public repository alone with `-tags premium` is
 unsupported; the matching private components are required.
 
 Public source archives are built from this checkout. They include the source

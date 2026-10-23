@@ -48,7 +48,6 @@ func NewWordmark() *Wordmark {
 	markW := tw
 	w, h := markW+2*markPad, lineH+2*markPad
 	col := gfx.NewCanvas(w, h)
-	alpha := make([]float32, w*h)
 	// Area sampling keeps thin edges smooth when reducing the large export.
 	for y := 0; y < lineH; y++ {
 		y0, y1 := float64(y*shgt)/float64(lineH), float64((y+1)*shgt)/float64(lineH)
@@ -70,8 +69,30 @@ func NewWordmark() *Wordmark {
 			for c := range sum {
 				col.Pix[i*4+c] = byte(sum[c]/area + 0.5)
 			}
-			alpha[i] = float32(col.Pix[i*4+3]) / 255
 		}
+	}
+	return shadowedMark(col, markW, lineH)
+}
+
+// NewMark is a picture already at its drawn size (premultiplied, as
+// gfx.Decode gives it) as a Wordmark: the wordmark's shadow around it, its
+// W and H the picture's own. An extra's Home logo is made this way.
+func NewMark(im *gfx.Image) *Wordmark {
+	w, h := im.W+2*markPad, im.H+2*markPad
+	col := gfx.NewCanvas(w, h)
+	for y := 0; y < im.H; y++ {
+		copy(col.Pix[((y+markPad)*w+markPad)*4:], im.Pix[y*im.W*4:(y+1)*im.W*4])
+	}
+	return shadowedMark(col, im.W, im.H)
+}
+
+// shadowedMark puts the shadow under the premultiplied picture in col,
+// which has markPad of room on each side of the w x h picture.
+func shadowedMark(col *gfx.Canvas, markW, lineH int) *Wordmark {
+	w, h := col.W, col.H
+	alpha := make([]float32, w*h)
+	for i := range alpha {
+		alpha[i] = float32(col.Pix[i*4+3]) / 255
 	}
 	// the shadow: the coverage blurred wide, three box passes
 	sh := make([]float32, w*h)

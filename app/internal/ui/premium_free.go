@@ -26,10 +26,12 @@ func (a *App) premiumOptions(items []option) []option { return items }
 // takes it only while waiting.
 func (a *App) premiumIdle(now time.Time, waiting bool, since time.Duration) bool { return false }
 
-// premiumHomeLogo reports whether Home draws the app's wordmark and the
-// chevron before it. Without them the BETA and UPDATE marks start where the
-// wordmark would.
-func (a *App) premiumHomeLogo() bool { return true }
+// premiumHomeLogo is the logo Home draws at its top left, the chevron
+// before it: the app's wordmark (a.Mark), another picture made with
+// NewMark, or nil for none, when the BETA and UPDATE marks start where the
+// wordmark would. It is asked on every frame Home shows, so it should not
+// allocate.
+func (a *App) premiumHomeLogo() *Wordmark { return a.Mark }
 
 // premiumWallViews is the extras' views of a library, its tabs after
 // Released; nil for none. It is asked on every frame the library shows,

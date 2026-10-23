@@ -13,8 +13,8 @@ func (a *App) drawBrand(c *gfx.Canvas) {
 	switch a.top().(type) {
 	case *Home:
 		x = SafeX + 16 // where the wordmark starts, when Home has none
-		if a.premiumHomeLogo() {
-			x += a.Mark.W + 12
+		if m := a.premiumHomeLogo(); m != nil {
+			x += m.W + 12
 		}
 	case *Login:
 		x = SafeX + 16 + a.Mark.W + 12

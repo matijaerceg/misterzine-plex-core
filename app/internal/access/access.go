@@ -65,7 +65,11 @@ func (f Feature) Allowed(month Month, showBeta bool) bool {
 var (
 	Screensaver = Feature{Premium: true, Since: 202609}
 	RandomSort  = Feature{Premium: true, Beta: true, Since: 202609}
-	NoHomeLogo  = Feature{Premium: true, Since: 202609}
+	// NoHomeLogo is the Home logo's choices other than Default: MisterKun
+	// in place of the wordmark (since 2026-10), or no logo (Options > Home
+	// logo). The id and threshold stay, so the codes that covered hiding
+	// the logo cover MisterKun too.
+	NoHomeLogo = Feature{Premium: true, Since: 202609}
 	// PlaybackTheme is the playback controls' looks other than Standard
 	// (Options > Playback UI theme).
 	PlaybackTheme = Feature{Premium: true, Since: 202610}
@@ -82,7 +86,7 @@ func Catalog() []Entry {
 	return []Entry{
 		{"screensaver", "Screensaver", Screensaver},
 		{"random-sort", "Random library order", RandomSort},
-		{"no-home-logo", "Hide the Home logo", NoHomeLogo},
+		{"no-home-logo", "Home logo: MisterKun or none", NoHomeLogo},
 		{"playback-theme", "Playback UI theme", PlaybackTheme},
 	}
 }

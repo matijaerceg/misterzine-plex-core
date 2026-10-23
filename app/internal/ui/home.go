@@ -639,8 +639,14 @@ func (h *Home) drawPage(c *gfx.Canvas, now time.Time) bool {
 	if logo == nil && !logoPending {
 		key += "|title" // the logo rides above the page; only its title is composed
 	}
-	if h.home && !h.app.premiumHomeLogo() {
-		key += "|nomark" // hidden in Options: compose again when it changes
+	if h.home {
+		// changed in Options: compose again when it changes
+		switch m := h.app.premiumHomeLogo(); {
+		case m == nil:
+			key += "|nomark"
+		case m != h.app.Mark:
+			key += "|altmark"
+		}
 	}
 	sliding := h.pageFade().Transitioning(now)
 	if key != h.pageKey && !sliding {
@@ -711,10 +717,11 @@ func (h *Home) compose(c *gfx.Canvas, it *plex.Item, img, logo *gfx.Image, logoP
 	} else {
 		c.Fill(0, 0, c.W, c.H, gfx.Bg)
 	}
-	if h.home && h.app.premiumHomeLogo() {
-		// a left chevron: the drawer is off the left edge
+	if m := h.app.premiumHomeLogo(); h.home && m != nil {
+		// a left chevron: the drawer is off the left edge. It stays where
+		// the wordmark has it whatever the logo.
 		chevronLeft(c, SafeX+3, SafeY-8+h.app.Mark.H*60/100-6, gfx.GreyLo)
-		h.app.Mark.Place(c, SafeX+16, SafeY-8)
+		m.Place(c, SafeX+16, SafeY-8)
 	}
 	title := it.Title
 	if it.Type == "episode" {
