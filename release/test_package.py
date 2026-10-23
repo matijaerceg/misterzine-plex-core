@@ -79,6 +79,7 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(manifest['core']['quartus_manifest_sha256'], build_package.sha(self.rbf_manifest))
             self.assertEqual(manifest['source']['sha256'], build_package.sha(self.source))
             self.assertEqual(manifest['source']['size'], self.source.stat().st_size)
+            self.assertIs(manifest['self_install'], True)
             self.assertEqual(archive.read('misterzine-plex-beta/provenance/quartus-rbf-manifest.json'),
                              self.rbf_manifest.read_bytes())
             self.assertIn(b"ZAPAROO_LOGO = '", archive.read('misterzine-plex-beta/manager.py'))

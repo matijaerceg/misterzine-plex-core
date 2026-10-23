@@ -9,6 +9,10 @@ MiSTer's FPGA, which replaces the previous core. Scrubbing shows frames of the
 film, the playback controls come in four looks, and supporters get a choice of
 Home logo and a Random tab.
 
+- From this release on, a release installs itself: the updater on the card
+  fetches and verifies the download, and the release's own installer puts it
+  in place and starts it. Later releases can change what the package contains
+  without a stepping stone like 0.1.0-beta.27.1.
 - Files the core can decode (H.264 High or Main, 8-bit, up to 1280x720) are
   streamed as stored, without a transcode on the server. Everything else is
   transcoded by your Plex server to H.264, up to 720p. If a stream played as

@@ -118,7 +118,7 @@ def build(out, ident, version, worker=None, ffmpeg=None, rbf=None, rbf_manifest=
         source_meta = {'filename': source_name, 'size': source_archive.stat().st_size,
                        'sha256': sha(source_archive)}
         manifest = {'id': ident, 'version': version, **metadata, 'core': core_provenance,
-                    'source': source_meta, 'files': hashes}
+                    'source': source_meta, 'files': hashes, 'self_install': True}
         (package / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
         prov = package / 'provenance'
         prov.mkdir()

@@ -147,7 +147,7 @@ class UpdateTests(unittest.TestCase):
         p = patch.object(service, 'other_downloader', return_value=False)
         p.start(); self.addCleanup(p.stop)
 
-    def release(self, ident='fixture-1', channel='public', helpers=None):
+    def release(self, ident='fixture-1', channel='public', helpers=None, self_install=False, payload=None):
         version = '1.0.0' if channel == 'public' else '1.1.0-beta.1'
         access = None if channel == 'public' else {'batch': 'fixture', 'sha256': hashlib.sha256(b'012345').hexdigest()}
         files = {}
@@ -158,12 +158,14 @@ class UpdateTests(unittest.TestCase):
             source_zip.writestr('BUILD.md', 'synthetic corresponding source')
         source = {'filename': source_archive.name, 'size': source_archive.stat().st_size,
                   'sha256': manager.digest(source_archive), 'url': 'https://example.org/' + source_archive.name}
-        for name in manager.PAYLOAD:
+        for name in payload or manager.PAYLOAD:
             data = (ident + name).encode()
             (package / 'payload' / name).write_bytes(data)
             files[name] = hashlib.sha256(data).hexdigest()
         manifest = {'id': ident, 'version': version, 'channel': channel, 'access': access, 'files': files,
                     'source': {k: source[k] for k in ('filename', 'size', 'sha256')}}
+        if self_install:
+            manifest['self_install'] = True
         (package / 'manifest.json').write_text(json.dumps(manifest))
         for name in service.HELPERS:
             (package / name).write_text((helpers or {}).get(name, '# synthetic helper ' + ident))
@@ -184,6 +186,79 @@ class UpdateTests(unittest.TestCase):
             path.parent.mkdir(exist_ok=True)
             path.write_bytes(archive.read_bytes())
         return download
+
+    def self_installing_helpers(self, payload, exit_status=manager.EXIT_TO_MENU):
+        # The release's own service and support, as a package carries them: the
+        # real update_service.py beside a manager that is the real one with the
+        # payload shape the release chose and, run by the start check, an app
+        # that reports ready and leaves with the given status.
+        real = Path(manager.__file__).resolve().parent
+        shim = (
+            'import importlib.util, os, pathlib, sys, time\n'
+            '_spec = importlib.util.spec_from_file_location("real_manager", %r)\n'
+            '_real = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_real)\n'
+            '_real.PAYLOAD = set(%r)\n'
+            'globals().update({k: v for k, v in vars(_real).items() if not k.startswith("__")})\n'
+            'if __name__ == "__main__":\n'
+            '    card = pathlib.Path(sys.argv[-1])\n'
+            '    (card / "%s/updates/started-by").write_text(sys.argv[1])\n'
+            '    open(os.environ["MISTERZINE_PLEX_READY_FILE"], "w").write("ready")\n'
+            '    time.sleep(.3)\n'
+            '    sys.exit(%d)\n' % (str(real / 'manager.py'), sorted(payload), 'misterzine-plex', exit_status))
+        helpers = {name: (real / name).read_text() for name in service.HELPERS if name != 'manager.py'}
+        helpers['manager.py'] = shim
+        return helpers
+
+    def test_a_self_installing_package_stages_installs_and_starts_itself(self):
+        # The steps whose rules may change between releases run with the new
+        # release's own helpers: this copy fetched, verified, and would restore.
+        # Its payload is of a shape this copy does not know.
+        _, _, old = self.release('old')
+        manager.install(self.card, old)
+        payload = {'plexcrt', 'nextworker', 'ffmpeg', 'PlexNext.rbf'}
+        release, archive, _ = self.release('new', 'beta', self.self_installing_helpers(payload), True, payload)
+        service.prepare(self.card, release, self.deliver(archive))
+        self.assertEqual(json.loads((self.root / 'updates/status.json').read_text())['stage'], 'ready')
+        self.assertEqual(manager.read_state(self.root)['current'], 'old')
+        self.assertEqual(sorted(p.name for p in (self.root / 'releases/new').iterdir() if p.name not in ('manifest.json', 'maintenance')),
+                         sorted(payload))
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            service.activate(self.card)
+        self.assertEqual(manager.read_state(self.root), {'current': 'new', 'previous': 'old'})
+        # The start check ran the new release's manager, not this copy's.
+        self.assertEqual((self.root / 'updates/started-by').read_text(), 'run')
+        self.assertEqual((self.root / 'update_service.py').read_text(), (Path(service.__file__)).read_text())
+        self.assertIn(release['db_url'], (self.card / 'downloader_misterzine_plex.ini').read_text())
+        self.assertEqual(json.loads((self.root / 'updates/status.json').read_text())['stage'], 'complete')
+        self.assertIn('Update installed', out.getvalue())
+        manager.rollback(self.root)
+        self.assertEqual(manager.read_state(self.root)['current'], 'old')
+
+    def test_a_self_installing_package_that_does_not_start_is_restored(self):
+        _, _, old = self.release('old')
+        manager.install(self.card, old)
+        release, archive, _ = self.release('new', 'beta', self.self_installing_helpers(manager.PAYLOAD, 1), True)
+        service.prepare(self.card, release, self.deliver(archive))
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(RuntimeError) as caught:
+            service.activate(self.card)
+        self.assertEqual(str(caught.exception), 'The new release did not start')
+        self.assertEqual(manager.read_state(self.root)['current'], 'old')
+        self.assertEqual((self.root / 'manager.py').read_text(), '# synthetic helper old')
+        status = json.loads((self.root / 'updates/status.json').read_text())
+        self.assertEqual(status['stage'], 'failed')
+        self.assertIn('The new release did not start. The previous release was restored.', status['message'])
+
+    def test_a_package_without_the_flag_keeps_the_known_shape(self):
+        # A package from before self-installing releases is installed by this
+        # copy, which still checks the shapes it knows.
+        payload = {'plexcrt', 'nextworker', 'ffmpeg', 'PlexNext.rbf'}
+        release, archive, _ = self.release('new', 'beta', payload=payload)
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError) as caught:
+            service.prepare(self.card, release, self.deliver(archive))
+        self.assertEqual(str(caught.exception), 'Unexpected package payload')
+        for bad in ({'sub/dir'}, {'.hidden'}, {'..'}):
+            self.assertFalse(service.payload_names_ok(bad))
+        self.assertTrue(service.payload_names_ok(payload))
 
     def test_prepare_does_not_activate_and_restart_retains_old(self):
         old, _, package = self.release('old')

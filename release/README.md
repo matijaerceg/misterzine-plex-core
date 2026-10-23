@@ -131,6 +131,12 @@ the current app and core packaged so that updater can install them, bridges
 the gap while Updates offers it. A card that is offered 0.1.0-beta.28 directly goes to it by
 running the beta installer script again.
 
+From 0.1.0-beta.28 on, a release installs itself: the updater on the card
+fetches and verifies the download, the release's own installer puts it in
+place and starts it, and the card's updater only steps in to put the previous
+release back if it does not start. Later releases can change what the package
+contains without another bridge.
+
 Downloads go through MiSTer Downloader, and fall back to a direct fetch of the
 release file when that fails. If both fail, the message under **Options > Updates**
 says whether your MiSTer's connection, its clock, its SD card or the release is

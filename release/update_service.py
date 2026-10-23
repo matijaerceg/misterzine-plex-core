@@ -37,6 +37,65 @@ BOOTSTRAP_SHA = 'e19ed080deb4ac67f646e4318438427243e2f65fb95c0a1b6e738be4d8ad490
 BOOTSTRAP_ZIP_SHA = '93c247f04c0082ba724abbd6e041a166351c7c758fe114e52447575aae9a65ed'
 HELPERS = manager.HELPERS
 
+# Self-installing packages. A package with this manifest flag stages, installs
+# and starts itself with the helpers it carries (`stage-package` and
+# `install-package` below, run by the copy of this service installed on the
+# card), so the installed copy never judges what a newer release contains or
+# how it starts: those rules travel with the release. The installed copy keeps
+# what only it can do: fetch and verify the download against the catalogue,
+# and put the previous release back if the new one does not start. A package
+# without the flag, from before this service, is installed by this copy as
+# before.
+SELF_INSTALL = 'self_install'
+
+
+def self_installing(manifest):
+    return manifest.get(SELF_INSTALL) is True
+
+
+def payload_names_ok(files):
+    """Payload entries are plain file names inside payload/: nothing else is
+    assumed about a self-installing package's contents."""
+    return bool(files) and all(isinstance(name, str) and name == PurePosixPath(name).name
+                               and not name.startswith('.') for name in files)
+
+
+def handoff(package, action, card, request=None):
+    """Run one step of the package's own service (its update_service.py, with
+    its own manager beside it). Its output is shown as this service's. Its
+    reason for failing is taken only from the fixed words its cli() prints:
+    a traceback, which could carry paths, is never repeated."""
+    args = [sys.executable, str(package / 'update_service.py'), action, '--card', str(card), '--package', str(package)]
+    if request is not None:
+        args += ['--request', str(request)]
+    proc = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          text=True, errors='replace')
+    if proc.stdout:
+        print(proc.stdout, end='', flush=True)
+    if proc.returncode == 0:
+        return
+    lines = [line.strip() for line in proc.stderr.splitlines() if line.strip()]
+    if not lines or 'Traceback (most recent call last):' in proc.stderr:
+        raise RuntimeError('The release could not install itself')
+    raise RuntimeError(lines[0].rstrip('.'))
+
+
+def stage_package(card, package):
+    """`stage-package`: this release stages itself, for the service that
+    fetched and verified it."""
+    manager.stage(card, package)
+
+
+def install_package(card, package, release):
+    """`install-package`: this release installs and starts itself. The caller
+    holds the worker lock and restores the previous release if this fails."""
+    root = root_for(card)
+    with manager.locked(root):
+        manager.install(card, package)
+        register(card, release)
+    if not start_and_check(root):
+        raise RuntimeError('The new release did not start')
+
 
 class Reason(ValueError):
     """A download problem this service names itself. Only its text may be
@@ -369,7 +428,8 @@ def unpack(archive, destination, release):
     manifest = json.loads((package / 'manifest.json').read_text())
     if not releases.manifest_matches(manifest, release):
         raise ValueError('Package does not match the selected release. Check for updates again.')
-    if set(manifest.get('files', {})) not in (manager.PAYLOAD, manager.LEGACY_PAYLOAD):
+    files = manifest.get('files', {})
+    if not payload_names_ok(files) or (not self_installing(manifest) and set(files) not in (manager.PAYLOAD, manager.LEGACY_PAYLOAD)):
         raise ValueError('Unexpected package payload')
     for name, sha in manifest['files'].items():
         if not releases.HASH.fullmatch(str(sha)) or manager.digest(package / 'payload' / name) != sha:
@@ -430,7 +490,10 @@ def prepare(card, release, downloader=download):
                 shutil.copyfile(archive, snapshot)
                 package = unpack(snapshot, Path(tmp), release)
                 status(root, 'install', release)
-                manager.stage(card, package)
+                if self_installing(json.loads((package / 'manifest.json').read_text())):
+                    handoff(package, 'stage-package', card)
+                else:
+                    manager.stage(card, package)
                 # Ready package survives the worker and contains verified maintenance files.
                 ready = guarded(root, 'updates/ready')
                 if ready.exists():
@@ -554,7 +617,8 @@ def activate(card, launch=start_and_check):
                 dropin = card / 'downloader_misterzine_plex.ini'
                 old_registration = dropin.read_bytes() if dropin.exists() else None
                 for name, sha in manifest.get('files', {}).items():
-                    if name not in manager.PAYLOAD | manager.LEGACY_PAYLOAD or manager.digest(package / 'payload' / name) != sha:
+                    if (not self_installing(manifest) and name not in manager.PAYLOAD | manager.LEGACY_PAYLOAD) or not payload_names_ok([name]) \
+                            or manager.digest(package / 'payload' / name) != sha:
                         raise ValueError('Prepared payload changed. Check for updates again.')
         except Exception as exc:
             # Nothing has changed yet; the reason still belongs on the screen,
@@ -598,12 +662,16 @@ def activate(card, launch=start_and_check):
             stop_manager(root)
             # Take the manager lock before touching the installation. A holder
             # this worker did not recognise is reported, never killed.
-            with manager.locked(root):
+            if self_installing(manifest):
                 installed = True
-                manager.install(card, package)
-                register(card, release)
-            if not launch(root):
-                raise RuntimeError('The new release did not start')
+                handoff(package, 'install-package', card, root / 'updates/ready.json')
+            else:
+                with manager.locked(root):
+                    installed = True
+                    manager.install(card, package)
+                    register(card, release)
+                if not launch(root):
+                    raise RuntimeError('The new release did not start')
         except Exception as exc:
             if not installed:
                 (root / 'updates/activation.json').unlink(missing_ok=True)
@@ -695,9 +763,10 @@ def uninstall(card, keep=True):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('action', choices=('install', 'prepare', 'activate', 'uninstall'))
+    p.add_argument('action', choices=('install', 'prepare', 'activate', 'uninstall', 'stage-package', 'install-package'))
     p.add_argument('--card', type=Path, default=Path('/media/fat'))
     p.add_argument('--request', type=Path)
+    p.add_argument('--package', type=Path, help='stage-package, install-package: this release, unpacked and verified')
     p.add_argument('--catalogue', default=releases.CATALOGUE_URL)
     p.add_argument('--channel', choices=('public', 'beta'))
     p.add_argument('--yes', action='store_true', help='Install the selected release without prompting')
@@ -716,6 +785,12 @@ def main():
         return
     if args.action == 'activate':
         activate(args.card)
+        return
+    if args.action == 'stage-package':
+        stage_package(args.card, args.package)
+        return
+    if args.action == 'install-package':
+        install_package(args.card, args.package, releases.entry(json.loads(args.request.read_text())))
         return
     if args.request:
         release = releases.entry(json.loads(args.request.read_text()))

@@ -358,6 +358,12 @@ releases and stops with "Unexpected package payload": run the beta installer
 script again. 0.1.0-beta.27.1, the current app and core packaged so that
 updater can install them, bridges the gap while Updates offers it.
 
+From 0.1.0-beta.28 on, a release installs itself: the updater on the card
+fetches and verifies the download, the release's own installer puts it in
+place and starts it, and the card's updater only steps in to put the previous
+release back if it does not start. Later releases can change what the package
+contains without another bridge.
+
 Updates offers only versions newer than the one running. It never reinstalls
 the current version or goes back to an older one; **MisterZine-Plex-Rollback**
 does that. Public builds notify about newer public releases. Beta
