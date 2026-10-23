@@ -64,7 +64,8 @@ func (f Feature) Allowed(month Month, showBeta bool) bool {
 // September 2026) covers the first supporter extras.
 var (
 	Screensaver = Feature{Premium: true, Since: 202609}
-	RandomSort  = Feature{Premium: true, Beta: true, Since: 202609}
+	// RandomSort graduated from beta in October 2026.
+	RandomSort = Feature{Premium: true, Since: 202609}
 	// NoHomeLogo is the Home logo's choices other than Default: MisterKun
 	// in place of the wordmark (since 2026-10), or no logo (Options > Home
 	// logo). The id and threshold stay, so the codes that covered hiding

@@ -299,11 +299,11 @@ func TestOptionsBetaMark(t *testing.T) {
 		t.Fatalf("a beta row without a star has %d amber pixels after its label", n)
 	}
 	random := option{label: "Random library order"}
-	if row, ok := a.gated(random, access.RandomSort); !ok || !row.beta {
-		t.Fatalf("Random library order with Show beta features on: shown %v, beta %v", ok, row.beta)
+	if row, ok := a.gated(random, access.RandomSort); !ok || row.beta {
+		t.Fatalf("Random library order: shown %v, beta %v", ok, row.beta)
 	}
 	a.Cfg.ShowBeta = false
-	if _, ok := a.gated(random, access.RandomSort); ok {
-		t.Fatal("Random library order shown with Show beta features off")
+	if _, ok := a.gated(random, access.RandomSort); !ok {
+		t.Fatal("Random library order hidden with Show beta features off")
 	}
 }

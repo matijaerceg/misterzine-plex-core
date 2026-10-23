@@ -65,8 +65,8 @@ primary account. Automatic sign-in uses the saved server connection at startup.
 - **Collections** lists the library's collections. OK on a collection shows its
   items, in the collection's order and through the 4:3 filter like any view;
   one Back returns to it on the Collections tab.
-- With a MisterZine code that covers it and **Show beta features** on,
-  Options has **Random library order**, marked BETA, on by default. Movie
+- With a MisterZine code that covers it, Options has **Random tab in
+  libraries**, on by default. Movie
   and TV libraries then have a **Random** tab after Released: the whole
   library in a random order, shown once all of it has been listed. The order
   and the selected poster stay through an item's page and back and through the
@@ -75,8 +75,7 @@ primary account. Automatic sign-in uses the saved server connection at startup.
   shuffles it again and forgets the place: a library left on Random opens on
   it again, in a new order from the first poster. On the tabs, OK on Random
   shuffles again and starts at the first poster; Down goes to the posters.
-  With the setting off, without the code or with beta features hidden there
-  is no Random tab, and the library opens on A to Z.
+  With the setting off or without the code there is no Random tab, and the library opens on A to Z.
 - **Search** has an on-screen keyboard, and a USB keyboard types into it. It
   lists the movies and shows that match, through the 4:3 filter and without
   hidden libraries. Right from the keyboard's last column, or **Results**,
