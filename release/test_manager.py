@@ -358,6 +358,9 @@ class InstallerTests(unittest.TestCase):
         manager.write_json(self.package / 'manifest.json', {'id': 'bridge-1', 'files': files})
         manager.install(self.card, self.package)
         self.assertEqual(manager.read_state(self.root)['current'], 'bridge-1')
+        bridge = self.root / 'releases/bridge-1'
+        self.assertEqual(manager.runtime_files(bridge), (bridge / 'plexplay.py', bridge / 'plexfb'))
+        self.assertEqual(manager.runtime_files(self.root / 'releases/x'), (self.root / 'releases/x/plexplay.py', self.root / 'releases/x/plexfb'))
         self.assertEqual(manager.core_file(self.root), self.root / 'releases/bridge-1/MisterZine Plex Core.rbf')
         self.package_version('new-1')
         manager.install(self.card, self.package)

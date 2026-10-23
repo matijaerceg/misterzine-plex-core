@@ -768,9 +768,9 @@ def locked(root, patience=0):
         yield
 
 
-def decoder(root):
+def decoder(root, ff=None):
     """Check the release's bundled ARM FFmpeg; updates never fetch a second binary."""
-    ff = Path(root) / 'ffmpeg'
+    ff = Path(ff) if ff else Path(root) / 'ffmpeg'
     if not ff.is_file() or not os.access(ff, os.X_OK):
         raise ValueError('The release is missing its bundled FFmpeg decoder')
 
@@ -804,8 +804,8 @@ def stage(card, package):
     manifest = json.loads((package / 'manifest.json').read_text())
     files = manifest['files']
     # A release of the shape before the H.264 core (LEGACY_PAYLOAD) is the
-    # bridge release, beta.27's app and core with these helpers; it stages
-    # like any other and uses the FFmpeg kept beside the release folders.
+    # bridge release from beta.27: the current programs under the old names,
+    # the only shape the beta.27 updater installs (runtime_files).
     if set(files) not in (PAYLOAD, LEGACY_PAYLOAD):
         raise ValueError('Unexpected package file list')
     ident = manifest['id']
@@ -830,6 +830,8 @@ def stage(card, package):
         target.chmod(0o644 if name.endswith('.rbf') else 0o755)
     if set(files) == PAYLOAD:
         decoder(dest)
+    else:
+        decoder(dest, runtime_files(dest)[1])
     write_json(dest / 'manifest.json', manifest)
     if (package / 'BETA_ACCESS.md').is_file():
         atomic(dest / 'BETA_ACCESS.md', (package / 'BETA_ACCESS.md').read_bytes())
@@ -2137,6 +2139,16 @@ def linger_for_start_check(ready=None, now=time.time, sleep=time.sleep):
     return wait
 
 
+def runtime_files(folder):
+    """The release's worker and FFmpeg: jfplay and ffmpeg, or, in a release of
+    the shape before the H.264 core (LEGACY_PAYLOAD: the bridge from beta.27,
+    the same programs under the old names), plexplay.py and plexfb."""
+    folder = Path(folder)
+    if (folder / 'jfplay').is_file():
+        return folder / 'jfplay', folder / 'ffmpeg'
+    return folder / 'plexplay.py', folder / 'plexfb'
+
+
 def run(root):
     recovered = recover_activation(root)
     state = read_state(root)
@@ -2145,9 +2157,10 @@ def run(root):
     folder = root / 'releases' / state['current']
     card = root.parent
     rbf = core_file(root, folder).relative_to(card).with_suffix('').as_posix()
+    player, ffmpeg = runtime_files(folder)
     args = [str(folder / 'plexcrt'), '-config', str(root / 'plexcrt.json'),
-            '-cache', str(root / 'cache'), '-player', str(folder / 'jfplay'),
-            '-ffmpeg', str(folder / 'ffmpeg')]
+            '-cache', str(root / 'cache'), '-player', str(player),
+            '-ffmpeg', str(ffmpeg)]
     # Validate runtime dependencies before switching cores: once MiSTer loads
     # the H264 image, it displays color bars until the app can start.
     subprocess.run(args + ['-check'], check=True)
