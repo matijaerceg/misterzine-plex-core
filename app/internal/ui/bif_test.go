@@ -140,3 +140,39 @@ func TestBIFDecodesAheadOfTheScrub(t *testing.T) {
 		t.Fatalf("order %v", bifOrder)
 	}
 }
+
+// Once the frames round the dot are in, the decoder preloads a sparse set
+// over the whole item, and Frame falls back to it far from the dot.
+func TestBIFPreloadsASparseSet(t *testing.T) {
+	idx, err := parseBIF(bifFile(720, 0, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &bifPreview{want: -1, dir: 1, frames: map[int]*bifFrame{}, sparse: map[int]*gfx.Image{}, index: idx}
+	b.cond = sync.NewCond(&b.mu)
+	b.Near(3000) // frame 300
+	img := &gfx.Image{W: 1, H: 1}
+	for k := 0; k < 1000; k++ {
+		i := b.next()
+		if i < 0 {
+			break
+		}
+		if b.nearDot(i) {
+			b.add(i, img)
+		} else {
+			b.sparse[i] = img
+		}
+	}
+	if step := b.step(); step != 10 || len(b.sparse) > bifSparse || len(b.sparse) < bifSparse-3 {
+		t.Fatalf("step %d, sparse %d", step, len(b.sparse))
+	}
+	if b.next() != -1 || len(b.frames) != 1+bifAhead+bifBehind {
+		t.Fatalf("near %d, next %d", len(b.frames), b.next())
+	}
+	b.mu.Lock()
+	b.index = idx
+	b.mu.Unlock()
+	if b.Frame(6543) == nil || b.Frame(15) == nil {
+		t.Fatal("no sparse frame far from the dot")
+	}
+}

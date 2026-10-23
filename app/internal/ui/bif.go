@@ -34,6 +34,13 @@ const (
 	bifBehind = 3
 )
 
+// bifSparse is how many frames spread over the whole item are decoded
+// in the background once the ones round the scrub are in, kept apart from
+// the LRU (about 65 KB each, under 5 MB): a run anywhere has a frame
+// within the item's length / bifSparse of film time at once, while the
+// decodes round the dot catch up.
+const bifSparse = 72
+
 // bifRunNice is the decoding thread's priority while a run waits on it.
 const bifRunNice = 0
 
@@ -109,6 +116,7 @@ type bifPreview struct {
 	movedAt time.Time
 	dec     float64
 	frames  map[int]*bifFrame
+	sparse  map[int]*gfx.Image // every step'th frame: the background preload
 	used    int
 	closed  bool
 }
@@ -130,7 +138,7 @@ func newPreviewer(app *App, it *plex.Item, w, h int, start float64) previewer {
 // newBIFPreview starts a previewer over the file fetch returns, preparing
 // round start.
 func newBIFPreview(fetch func() ([]byte, error), w, h int, start float64) *bifPreview {
-	b := &bifPreview{w: w, h: h, want: -1, dir: 1, dec: 0.03, frames: map[int]*bifFrame{}}
+	b := &bifPreview{w: w, h: h, want: -1, dir: 1, dec: 0.03, frames: map[int]*bifFrame{}, sparse: map[int]*gfx.Image{}}
 	b.cond = sync.NewCond(&b.mu)
 	b.Near(start)
 	go b.run(fetch)
@@ -208,7 +216,11 @@ func (b *bifPreview) decodeLoop() {
 		if img == nil {
 			img = &gfx.Image{} // a bad frame: not tried again
 		}
-		b.add(i, img)
+		if b.nearDot(i) {
+			b.add(i, img)
+		} else {
+			b.sparse[i] = img
+		}
 		b.mu.Unlock()
 	}
 }
@@ -229,7 +241,28 @@ func (b *bifPreview) next() int {
 			return i
 		}
 	}
+	// then the sparse preload, outward from the dot
+	step := b.step()
+	for d := 0; d*step < n; d++ {
+		for _, k := range []int{at/step + d, at/step - d - 1} {
+			if i := k * step; k >= 0 && i < n && b.sparse[i] == nil && b.frames[i] == nil {
+				return i
+			}
+		}
+	}
 	return -1
+}
+
+// step is the sparse preload's spacing in frames. Called under mu.
+func (b *bifPreview) step() int {
+	return max(1, (len(b.index.at)+bifSparse-1)/bifSparse)
+}
+
+// nearDot is whether frame i is one of next's near ones (else it was
+// decoded for the sparse preload). Called under mu.
+func (b *bifPreview) nearDot(i int) bool {
+	at := b.want + b.lead()
+	return i-at <= bifAhead && at-i <= bifAhead
 }
 
 // lead is how many frames the dot moves in a decode and a half, signed:
@@ -320,13 +353,21 @@ func (b *bifPreview) Frame(t float64) *gfx.Image {
 			}
 		}
 	}
+	// none near: the nearest of the sparse preload, a step or so off
+	for d := 0; d <= 2*b.step(); d++ {
+		for _, k := range []int{i - d, i + d} {
+			if f := b.sparse[k]; f != nil && f.W > 0 {
+				return f
+			}
+		}
+	}
 	return nil
 }
 
 func (b *bifPreview) Close() {
 	b.mu.Lock()
 	b.closed = true
-	b.index, b.frames = nil, nil
+	b.index, b.frames, b.sparse = nil, nil, nil
 	b.mu.Unlock()
 	b.cond.Broadcast()
 }

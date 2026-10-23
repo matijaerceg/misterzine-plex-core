@@ -34,9 +34,16 @@ import (
 //     works outward from there, a few frames ahead the way the scrub moves
 //     for each one behind, so a fast run finds frames where the dot is
 //     going, not where it was.
+//   - For single frames, once those round the scrub are in, it also
+//     decodes a sparse set across the whole item (every Nth frame, a
+//     bounded few megabytes, kept apart from the near ones) in the
+//     background at its low priority, so a run anywhere has a frame at
+//     once while the decodes round the dot catch up.
 //   - Frame returns the nearest ready frame to t within a few frames (more
-//     during a fast run: the dot moves faster than frames decode) and nil
-//     only when none is near.
+//     during a fast run: the dot moves faster than frames decode), else
+//     the nearest of the sparse set, and nil only when none is near. For
+//     frames in sheets, a run crossing into a sheet still decoding keeps
+//     the last frame given from the sheet before until it lands.
 //   - Its worker runs at nice 10 as the art workers do, but at normal
 //     priority while a held run waits on it (the playback is paused
 //     then): on the device a decode at nice 10 during a run took ten
