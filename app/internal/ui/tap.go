@@ -43,7 +43,13 @@ func (a *App) focusPosition() focusPosition {
 	return f
 }
 
+// tap ticks for a selection change in the menus. It stays quiet during
+// playback (the player owns the audio) and while a theme song plays (both
+// would write the same audio device, interleaving their samples).
 func (a *App) tap() {
+	if a.playing || a.theme.Playing() {
+		return
+	}
 	if a.Cfg != nil && !a.Cfg.NoTaps {
 		if out, ok := a.Out.(interface{ Tap() }); ok {
 			out.Tap()

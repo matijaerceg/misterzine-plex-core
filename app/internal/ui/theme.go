@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -22,7 +23,15 @@ type Theme struct {
 	key    string
 	cancel context.CancelFunc
 	done   chan struct{} // closed once this player and every one before it are gone
+	// players counts themes writing audio right now, fades included; the
+	// UI thread reads it (Playing) while the players' goroutines change it.
+	players atomic.Int32
 }
+
+// Playing reports a theme song writing audio, its fade included: the
+// navigation tick stays quiet then, so two writers never interleave on the
+// audio device.
+func (t *Theme) Playing() bool { return t.players.Load() > 0 }
 
 // The tests' seams: where the theme comes from and what plays it.
 var (
@@ -82,6 +91,8 @@ func (t *Theme) Select(c *plex.Client, ffmpeg, key, path string) {
 				return
 			}
 		}
+		t.players.Add(1)
+		defer t.players.Add(-1)
 		themePlay(ctx, ffmpeg, file)
 	}()
 }

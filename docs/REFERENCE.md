@@ -211,8 +211,9 @@ Options lists, in groups:
   [HDMI setup](HDMI.md#settings-options-warn-about).
 - **Surround downmix boost**, **Subtitle size** and **Subtitle background**
   (see Subtitles), **Theme
-  music** (a show's theme song on its pages) and **Navigation sounds** (no
-  sound plays with the H.264 core).
+  music** (a show's theme song on its pages) and **Navigation sounds**
+  (a short tick on each move in the menus, a slightly different note each
+  time; silent while a theme song plays and during playback).
 - Supporter extras, in builds that have them, each with the purple star (see
   [Patreon beta access](#misterzine-plex-core---patreon-beta-access)): **Screensavers** and, with a saver
   running, **Screensaver**, **Screensaver after**, and for Media art **Art

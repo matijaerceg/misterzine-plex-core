@@ -1,6 +1,11 @@
 package ui
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"plexcrt/internal/plex"
+)
 
 type tapPresenter struct {
 	Presenter
@@ -60,5 +65,51 @@ func TestPlaybackSelectionIgnoresProgress(t *testing.T) {
 	p.visible = false
 	if p.selection().visible {
 		t.Fatal("hidden overlay has no selection")
+	}
+}
+
+func TestTapQuietDuringThemeAndPlayback(t *testing.T) {
+	out := &tapPresenter{}
+	a := &App{Out: out, Cfg: &Config{}}
+	a.theme.players.Add(1)
+	a.tap()
+	if out.taps != 0 {
+		t.Fatal("tick while a theme plays")
+	}
+	a.theme.players.Add(-1)
+	a.playing = true
+	a.tap()
+	if out.taps != 0 {
+		t.Fatal("tick during playback")
+	}
+	a.playing = false
+	a.tap()
+	if out.taps != 1 {
+		t.Fatal("menus must tick")
+	}
+}
+
+func TestThemePlayingWhileItsPlayerRuns(t *testing.T) {
+	file, play := themeFile, themePlay
+	defer func() { themeFile, themePlay = file, play }()
+	started, release := make(chan struct{}), make(chan struct{})
+	themeFile = func(*plex.Client, context.Context, string, string) (string, error) { return "f", nil }
+	themePlay = func(context.Context, string, string) {
+		close(started)
+		<-release
+	}
+	var th Theme
+	if th.Playing() {
+		t.Fatal("idle theme playing")
+	}
+	th.Select(&plex.Client{}, "", "k", "")
+	<-started
+	if !th.Playing() {
+		t.Fatal("running player not reported")
+	}
+	close(release)
+	th.Stop()
+	if th.Playing() {
+		t.Fatal("stopped theme still playing")
 	}
 }
