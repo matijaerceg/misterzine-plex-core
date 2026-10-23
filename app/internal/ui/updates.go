@@ -181,7 +181,7 @@ func (a *App) offered() []updates.Release {
 		other = "public"
 	}
 	for _, channel := range []string{own, other} {
-		if r, ok := a.updates.catalogue.Releases[channel]; ok && a.offers(r) {
+		if r, ok := a.updates.catalogue.Offered(channel); ok && a.offers(r) {
 			out = append(out, r)
 		}
 	}

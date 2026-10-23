@@ -39,6 +39,22 @@ func TestUpdatesOffersOnlyNewerReleases(t *testing.T) {
 	}
 }
 
+// The legacy slot is pinned to the bridge for cards from beta.27 and
+// earlier; this build takes the current slot, else falls back to legacy.
+func TestUpdatesTakeTheCurrentSlot(t *testing.T) {
+	a := betaTestApp(t) // runs v0.2.0-beta.3
+	a.updates.catalogue = updates.Catalogue{Schema: 1,
+		Releases: map[string]updates.Release{"beta": {ID: "bridge", Version: "0.2.0-beta.4", Channel: "beta"}},
+		Current:  map[string]updates.Release{"beta": {ID: "next", Version: "0.3.0-beta.1", Channel: "beta"}}}
+	if got := a.offered(); len(got) != 1 || got[0].ID != "next" {
+		t.Fatalf("offered %+v, want the current entry", got)
+	}
+	a.updates.catalogue.Current = nil
+	if got := a.offered(); len(got) != 1 || got[0].ID != "bridge" {
+		t.Fatalf("offered %+v, want the legacy entry", got)
+	}
+}
+
 func TestPublicBuildListsTheBetaQuietly(t *testing.T) {
 	a := betaTestApp(t)
 	updates.Channel = "public" // betaTestApp puts it back

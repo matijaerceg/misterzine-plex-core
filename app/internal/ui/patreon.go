@@ -40,7 +40,7 @@ func (a *App) patreonPitch() (headline, para string) {
 // it has become the public release, and offering that would be a step
 // back. Empty when there is none or no check has come back yet.
 func (a *App) earlyAccess() string {
-	if r, ok := a.updates.catalogue.Releases["beta"]; ok {
+	if r, ok := a.updates.catalogue.Offered("beta"); ok {
 		if newer, ok := updates.Compare(r.Version, a.Version); ok && newer > 0 {
 			return r.Version
 		}

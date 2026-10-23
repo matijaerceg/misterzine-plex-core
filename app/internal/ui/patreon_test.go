@@ -117,6 +117,12 @@ func TestPatreonOnAPublicBuildPointsAtUpdates(t *testing.T) {
 	if v := a.earlyAccess(); v != "1.1.0-beta.1" {
 		t.Fatalf("a newer beta offered as %q", v)
 	}
+	// the current slot wins over the pinned legacy entry
+	a.updates.catalogue.Current = map[string]updates.Release{"beta": {ID: "newest", Version: "1.2.0-beta.1", Channel: "beta"}}
+	if v := a.earlyAccess(); v != "1.2.0-beta.1" {
+		t.Fatalf("the current beta offered as %q", v)
+	}
+	a.updates.catalogue.Current = nil
 	a.Push(p)
 	p.Key(input.Event{Key: input.Enter}, time.Now())
 	if _, ok := a.top().(*Updates); !ok {

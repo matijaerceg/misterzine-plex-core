@@ -96,6 +96,25 @@ channel script or GitHub release assets. Missing channels have no catalogue entr
 public releases. Use unique release IDs and immutable package/tag assets. A changed
 package at a published URL is rejected by clients; publish a new release instead.
 
+## Catalogue slots
+
+`catalogue.json` holds two entries per channel. `current` is what releases
+from 0.1.0-beta.28 on install, and their channel installer scripts install it
+too. `releases` is the legacy slot that cards from 0.1.0-beta.27 and earlier
+read; their updater can only install the old package shape. Readers take a
+channel from `current` when it is there and fall back to `releases` otherwise,
+so a catalogue written before `current` existed stays valid. The same release
+ID may appear in both slots, but not twice in one.
+
+Each publish writes its release to `current` and, unless the channel is
+listed in `legacy_pin`, to `releases` too. Publish the bridge release
+(0.1.0-beta.27.1) with `--pin-legacy`: its `releases` entry is then frozen and
+the channel is added to `legacy_pin`. The frozen entry points at that
+release's own `release-db.json.zip` asset rather than the channel database,
+which every later publish rewrites. Never edit or delete a pinned legacy
+entry, by hand or with the tools: old cards may update from it at any time,
+and publishing refuses a pinned channel whose entry is missing.
+
 If publication stops after uploading, inspect the existing draft/published release
 and branch before retrying. Do not overwrite an existing release to bypass a hash
 failure. If the final push loses a race, regenerate against the latest catalogue

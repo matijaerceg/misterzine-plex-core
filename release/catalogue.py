@@ -56,18 +56,52 @@ def entry(value):
     return value
 
 
-def catalogue(value):
-    if not isinstance(value, dict) or value.get('schema') != 1 or not isinstance(value.get('releases'), dict):
+CHANNELS = ('public', 'beta')
+
+
+def slot(value, name):
+    """Check one channel-to-entry map. An id may appear in both slots, never twice in one."""
+    releases = value.get(name)
+    if not isinstance(releases, dict):
         raise ValueError('Unsupported release catalogue')
-    if not set(value['releases']) <= {'public', 'beta'}:
+    if not set(releases) <= set(CHANNELS):
         raise ValueError('Unknown release channel')
     ids = set()
-    for channel, release in value['releases'].items():
+    for channel, release in releases.items():
         entry(release)
         if release['channel'] != channel or release['id'] in ids:
             raise ValueError('Conflicting release entry')
         ids.add(release['id'])
+
+
+def catalogue(value):
+    # "releases" is the legacy slot read by cards from before "current"
+    # existed; "current" is what newer cards install. "legacy_pin" names the
+    # channels whose legacy entry is frozen for those older cards.
+    if not isinstance(value, dict) or value.get('schema') != 1:
+        raise ValueError('Unsupported release catalogue')
+    slot(value, 'releases')
+    if 'current' in value:
+        slot(value, 'current')
+    pins = value.get('legacy_pin', [])
+    if (not isinstance(pins, list) or len(set(map(str, pins))) != len(pins)
+            or not all(isinstance(c, str) and c in CHANNELS for c in pins)):
+        raise ValueError('Invalid legacy pin')
     return value
+
+
+def offered(value, channel):
+    """The entry this card installs for a channel, or None.
+
+    A catalogue written by older tooling has no "current"; a channel published
+    only by older tooling is missing from it. Both fall back to "releases".
+    """
+    release = value.get('current', {}).get(channel)
+    return release if release is not None else value['releases'].get(channel)
+
+
+def offered_channels(value):
+    return [c for c in CHANNELS if offered(value, c) is not None]
 
 
 def fetch(url=CATALOGUE_URL):

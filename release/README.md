@@ -126,10 +126,10 @@ previous one is put back. If you need to go back yourself, return to MiSTer
 Menu and run **MisterZine-Plex-Rollback**.
 
 The updater installed with 0.1.0-beta.27 and earlier cannot install the H.264
-releases: it stops with **Unexpected package payload**. **0.1.0-beta.27.1**,
-the current app and core packaged so that updater can install them, bridges
-the gap while Updates offers it. A card that is offered 0.1.0-beta.28 directly goes to it by
-running the beta installer script again.
+releases directly. A card on 0.1.0-beta.27 or earlier is therefore always
+offered **0.1.0-beta.27.1** first, whenever it updates: the current app and
+core packaged so that updater can install them. From there it goes on to the
+newest release.
 
 From 0.1.0-beta.28 on, a release installs itself: the updater on the card
 fetches and verifies the download, the release's own installer puts it in

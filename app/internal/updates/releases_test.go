@@ -209,3 +209,56 @@ stage='failed' if 'MISTERZINE_PLEX_OWNER' in os.environ or 'MISTERZINE_PLEX_READ
 	}
 	t.Fatal("fixture worker did not finish")
 }
+
+// Cards from before the current slot read only releases; newer ones read
+// current first. The same id may sit in both slots, never twice in one.
+func TestCatalogueSlots(t *testing.T) {
+	bridge, newest, beta := fixture(), fixture(), fixture()
+	bridge.ID, bridge.Version = "bridge", "1.1.0"
+	newest.ID = "newest"
+	beta.ID, beta.Version, beta.Channel = "early", "1.3.0-beta.1", "beta"
+	beta.Access = &Access{Batch: "fixture", SHA256: strings.Repeat("d", 64)}
+	parse := func(raw string) (Catalogue, error) { return Parse([]byte(raw)) }
+	enc := func(v any) string { b, _ := json.Marshal(v); return string(b) }
+	old, err := parse(`{"schema":1,"releases":{"public":` + enc(bridge) + `}}`)
+	if err != nil {
+		t.Fatal("old-style catalogue rejected:", err)
+	}
+	if r, ok := old.Offered("public"); !ok || r.ID != "bridge" {
+		t.Fatalf("fallback to releases gave %+v", r)
+	}
+	both := `{"schema":1,"releases":{"public":` + enc(bridge) + `,"beta":` + enc(beta) + `},"current":{"public":` + enc(newest) + `},"legacy_pin":["public"]}`
+	c, err := parse(both)
+	if err != nil {
+		t.Fatal("two-slot catalogue rejected:", err)
+	}
+	if r, _ := c.Offered("public"); r.ID != "newest" {
+		t.Fatalf("current not preferred: %+v", r)
+	}
+	if r, ok := c.Offered("beta"); !ok || r.ID != "early" {
+		t.Fatalf("channel missing from current did not fall back: %+v", r)
+	}
+	if _, err := parse(`{"schema":1,"releases":{"public":` + enc(bridge) + `},"current":{"public":` + enc(bridge) + `}}`); err != nil {
+		t.Fatal("same id in both slots rejected:", err)
+	}
+	clash := beta
+	clash.ID = "newest"
+	for _, bad := range []string{
+		`{"schema":1,"releases":{"public":` + enc(bridge) + `},"current":{"public":` + enc(newest) + `,"beta":` + enc(clash) + `}}`,
+		`{"schema":1,"releases":{"public":` + enc(newest) + `,"beta":` + enc(clash) + `}}`,
+		`{"schema":1,"releases":{},"current":{"beta":` + enc(newest) + `}}`,
+		`{"schema":1,"releases":{},"current":[]}`,
+	} {
+		if _, err := parse(bad); err == nil {
+			t.Fatal("invalid catalogue accepted:", bad)
+		}
+	}
+	// A cached two-slot catalogue round-trips.
+	root := t.TempDir()
+	if err := SaveCache(root, c); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Cached(root); err != nil || got.Current["public"].ID != "newest" || len(got.LegacyPin) != 1 {
+		t.Fatalf("cache round trip: %+v, %v", got, err)
+	}
+}

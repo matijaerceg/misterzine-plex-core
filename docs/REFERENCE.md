@@ -354,9 +354,10 @@ checks stay quiet and are tried again after five minutes. An update found by
 an earlier check is still offered while the network is down.
 
 The updater installed with 0.1.0-beta.27 and earlier cannot install the H.264
-releases and stops with "Unexpected package payload": run the beta installer
-script again. 0.1.0-beta.27.1, the current app and core packaged so that
-updater can install them, bridges the gap while Updates offers it.
+releases directly. A card on 0.1.0-beta.27 or earlier is therefore always
+offered 0.1.0-beta.27.1 first, whenever it updates: the current app and core
+packaged so that updater can install them. From there it goes on to the
+newest release.
 
 From 0.1.0-beta.28 on, a release installs itself: the updater on the card
 fetches and verifies the download, the release's own installer puts it in

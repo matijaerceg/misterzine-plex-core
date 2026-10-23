@@ -795,11 +795,11 @@ def main():
     if args.request:
         release = releases.entry(json.loads(args.request.read_text()))
     else:
-        available = releases.fetch(args.catalogue)['releases']
-        channel = args.channel or ('public' if 'public' in available else 'beta')
-        if channel not in available:
+        available = releases.fetch(args.catalogue)
+        channel = args.channel or ('public' if releases.offered(available, 'public') else 'beta')
+        release = releases.offered(available, channel)
+        if release is None:
             raise ValueError('No release is available for that channel')
-        release = available[channel]
         print('MisterZine Plex - ' + release['version'])
         if channel == 'beta':
             print('Playback in this early-access release requires a paid Patreon code.')

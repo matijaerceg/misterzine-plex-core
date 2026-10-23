@@ -1,8 +1,8 @@
 # MisterZine Plex Core 0.1.0-beta.28
 
-Updating from 0.1.0-beta.27 or earlier: the old updater cannot install this
-release (it stops with "Unexpected package payload"). Run the beta installer
-script again, or install 0.1.0-beta.27.1 first while Updates offers it.
+Updating from 0.1.0-beta.27 or earlier: Updates offers 0.1.0-beta.27.1 first,
+the stepping stone the old updater can install; this release follows from
+there.
 
 A new playback path: video is now decoded by an H.264 decoder core on the
 MiSTer's FPGA, which replaces the previous core. Scrubbing shows frames of the

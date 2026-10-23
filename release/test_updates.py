@@ -1259,6 +1259,86 @@ class UpdateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             catalogue.entry(dict(r, access={'code': '012345'}))
 
+    def test_catalogue_slots_current_first_and_legacy_fallback(self):
+        old, _, _ = self.release('bridge')
+        new = dict(old, id='newest', version='1.0.1')
+        beta, _, _ = self.release('early', 'beta')
+        # An old-style catalogue still validates and is read from "releases".
+        legacy = catalogue.catalogue({'schema': 1, 'releases': {'public': old, 'beta': beta}})
+        self.assertEqual(catalogue.offered(legacy, 'public'), old)
+        both = {'schema': 1, 'releases': {'public': old, 'beta': beta}, 'current': {'public': new},
+                'legacy_pin': ['public']}
+        catalogue.catalogue(both)
+        self.assertEqual(catalogue.offered(both, 'public'), new)
+        self.assertEqual(catalogue.offered(both, 'beta'), beta)     # not in current: falls back
+        self.assertEqual(catalogue.offered_channels(both), ['public', 'beta'])
+        # The same id in both slots is fine; twice in one slot is not.
+        catalogue.catalogue(dict(both, current={'public': old}))
+        for bad in (dict(both, current={'public': old, 'beta': dict(beta, id='bridge')}),
+                    dict(both, releases={'public': old, 'beta': dict(beta, id='bridge')}),
+                    dict(both, current={'beta': new}), dict(both, current=[]),
+                    dict(both, legacy_pin=['other']), dict(both, legacy_pin='public'),
+                    dict(both, legacy_pin=['public', 'public'])):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                catalogue.catalogue(bad)
+
+    def test_pinned_legacy_entry_survives_later_publishes(self):
+        def written(out):
+            return json.loads((out / 'catalogue.json').read_text())
+        _, bridge, _ = self.release('bridge')
+        build_distribution.build(bridge, 'v1.0.0', 'Bridge', self.fixture / 'one', pin_legacy=True)
+        cat = written(self.fixture / 'one')
+        self.assertEqual(cat['legacy_pin'], ['public'])
+        self.assertTrue(cat['releases']['public']['db_url'].endswith('/releases/download/v1.0.0/release-db.json.zip'))
+        self.assertEqual(cat['current']['public']['db_url'], build_distribution.DISTRIBUTION + 'public.json.zip')
+        frozen = cat['releases']['public']
+        with self.assertRaises(ValueError):
+            build_distribution.build(bridge, 'v1.0.0', 'Bridge', self.fixture / 'again', cat, pin_legacy=True)
+        # A later public release becomes current; the frozen entry is untouched.
+        _, later, _ = self.release('later')
+        build_distribution.build(later, 'v1.0.1', 'Later', self.fixture / 'two', cat)
+        cat = written(self.fixture / 'two')
+        self.assertEqual(cat['releases']['public'], frozen)
+        self.assertEqual(cat['current']['public']['id'], 'later')
+        self.assertEqual(catalogue.offered(cat, 'public')['id'], 'later')
+        self.assertIn('--channel public', (self.fixture / 'two/MisterZine-Plex-Install-Public.sh').read_text())
+        # A beta publish leaves both public entries alone and is mirrored to the legacy slot.
+        _, early, _ = self.release('early', 'beta')
+        build_distribution.build(early, 'v1.1.0-beta.1', 'Early', self.fixture / 'three', cat)
+        cat = written(self.fixture / 'three')
+        self.assertEqual((cat['releases']['public'], cat['current']['public']['id']), (frozen, 'later'))
+        self.assertEqual(cat['releases']['beta'], cat['current']['beta'])
+        # A pinned channel whose legacy entry has gone missing is refused.
+        broken = dict(cat, releases={'beta': cat['releases']['beta']})
+        with self.assertRaises(ValueError):
+            build_distribution.build(later, 'v1.0.1', 'Later', self.fixture / 'four', broken)
+
+    def test_old_style_catalogue_gains_current_slot(self):
+        r, _, _ = self.release('old')
+        _, z, _ = self.release('next', 'beta')
+        build_distribution.build(z, 'v1.1.0-beta.1', 'Next', self.fixture / 'out',
+                                 {'schema': 1, 'releases': {'public': r}})
+        cat = json.loads((self.fixture / 'out/catalogue.json').read_text())
+        self.assertEqual(cat['releases']['public'], r)
+        self.assertEqual(set(cat['current']), {'beta'})
+        self.assertEqual(catalogue.offered(cat, 'public'), r)
+        self.assertNotIn('legacy_pin', cat)
+        self.assertTrue((self.fixture / 'out/MisterZine-Plex-Install-Public.sh').exists())
+
+    def test_channel_install_takes_the_current_entry(self):
+        old, _, _ = self.release('bridge')
+        new = dict(old, id='newest', version='1.0.1')
+        cat = {'schema': 1, 'releases': {'public': old}, 'current': {'public': new}, 'legacy_pin': ['public']}
+        with patch('sys.argv', ['worker', 'install', '--card', str(self.card), '--channel', 'public', '--yes']), \
+             patch.object(service.platform, 'system', return_value='Linux'), \
+             patch.object(service.platform, 'machine', return_value='armv7l'), \
+             patch.object(Path, 'exists', return_value=True), \
+             patch.object(catalogue, 'fetch', return_value=cat), \
+             patch.object(service, 'prepare') as prepare, patch.object(service, 'activate'), \
+             contextlib.redirect_stdout(io.StringIO()):
+            service.main()
+        self.assertEqual(prepare.call_args.args[1], new)
+
     def test_tampered_helpers_and_worker_exclusion(self):
         r, archive, _ = self.release()
         service.prepare(self.card, r, self.deliver(archive))

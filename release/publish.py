@@ -20,9 +20,9 @@ def run(*args, cwd=None):
     return subprocess.run(args, cwd=cwd, check=True, text=True, stdout=subprocess.PIPE).stdout
 
 
-def publish(package, tag, notes, out, perform=False, previous=None, source_archive=None):
+def publish(package, tag, notes, out, perform=False, previous=None, source_archive=None, pin_legacy=False):
     package = package.resolve()
-    release = build_distribution.build(package, tag, notes, out, previous, source_archive)
+    release = build_distribution.build(package, tag, notes, out, previous, source_archive, pin_legacy)
     source_asset = Path(source_archive).resolve() if source_archive else package.parent / release['source']['filename']
     with tempfile.TemporaryDirectory(prefix='plex-verify-') as tmp:
         update_service.unpack(package, Path(tmp), release)
@@ -41,9 +41,10 @@ def publish(package, tag, notes, out, perform=False, previous=None, source_archi
             run('git', 'reset', '--hard', 'FETCH_HEAD', cwd=checkout)
         old = checkout / 'catalogue.json'
         previous = catalogue.catalogue(json.loads(old.read_text())) if old.exists() else None
-        if previous and any(r['id'] == release['id'] for r in previous['releases'].values()):
+        if previous and any(r['id'] == release['id'] for slot in ('releases', 'current')
+                            for r in previous.get(slot, {}).values()):
             raise ValueError('This release ID is already published')
-        build_distribution.build(package, tag, notes, out, previous, source_asset)
+        build_distribution.build(package, tag, notes, out, previous, source_asset, pin_legacy)
         note_file = checkout / 'release-notes.txt'
         note_file.write_text(notes)
         checksum = out / (package.name + '.sha256')
@@ -52,11 +53,11 @@ def publish(package, tag, notes, out, perform=False, previous=None, source_archi
         run('gh', 'release', 'create', tag, str(package), str(source_asset), str(checksum),
             str(out/'release-db.json.zip'), str(out/'MisterZine-Plex-Uninstall.sh'),
             *[str(out / ('MisterZine-Plex-Install-' + c.title() + '.sh'))
-              for c in ('public', 'beta') if c in json.loads((out/'catalogue.json').read_text())['releases']],
+              for c in catalogue.offered_channels(json.loads((out/'catalogue.json').read_text()))],
             str(out / ('MisterZine-Plex-Install-' + release['version'] + '.sh')),
             '--repo', repo, '--draft', '--verify-tag', '--title', release['version'], '--notes-file', str(note_file),
             *(['--prerelease'] if release['channel']=='beta' else []))
-        published_channels = json.loads((out/'catalogue.json').read_text())['releases']
+        published_channels = catalogue.offered_channels(json.loads((out/'catalogue.json').read_text()))
         for name in ('catalogue.json', release['channel']+'.json.zip',
                      *('MisterZine-Plex-Install-' + c.title() + '.sh' for c in published_channels)):
             shutil.copyfile(out/name, checkout/name)
@@ -78,6 +79,7 @@ if __name__ == '__main__':
     p.add_argument('--previous',type=Path)
     p.add_argument('--source-archive',type=Path)
     p.add_argument('--publish',action='store_true')
+    p.add_argument('--pin-legacy',action='store_true')
     a=p.parse_args()
     publish(a.package,a.tag,a.notes.read_text(),a.out,a.publish,
-            json.loads(a.previous.read_text()) if a.previous else None, a.source_archive)
+            json.loads(a.previous.read_text()) if a.previous else None, a.source_archive, a.pin_legacy)

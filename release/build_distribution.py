@@ -51,7 +51,7 @@ def installer(out, name, channel=None, pinned=None, database=None):
         '#!/bin/bash\npython3 /media/fat/misterzine-plex/update_service.py uninstall "$@"\n', newline='\n')
 
 
-def build(package, tag, notes, out, previous=None, source_archive=None):
+def build(package, tag, notes, out, previous=None, source_archive=None, pin_legacy=False):
     out.mkdir(parents=True, exist_ok=True)
     if not catalogue.IDENT.fullmatch(tag):
         raise ValueError('Invalid release tag')
@@ -75,12 +75,33 @@ def build(package, tag, notes, out, previous=None, source_archive=None):
     catalogue.entry(release)
     # The channel being published is replaced whole, so its old entry is not
     # validated: a catalogue written before the corresponding-source metadata
-    # existed (beta.27 and earlier) is still a valid starting point.
+    # existed (beta.27 and earlier) is still a valid starting point. A pinned
+    # legacy entry is never replaced, so it is kept and validated.
+    pins = list(previous.get('legacy_pin', [])) if previous is not None else []
     if previous is not None:
-        previous = dict(previous, releases={c: r for c, r in previous.get('releases', {}).items() if c != channel})
+        previous = dict(previous, current={c: r for c, r in previous.get('current', {}).items() if c != channel},
+                        releases={c: r for c, r in previous.get('releases', {}).items()
+                                  if c != channel or c in pins})
     cat = catalogue.catalogue(previous) if previous is not None else {'schema': 1, 'releases': {}}
-    cat['releases'][channel] = release
-    for missing in {'public', 'beta'} - set(cat['releases']):
+    cat['current'] = dict(cat.get('current', {}), **{channel: release})
+    if channel in pins:
+        if pin_legacy:
+            raise ValueError('The legacy entry for ' + channel + ' is already pinned')
+        # Cards from beta.27 and earlier can only install the release frozen
+        # here, and may update from it at any time, so it stays as it is.
+        if channel not in cat['releases']:
+            raise ValueError('The pinned legacy entry for ' + channel + ' is missing')
+    else:
+        # The channel database is rewritten by every publish; a frozen entry
+        # points at this release's own database asset instead.
+        legacy = dict(release, db_url=base + 'release-db.json.zip') if pin_legacy else release
+        cat['releases'][channel] = legacy
+        if pin_legacy:
+            pins.append(channel)
+    if pins:
+        cat['legacy_pin'] = pins
+    catalogue.catalogue(cat)
+    for missing in {'public', 'beta'} - set(catalogue.offered_channels(cat)):
         (out / ('MisterZine-Plex-Install-' + missing.title() + '.sh')).unlink(missing_ok=True)
     (out / 'catalogue.json').write_text(json.dumps(cat, indent=2) + '\n')
     db = {'v': 1, 'db_id': catalogue.DB_ID, 'timestamp': int(time.time()),
@@ -91,7 +112,7 @@ def build(package, tag, notes, out, previous=None, source_archive=None):
         z.writestr('misterzine_plex.json', json.dumps(db))
     shutil.copyfile(out / (channel + '.json.zip'), out / 'release-db.json.zip')
     (out / 'downloader_misterzine_plex.ini').write_text('[misterzine_plex]\ndb_url = ' + release['db_url'] + '\nfilter =\n')
-    for available in cat['releases']:
+    for available in catalogue.offered_channels(cat):
         installer(out, 'MisterZine-Plex-Install-' + available.title() + '.sh', channel=available)
     installer(out, 'MisterZine-Plex-Install-' + release['version'] + '.sh',
               pinned=release, database=base + 'release-db.json.zip')
@@ -106,6 +127,9 @@ if __name__ == '__main__':
     p.add_argument('--out', type=Path, default=ROOT / 'dist/distribution')
     p.add_argument('--previous', type=Path)
     p.add_argument('--source-archive', type=Path)
+    p.add_argument('--pin-legacy', action='store_true',
+                   help='freeze this release as the entry cards from beta.27 and earlier install')
     args = p.parse_args()
     build(args.package, args.tag, args.notes.read_text(), args.out,
-          json.loads(args.previous.read_text()) if args.previous else None, args.source_archive)
+          json.loads(args.previous.read_text()) if args.previous else None, args.source_archive,
+          args.pin_legacy)

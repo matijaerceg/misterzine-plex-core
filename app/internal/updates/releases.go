@@ -46,9 +46,28 @@ type SourceAsset struct {
 	SHA256   string `json:"sha256"`
 	URL      string `json:"url"`
 }
+
+// Catalogue has two slots per channel. Releases is the legacy slot that
+// cards from 0.1.0-beta.27 and earlier read: their updater can only install
+// the bridge release, so a pinned entry there stays the bridge forever.
+// Current is what this and later builds install. LegacyPin names the pinned
+// channels; the app only keeps it so a cached catalogue round-trips.
 type Catalogue struct {
-	Schema   int                `json:"schema"`
-	Releases map[string]Release `json:"releases"`
+	Schema    int                `json:"schema"`
+	Releases  map[string]Release `json:"releases"`
+	Current   map[string]Release `json:"current,omitempty"`
+	LegacyPin []string           `json:"legacy_pin,omitempty"`
+}
+
+// Offered is the release this build installs for a channel: the current
+// slot's, else the legacy slot's (a catalogue written by older tooling, or a
+// channel not published since).
+func (c Catalogue) Offered(channel string) (Release, bool) {
+	if r, ok := c.Current[channel]; ok {
+		return r, true
+	}
+	r, ok := c.Releases[channel]
+	return r, ok
 }
 
 var ident = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}$`)
@@ -95,18 +114,22 @@ func Parse(data []byte) (Catalogue, error) {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return c, err
 	}
-	if c.Schema != 1 || c.Releases == nil || len(c.Releases) > 2 {
+	if c.Schema != 1 || c.Releases == nil || len(c.Releases) > 2 || len(c.Current) > 2 {
 		return c, fmt.Errorf("unsupported catalogue")
 	}
-	ids := map[string]bool{}
-	for ch, r := range c.Releases {
-		if ch != r.Channel || ids[r.ID] {
-			return c, fmt.Errorf("conflicting release")
+	// An id may sit in both slots (the newest release before anything is
+	// pinned), but never twice within one.
+	for _, slot := range []map[string]Release{c.Releases, c.Current} {
+		ids := map[string]bool{}
+		for ch, r := range slot {
+			if ch != r.Channel || ids[r.ID] {
+				return c, fmt.Errorf("conflicting release")
+			}
+			if err := r.Validate(); err != nil {
+				return c, err
+			}
+			ids[r.ID] = true
 		}
-		if err := r.Validate(); err != nil {
-			return c, err
-		}
-		ids[r.ID] = true
 	}
 	return c, nil
 }
