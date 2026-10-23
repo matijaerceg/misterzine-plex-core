@@ -689,6 +689,7 @@ func (w *Wall) Draw(c *gfx.Canvas, now time.Time) bool {
 	w.fading = false
 	w.settle(now)
 	run := w.inRun(now)
+	w.app.Art.SetHeld(w.heldDir != 0 || run)
 	page, pageAnim := w.drawPage(c, now)
 	// the band goes first: it is composed from the posters under it
 	w.composeBand(page, now, oy)

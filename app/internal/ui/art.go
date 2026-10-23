@@ -34,6 +34,8 @@ type Art struct {
 	busy            map[artKey]bool
 	failed          map[artKey]bool
 	frame           uint64 // bumped by Frame; wants carry the frame they were last asked in
+	held            bool   // a key is held: at most HeldWorkers in flight
+	active          int    // workers fetching
 	Wake            chan struct{}
 	backgroundUntil time.Time
 	backgroundTimer *time.Timer
@@ -106,8 +108,30 @@ func (r artReq) key() artKey {
 // ArtWorkers is how many pictures download at once. A poster is mostly
 // the server's resize and the round trip (about 300 ms on a LAN against
 // 30 ms to decode), so a screen of them wants several in flight; the
-// last worker alone takes speculative work.
-const ArtWorkers = 6
+// last worker alone takes speculative work. Only ArtDecoders of them
+// decode at a time: a decode runs Go code and so holds one of the
+// runtime's slots (GOMAXPROCS), and six at once left the drawing loop
+// waiting for one (a held scroll through a cold library dropped 200
+// fields in ten seconds; with one decoder, 20). The wait on the network
+// holds nothing.
+const (
+	ArtWorkers  = 6
+	ArtDecoders = 1
+	// HeldWorkers is how many may be in flight while a key is held (the
+	// wall says, SetHeld): the scroll's fields come before its posters,
+	// which stream in once the key is up.
+	HeldWorkers = 1
+)
+
+// decodeSlot is held while a picture is decoded, scaled or treated.
+var decodeSlot = make(chan struct{}, ArtDecoders)
+
+// decoding runs f holding a decode slot.
+func decoding(f func()) {
+	decodeSlot <- struct{}{}
+	f()
+	<-decodeSlot
+}
 
 // NewArt starts n fetch workers; wake is signalled when a picture lands.
 func NewArt(c *plex.Client, n int, wake chan struct{}) *Art {
@@ -178,9 +202,12 @@ func (a *Art) worker(background bool) {
 		var r artReq
 		for {
 			// newest want that is still current
-			if next, ok := a.nextRequest(background); ok {
-				r = next
-				goto found
+			if !a.held || a.active < HeldWorkers {
+				if next, ok := a.nextRequest(background); ok {
+					r = next
+					a.active++
+					goto found
+				}
 			}
 			a.cond.Wait()
 		}
@@ -199,10 +226,12 @@ func (a *Art) worker(background bool) {
 		}
 		var band *gfx.Image
 		if err == nil && !r.diskOnly && r.w == WallPW && r.h == WallPH && !r.logo && r.fade == 0 {
-			band = wallBandImage(img)
+			decoding(func() { band = wallBandImage(img) })
 		}
 
 		a.mu.Lock()
+		a.active--
+		a.cond.Broadcast() // a worker held back may go now
 		if generation != a.generation {
 			a.mu.Unlock()
 			continue
@@ -379,19 +408,21 @@ func artData(client *plex.Client, r artReq) ([]byte, error) {
 }
 
 // load decodes the picture as fetched, before any treatment.
-func loadArt(client *plex.Client, r artReq) (*gfx.Image, error) {
+// loadArt waits for the picture's bytes (the network or the disk cache)
+// and returns the decode to run: the wait holds no decode slot.
+func loadArt(client *plex.Client, r artReq) (func() (*gfx.Image, error), error) {
 	if r.noStore {
 		data, err := artData(client, r)
 		if err != nil {
 			return nil, err
 		}
-		return gfx.Decode(data)
+		return func() (*gfx.Image, error) { return gfx.Decode(data) }, nil
 	}
 	path, err := artFile(client, r)
 	if err != nil {
 		return nil, err
 	}
-	return gfx.LoadFile(path)
+	return func() (*gfx.Image, error) { return gfx.LoadFile(path) }, nil
 }
 
 func (a *Art) fetch(r artReq) (*gfx.Image, error) {
@@ -402,20 +433,23 @@ func (a *Art) fetch(r artReq) (*gfx.Image, error) {
 }
 
 func fetchArt(client *plex.Client, r artReq) (*gfx.Image, error) {
-	img, err := loadArt(client, r)
+	decode, err := loadArt(client, r)
 	if err != nil {
 		return nil, err
 	}
-	if r.logo {
-		return img, nil
-	}
-	img = img.Crop(r.w, (r.h*9+4)/8).ScaleH(r.h)
-	if r.homeBackdrop {
-		homeBackdropTreat(img, r.bright)
-	} else if r.fade > 0 {
-		fadeTreat(img, r.bright, r.fade)
-	}
-	return img, nil
+	var img *gfx.Image
+	decoding(func() {
+		if img, err = decode(); err != nil || r.logo {
+			return
+		}
+		img = img.Crop(r.w, (r.h*9+4)/8).ScaleH(r.h)
+		if r.homeBackdrop {
+			homeBackdropTreat(img, r.bright)
+		} else if r.fade > 0 {
+			fadeTreat(img, r.bright, r.fade)
+		}
+	})
+	return img, err
 }
 
 // fadeTreat dims a backdrop to bright/255 and fades its bottom fade px
@@ -470,6 +504,19 @@ func (a *Art) Get(thumb string, w, h int) *gfx.Image {
 func (a *Art) GetAge(thumb string, w, h int) (*gfx.Image, time.Duration) {
 	img, age, _ := a.get(artReq{thumb: thumb, w: w, h: h})
 	return img, age
+}
+
+// SetHeld tells the loader a key is held (or up again): while held, at
+// most HeldWorkers pictures are in flight, so the scroll keeps its
+// fields; the wants pile up and go the moment the key is up.
+func (a *Art) SetHeld(held bool) {
+	a.mu.Lock()
+	changed := a.held != held
+	a.held = held
+	a.mu.Unlock()
+	if changed {
+		a.cond.Broadcast()
+	}
 }
 
 // Have is GetAge without a want: the poster if decoded, else nil. A jump
@@ -533,7 +580,8 @@ func (a *Art) getImage(r artReq, band bool) (*gfx.Image, time.Duration, bool) {
 	}
 	r.asked = a.frame
 	// refresh an existing want (it becomes the newest) or add one
-	if old, ok := a.wants[k]; ok && old.asked == a.frame && !old.prefetch {
+	old, known := a.wants[k]
+	if known && old.asked == a.frame && !old.prefetch {
 		// A background touch must not demote a visible want this frame.
 		r.prefetch = false
 	}
@@ -543,7 +591,12 @@ func (a *Art) getImage(r artReq, band bool) (*gfx.Image, time.Duration, bool) {
 	if len(a.wants) > wantCap {
 		a.dropOldestWant()
 	}
-	a.cond.Broadcast()
+	// a want the screen repeats each frame wakes nobody: the workers
+	// know it; a new one wakes them only when one may take it (a held
+	// key caps them), so a scroll is not a storm of wakes and lock takes
+	if !known && (!a.held || a.active < HeldWorkers) {
+		a.cond.Broadcast()
+	}
 	return nil, 0, false
 }
 
