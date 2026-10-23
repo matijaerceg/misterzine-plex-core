@@ -381,7 +381,7 @@ func (o *Overlay) DotRun(vx, xmin, xmax int) {
 	defer o.r.mu.Unlock()
 	sx, _, x0, _ := o.transform()
 	o.dotX = o.dotXLocked()
-	vx, xmin, xmax = int(float64(vx)*sx+0.5), int(float64(xmin)*sx+0.5)+x0, int(float64(xmax)*sx+0.5)+x0
+	vx, xmin, xmax = runPixels(vx, sx), int(float64(xmin)*sx+0.5)+x0, int(float64(xmax)*sx+0.5)+x0
 	o.runField = o.r.Field()
 	o.runV, o.runMin, o.runMax = vx, max(0, xmin), max(0, xmax)
 	if vx != 0 && o.running == nil {
@@ -414,6 +414,22 @@ func (o *Overlay) run(stop chan struct{}) {
 			o.r.mu.Unlock()
 		}
 	}
+}
+
+// runPixels is a run's vx frame pixels a field in raster pixels, rounded
+// the same both ways and never to a standstill. Rounding the signed value
+// up by a half (int(vx*sx+0.5)) truncated a leftward run towards zero: at
+// 1:1 a run left stood still at one pixel a field and crawled at one where
+// a run right moved two.
+func runPixels(vx int, sx float64) int {
+	if vx == 0 {
+		return 0
+	}
+	n := max(1, int(math.Abs(float64(vx))*sx+0.5))
+	if vx < 0 {
+		return -n
+	}
+	return n
 }
 
 // DotX is where the dot is now.

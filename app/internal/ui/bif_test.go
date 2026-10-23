@@ -176,3 +176,41 @@ func TestBIFPreloadsASparseSet(t *testing.T) {
 		t.Fatal("no sparse frame far from the dot")
 	}
 }
+
+// The first frames round the start decode at normal priority, the rest
+// at nice 10 until a run waits on them; a run raises a decode under way.
+func TestBIFWorkerPriority(t *testing.T) {
+	idx, err := parseBIF(bifFile(100, 0, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := newBIFPreviewIdle(idx, 50)
+	var set []int
+	b.prio.set = func(tid, nice int) { set = append(set, nice) }
+	b.prio.tid = 1
+	for k := 0; k < bifBoot; k++ {
+		b.prio.to(previewNice(b.lead() != 0, b.boot > 0))
+		i := b.next()
+		b.add(i, &gfx.Image{W: 1, H: 1, Pix: make([]byte, 4)})
+		b.boot--
+	}
+	b.prio.to(previewNice(b.lead() != 0, b.boot > 0))
+	if len(set) != 2 || set[0] != 0 || set[1] != 10 {
+		t.Fatalf("niced %v", set)
+	}
+	b.Near(510) // a run: successive Nears a field or two apart
+	time.Sleep(20 * time.Millisecond)
+	b.Near(520)
+	if len(set) != 3 || set[2] != bifRunNice {
+		t.Fatalf("a run niced %v", set)
+	}
+}
+
+// newBIFPreviewIdle is a previewer over idx at start, without a worker.
+func newBIFPreviewIdle(idx *bifIndex, start float64) *bifPreview {
+	b := &bifPreview{w: 1, h: 1, want: -1, dir: 1, dec: 0.03, frames: map[int]*bifFrame{}, sparse: map[int]*gfx.Image{}, prio: newWorkerPrio(), boot: bifBoot}
+	b.cond = sync.NewCond(&b.mu)
+	b.index = idx
+	b.Near(start)
+	return b
+}

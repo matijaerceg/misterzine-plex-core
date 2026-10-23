@@ -44,6 +44,10 @@ const bifSparse = 72
 // bifRunNice is the decoding thread's priority while a run waits on it.
 const bifRunNice = 0
 
+// bifBoot is how many frames round the start position decode at normal
+// priority (previewNice): a hold in the first seconds finds them in.
+const bifBoot = 4
+
 // bifLeadMax caps how far ahead of the dot (in frames) a fast run's
 // decodes aim.
 const bifLeadMax = 60
@@ -119,6 +123,10 @@ type bifPreview struct {
 	sparse  map[int]*gfx.Image // every step'th frame: the background preload
 	used    int
 	closed  bool
+	// the worker's priority, and how many frames round the start are
+	// still to come at normal priority
+	prio workerPrio
+	boot int
 }
 
 type bifFrame struct {
@@ -138,7 +146,7 @@ func newPreviewer(app *App, it *plex.Item, w, h int, start float64) previewer {
 // newBIFPreview starts a previewer over the file fetch returns, preparing
 // round start.
 func newBIFPreview(fetch func() ([]byte, error), w, h int, start float64) *bifPreview {
-	b := &bifPreview{w: w, h: h, want: -1, dir: 1, dec: 0.03, frames: map[int]*bifFrame{}, sparse: map[int]*gfx.Image{}}
+	b := &bifPreview{w: w, h: h, want: -1, dir: 1, dec: 0.03, frames: map[int]*bifFrame{}, sparse: map[int]*gfx.Image{}, prio: newWorkerPrio(), boot: bifBoot}
 	b.cond = sync.NewCond(&b.mu)
 	b.Near(start)
 	go b.run(fetch)
@@ -146,10 +154,15 @@ func newBIFPreview(fetch func() ([]byte, error), w, h int, start float64) *bifPr
 }
 
 // run fetches the file, then decodes what Near asks for, a frame at a
-// time, on its own thread at a low priority as the art workers do.
+// time, on its own thread at a low priority as the art workers do, but
+// at normal priority for the first frames round the start and while a
+// held run waits on it (previewNice).
 func (b *bifPreview) run(fetch func() ([]byte, error)) {
 	runtime.LockOSThread()
-	syscall.Setpriority(syscall.PRIO_PROCESS, 0, 10)
+	b.mu.Lock()
+	b.prio.tid = syscall.Gettid()
+	b.prio.to(10)
+	b.mu.Unlock()
 	data, err := fetch()
 	var index *bifIndex
 	if err == nil {
@@ -173,7 +186,6 @@ func (b *bifPreview) run(fetch func() ([]byte, error)) {
 // decodeLoop decodes the frame the scrub is at, then the ones either side
 // of it (next), until it is closed.
 func (b *bifPreview) decodeLoop() {
-	prio := 10 // this thread's nice, as run set it
 	for {
 		b.mu.Lock()
 		i := -1
@@ -188,17 +200,10 @@ func (b *bifPreview) decodeLoop() {
 			return
 		}
 		index, w, h := b.index, b.w, b.h
-		nice := 10
-		if b.lead() != 0 {
-			// a run waits on these: the paused picture leaves the time,
-			// and at nice 10 a decode took ten times as long
-			nice = bifRunNice
-		}
+		// a run waits on these (the paused picture leaves the time), or
+		// they are the first: at nice 10 a decode took ten times as long
+		b.prio.to(previewNice(b.lead() != 0, b.boot > 0))
 		b.mu.Unlock()
-		if nice != prio {
-			prio = nice
-			syscall.Setpriority(syscall.PRIO_PROCESS, 0, prio)
-		}
 		var img *gfx.Image
 		at := time.Now()
 		decoding(func() {
@@ -218,6 +223,7 @@ func (b *bifPreview) decodeLoop() {
 		}
 		if b.nearDot(i) {
 			b.add(i, img)
+			b.boot = max(0, b.boot-1)
 		} else {
 			b.sparse[i] = img
 		}
@@ -332,6 +338,10 @@ func (b *bifPreview) Near(t float64) {
 			}
 		}
 		b.want, b.movedAt = i, now
+		if b.lead() != 0 {
+			// a run: a decode under way speeds up now, not at the next
+			b.prio.to(bifRunNice)
+		}
 		b.cond.Broadcast()
 	}
 }

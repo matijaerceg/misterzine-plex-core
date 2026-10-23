@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"syscall"
 	"time"
 
 	"plexcrt/internal/gfx"
@@ -46,8 +47,11 @@ import (
 //     the last frame given from the sheet before until it lands.
 //   - Its worker runs at nice 10 as the art workers do, but at normal
 //     priority while a held run waits on it (the playback is paused
-//     then): on the device a decode at nice 10 during a run took ten
-//     times as long, and the run outpaced every frame.
+//     then), raised the moment the run starts so a decode under way
+//     speeds up too, and for the first frames round the start position:
+//     on the device a decode at nice 10 during a run took ten times as
+//     long, and right after a playback started a trickplay sheet took
+//     33 s at nice 10, so a hold in the first half minute had no frame.
 //   - It never fetches or decodes on the caller's thread, and a failed
 //     fetch or decode is retried a bounded number of times, not forever.
 type previewer interface {
@@ -201,5 +205,37 @@ func (p *Playing) drawPreview(lift int) {
 		for i := max(0, x); i < min(w, x+ow); i++ {
 			row[i] = 255
 		}
+	}
+}
+
+// previewNice is the nice a preview worker decodes at: normal priority
+// while a held run waits on it or while it prepares the first frames round
+// the start (boot), else nice 10 as the art workers do.
+func previewNice(running, boot bool) int {
+	if running || boot {
+		return 0
+	}
+	return 10
+}
+
+// workerPrio is a preview worker thread's priority. The worker sets it
+// between decodes; Near raises it from the UI thread the moment a run
+// starts, so a decode already under way speeds up too (on Linux a
+// priority is per thread, set by its id).
+type workerPrio struct {
+	tid  int // the worker's thread, 0 before it starts
+	nice int
+	set  func(tid, nice int) // syscall.Setpriority on the thread; tests replace it
+}
+
+func newWorkerPrio() workerPrio {
+	return workerPrio{nice: -1, set: func(tid, nice int) { syscall.Setpriority(syscall.PRIO_PROCESS, tid, nice) }}
+}
+
+// to sets the worker's nice to n, if it has started and is not at n.
+func (w *workerPrio) to(n int) {
+	if w.tid != 0 && w.nice != n {
+		w.set(w.tid, n)
+		w.nice = n
 	}
 }
