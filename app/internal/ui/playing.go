@@ -108,6 +108,7 @@ type Playing struct {
 	posAt    time.Time
 	subSize  int      // the size and lines of the subtitle panel last put up
 	subLines []string // (last is its key), compared without building one
+	subBox   bool     // whether that panel had the box
 	subPaint subtitlePaint
 	// panelKey's last answer and what it was made from
 	panelFor  panelState

@@ -29,6 +29,7 @@ type Config struct {
 	BitrateReset       int      `json:"bitrate_reset,omitempty"` // the BitrateResetGeneration last applied
 	AudioBoost         int      `json:"audio_boost,omitempty"`   // surround downmix gain; 0 is the default
 	SubtitleSize       int      `json:"subtitle_size,omitempty"` // drawn text subtitles, a percentage (SubtitleSizes); 0 is Normal
+	SubtitleBox        bool     `json:"subtitle_box,omitempty"`  // a translucent box behind drawn subtitles; off is an outline
 	PlaybackLook       string   `json:"playback_look,omitempty"` // the playback controls' look (PlaybackLooks); "" is Standard
 	Geometry           Geometry `json:"geometry"`                // where video goes on the raster (menus ignore it)
 	Crop               Crop     `json:"crop,omitempty"`          // what each playback starts cropping; nothing saved is off

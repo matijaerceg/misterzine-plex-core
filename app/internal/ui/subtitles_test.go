@@ -298,6 +298,23 @@ func TestSubtitleSizeRestartsABurnedSubtitle(t *testing.T) {
 	}
 }
 
+// Turning the subtitle background on repaints the cue that is up, with
+// its box.
+func TestSubtitleBoxChangeRepaints(t *testing.T) {
+	p, c, _, now := subtitledPlaying(t)
+	tickAt(p, c, now)
+	p.painter.flush()
+	if !isSubtitleKey(p.last) || strings.Contains(p.last, "|box|") {
+		t.Fatalf("the default cue: %q", p.last)
+	}
+	p.app.Cfg.SubtitleBox = true
+	tickAt(p, c, now.Add(100*time.Millisecond))
+	p.painter.flush()
+	if !isSubtitleKey(p.last) || !strings.Contains(p.last, "|box|") {
+		t.Fatalf("the cue was not repainted with its box: %q", p.last)
+	}
+}
+
 // A selected text track is fetched whole; one in letters the atlases lack
 // is remembered and handed back to the server with a restart.
 func TestPlayingFetchesTextSubtitles(t *testing.T) {

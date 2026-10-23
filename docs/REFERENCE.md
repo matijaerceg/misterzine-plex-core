@@ -208,7 +208,8 @@ Options lists, in groups:
   later `[MiSTer]` section overriding the app's `[MisterZine Plex Core]`
   section). Select one for the file to change and what to add. See
   [HDMI setup](HDMI.md#settings-options-warn-about).
-- **Surround downmix boost**, **Subtitle size** (see Subtitles), **Theme
+- **Surround downmix boost**, **Subtitle size** and **Subtitle background**
+  (see Subtitles), **Theme
   music** (a show's theme song on its pages) and **Navigation sounds** (no
   sound plays with the H.264 core).
 - **Show beta features**, and the beta features a MisterZine code covers.
@@ -264,7 +265,8 @@ the server's selection is used.
 
 Text subtitle tracks (SRT, ASS/SSA, WebVTT and the other text formats the
 server can hand over as a file) are drawn by the app over the picture, as
-white type on a translucent box, centred along the bottom of the screen. The
+white type with a thin dark outline
+(or on a translucent box, see below), centred along the bottom of the screen. The
 video is sent without them, so a film with text subtitles can still play as
 stored, and turning text subtitles on or off, choosing another text track or
 changing their size does not restart the video. Only the words are shown:
@@ -281,6 +283,10 @@ turning subtitles off and on again asks once more.
 **Options > Subtitle size** chooses Normal, Large (150%) or Extra large (200%)
 and is saved for future playback. During playback, Left and Right on
 **More > Subtitle size** change the same setting at once.
+
+**Options > Subtitle background**, off by default, puts a translucent box
+behind each line in place of the outline. A change shows on the next cue drawn,
+including one already on screen.
 
 Picture subtitles (PGS, VobSub, DVB) are burned into the picture by the Plex
 server, which therefore transcodes the video. A text track in a script the

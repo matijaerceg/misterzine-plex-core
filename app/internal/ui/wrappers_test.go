@@ -26,7 +26,8 @@ func (s *Season) drawPage(c *gfx.Canvas, now time.Time) bool {
 	return s.paintPage(c, show, fading, now)
 }
 
-// drawSubtitle paints lines on fresh storage (subtitlePaint.draw).
+// drawSubtitle paints lines on fresh storage (subtitlePaint.draw), on
+// the box.
 func drawSubtitle(lines []string, size, w int) (*gfx.Canvas, []byte) {
-	return new(subtitlePaint).draw(lines, size, w)
+	return new(subtitlePaint).draw(lines, size, w, true)
 }

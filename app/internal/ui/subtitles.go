@@ -257,6 +257,9 @@ const (
 	// subtitleBoxAlpha is the box behind each line: dark enough to read
 	// white over a white picture, light enough to see the picture through.
 	subtitleBoxAlpha = 160
+	// subtitleOutline is the dark ring round the type with the box off, in
+	// atlas pixels: 1 at Normal, scaled with the larger sizes.
+	subtitleOutline = 1
 	// subtitlePadX is the box's room either side of a line at Normal.
 	subtitlePadX = 10
 	// subtitleMaxLines bounds what one moment shows; lines past it go.
@@ -304,10 +307,11 @@ func reuse(c *gfx.Canvas, w, h int) {
 }
 
 // draw paints lines for a w-wide canvas at size (a percentage of Normal),
-// on s's storage: white type, each line centred on its own box, the lines
-// wrapped to the safe width. The panel is w wide, transparent outside the
-// boxes.
-func (s *subtitlePaint) draw(lines []string, size, w int) (*gfx.Canvas, []byte) {
+// on s's storage: white type, the lines wrapped to the safe width, each
+// line centred on its own translucent box with box, or, without, ringed by
+// a thin dark outline (the look of subtitles burned into the picture). The
+// panel is w wide, transparent outside the boxes or outlines.
+func (s *subtitlePaint) draw(lines []string, size, w int, box bool) (*gfx.Canvas, []byte) {
 	f, px := subtitleFace(size)
 	// the scale from the atlas, in 1/256ths
 	scale := px * 256 / f.Px
@@ -334,12 +338,13 @@ func (s *subtitlePaint) draw(lines []string, size, w int) (*gfx.Canvas, []byte) 
 		src := &s.src
 		reuse(src, tw+2*margin, f.Height())
 		src.Text(margin, 0, f, gfx.White, row)
+		outlineCoverage(src, subtitleOutline, !box)
 		boxW := min(w, tw*scale/256+2*padX)
 		x0, y0 := (w-boxW)/2, i*lineH
-		for y := y0; y < y0+lineH; y++ {
-			box := alpha[y*w+x0 : y*w+x0+boxW]
-			for x := range box {
-				box[x] = subtitleBoxAlpha
+		for y := y0; box && y < y0+lineH; y++ {
+			b := alpha[y*w+x0 : y*w+x0+boxW]
+			for x := range b {
+				b[x] = subtitleBoxAlpha
 			}
 		}
 		if scale == 256 {
@@ -349,6 +354,46 @@ func (s *subtitlePaint) draw(lines []string, size, w int) (*gfx.Canvas, []byte) 
 		}
 	}
 	return c, alpha
+}
+
+// outlineCoverage puts the outline's coverage in src's second channel
+// (src.Text left it the type's): with on, the type's coverage (the first
+// channel) grown by r pixels each way, the most of it within reach;
+// without, none.
+func outlineCoverage(src *gfx.Canvas, r int, on bool) {
+	for y := range src.H {
+		for x := range src.W {
+			m := byte(0)
+			if !on {
+				src.Pix[(y*src.W+x)*4+1] = 0
+				continue
+			}
+			for dy := -r; dy <= r; dy++ {
+				sy := y + dy
+				if sy < 0 || sy >= src.H {
+					continue
+				}
+				for dx := -r; dx <= r; dx++ {
+					if sx := x + dx; sx >= 0 && sx < src.W {
+						m = max(m, src.Pix[(sy*src.W+sx)*4])
+					}
+				}
+			}
+			src.Pix[(y*src.W+x)*4+1] = m
+		}
+	}
+}
+
+// compose lays coverage v of white type, over coverage o of black outline,
+// on pixel i of the panel (black at the alpha already there): the alpha
+// rises with both, and the grey is what makes the blend come out white
+// over black.
+func compose(c *gfx.Canvas, alpha []byte, i, v, o int) {
+	base := 255 - (255-o)*(255-int(alpha[i]))/255
+	a := 255 - (255-v)*(255-base)/255
+	grey := byte(min(255, v*255/a))
+	alpha[i] = byte(a)
+	c.Pix[i*4], c.Pix[i*4+1], c.Pix[i*4+2] = grey, grey, grey
 }
 
 // blitCoverage is scaleCoverage at 1:1 (Normal, drawn from its own
@@ -366,15 +411,11 @@ func blitCoverage(c *gfx.Canvas, alpha []byte, src *gfx.Canvas, x, y, lineH int)
 			if px < 0 || px >= c.W {
 				continue
 			}
-			v := int(in[ox*4])
-			if v == 0 {
+			v, o := int(in[ox*4]), int(in[ox*4+1])
+			if v == 0 && o == 0 {
 				continue
 			}
-			i := py*c.W + px
-			a := 255 - (255-v)*(255-int(alpha[i]))/255
-			grey := byte(min(255, v*255/a))
-			alpha[i] = byte(a)
-			c.Pix[i*4], c.Pix[i*4+1], c.Pix[i*4+2] = grey, grey, grey
+			compose(c, alpha, py*c.W+px, v, o)
 		}
 	}
 }
@@ -395,7 +436,13 @@ func (s *subtitlePaint) scaleCoverage(c *gfx.Canvas, alpha []byte, src *gfx.Canv
 		p := max(0, (2*ox+1)*256*256/(2*scale)-128) // the source position, in 256ths
 		x0s[ox], fxs[ox] = min(p>>8, src.W-1), p&255
 	}
-	cov := func(sx, sy int) int { return int(src.Pix[(sy*src.W+sx)*4]) }
+	// the bilinear coverage of channel ch (0 the type, 1 the outline)
+	cov := func(sx0, sx1, sy0, sy1, fx, fy, ch int) int {
+		at := func(sx, sy int) int { return int(src.Pix[(sy*src.W+sx)*4+ch]) }
+		top := at(sx0, sy0)*(256-fx) + at(sx1, sy0)*fx
+		bottom := at(sx0, sy1)*(256-fx) + at(sx1, sy1)*fx
+		return (top*(256-fy) + bottom*fy) >> 16
+	}
 	for oy := range lineH {
 		py := y + oy
 		if py < 0 || py >= c.H {
@@ -411,17 +458,12 @@ func (s *subtitlePaint) scaleCoverage(c *gfx.Canvas, alpha []byte, src *gfx.Canv
 			}
 			sx0, fx := x0s[ox], fxs[ox]
 			sx1 := min(sx0+1, src.W-1)
-			top := cov(sx0, sy0)*(256-fx) + cov(sx1, sy0)*fx
-			bottom := cov(sx0, sy1)*(256-fx) + cov(sx1, sy1)*fx
-			v := (top*(256-fy) + bottom*fy) >> 16
-			if v == 0 {
+			v := cov(sx0, sx1, sy0, sy1, fx, fy, 0)
+			o := cov(sx0, sx1, sy0, sy1, fx, fy, 1)
+			if v == 0 && o == 0 {
 				continue
 			}
-			i := py*c.W + px
-			a := 255 - (255-v)*(255-int(alpha[i]))/255
-			grey := byte(min(255, v*255/a))
-			alpha[i] = byte(a)
-			c.Pix[i*4], c.Pix[i*4+1], c.Pix[i*4+2] = grey, grey, grey
+			compose(c, alpha, py*c.W+px, v, o)
 		}
 	}
 }
@@ -520,17 +562,21 @@ func (p *Playing) showSubtitle(osd OSD, lines []string) {
 		}
 		return
 	}
-	size := p.app.Cfg.SubtitleSizeValue()
-	if isSubtitleKey(p.last) && size == p.subSize && slices.Equal(lines, p.subLines) {
+	size, box := p.app.Cfg.SubtitleSizeValue(), p.app.Cfg.SubtitleBox
+	if isSubtitleKey(p.last) && size == p.subSize && box == p.subBox && slices.Equal(lines, p.subLines) {
 		return // up already: no key to build every field
 	}
-	key := "sub|" + itoa(size) + "|" + strings.Join(lines, "\n")
-	p.subSize, p.subLines = size, lines
+	key := "sub|" + itoa(size) + "|"
+	if box {
+		key += "box|"
+	}
+	key += strings.Join(lines, "\n")
+	p.subSize, p.subBox, p.subLines = size, box, lines
 	if key == p.last {
 		return
 	}
 	p.last = key
-	c, alpha := p.subPaint.draw(lines, size, p.canvasWidth()) // painter.show copies it
+	c, alpha := p.subPaint.draw(lines, size, p.canvasWidth(), box) // painter.show copies it
 	y := max(0, p.canvasHeight()-subtitleMargin(p.canvasHeight())-c.H)
 	p.painter.show(osd, 0, y, c, alpha)
 }

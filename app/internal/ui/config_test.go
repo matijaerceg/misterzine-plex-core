@@ -75,6 +75,28 @@ func TestSubtitleSizeDefaultChoicesAndPersistence(t *testing.T) {
 	}
 }
 
+// The subtitle background is off unless chosen, and the choice is kept.
+func TestSubtitleBoxDefaultOffAndPersists(t *testing.T) {
+	c := LoadConfig(filepath.Join(t.TempDir(), "settings.json"))
+	if c.SubtitleBox {
+		t.Fatal("the subtitle background is on by default")
+	}
+	c.SubtitleBox = true
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if !LoadConfig(c.path).SubtitleBox {
+		t.Fatal("the subtitle background did not persist")
+	}
+	c.SubtitleBox = false
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if LoadConfig(c.path).SubtitleBox {
+		t.Fatal("turning the subtitle background off did not persist")
+	}
+}
+
 func TestConfigFailedSavePreservesPrimary(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	c := LoadConfig(path)

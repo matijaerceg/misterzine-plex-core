@@ -118,6 +118,7 @@ func (o *Options) items() []option {
 			i := max(0, min(len(SubtitleSizes)-1, cfg.subtitleSizeIndex()+d))
 			cfg.SubtitleSize = SubtitleSizes[i].Value
 		}, at: func() (int, int) { return cfg.subtitleSizeIndex(), len(SubtitleSizes) }},
+		{label: "Subtitle background", get: func() bool { return cfg.SubtitleBox }, set: func(v bool) { cfg.SubtitleBox = v }},
 		{label: "Theme music", get: func() bool { return !cfg.NoTheme }, set: func(v bool) { cfg.NoTheme = !v }, after: o.app.syncTheme},
 		// no effect on the H.264 core: its Tap is a no-op (the PlexCRT core clicked)
 		{label: "Navigation sounds", get: func() bool { return !cfg.NoTaps }, set: func(v bool) { cfg.NoTaps = !v }},
