@@ -121,15 +121,19 @@ type Playing struct {
 	// the scrub's preview (preview.go): the backend (nil for none), whether
 	// it was asked for, the hold that put it up, whether that hold paused
 	// the playback, the frame the overlay shows and a count of its changes
-	preview   previewer
-	pvTried   bool
-	pvOn      bool
-	pvHold    time.Time
-	pvPaused  bool
-	pvImg     *gfx.Image
-	pvGen     int
-	pvClear   int // panels still to show the lift rows clear, after a frame
-	alphaLift int // the lift the panel's alpha was drawn at
+	preview  previewer
+	pvTried  bool
+	pvOn     bool
+	pvHold   time.Time
+	pvPaused bool
+	pvImg    *gfx.Image
+	pvGen    int
+	pvClear  int // panels still to show the lift rows clear, after a frame
+	// the placeholder's wait dots while a held run has no frame yet (nil
+	// when none shows), and their coverage, a byte a pixel of the lift rows
+	pvDot      *waitDot
+	pvDotAlpha []byte
+	alphaLift  int // the lift the panel's alpha was drawn at
 }
 
 // panelState is what panelKey describes, kept to compare every field.
@@ -168,7 +172,7 @@ type listMode struct {
 func (p *Playing) closePainter(osd OSD) <-chan struct{} {
 	if p.preview != nil {
 		p.preview.Close()
-		p.preview, p.pvImg = nil, nil
+		p.preview, p.pvImg, p.pvDot = nil, nil, nil
 	}
 	if l, ok := osd.(dotLiner); ok && p.app.vcr() {
 		l.SetDotLine(false)

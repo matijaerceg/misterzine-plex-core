@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -121,8 +122,8 @@ func TestATapNeverPauses(t *testing.T) {
 	p.framed(now)
 	now = tickFields(p, c, now, 1, nil)
 	hold(p, c, now, 50*time.Millisecond, func() {
-		if p.pvImg != nil {
-			t.Fatal("a tap showed a frame")
+		if p.pvImg != nil || p.pvDot != nil || p.lift() != 0 {
+			t.Fatal("a tap showed a frame or the placeholder")
 		}
 	})
 	if got := strings.Join(*sent, ","); got != "seek" {
@@ -194,27 +195,122 @@ func TestNoPreviewsNoPause(t *testing.T) {
 	now := time.Now()
 	p.framed(now)
 	now = tickFields(p, c, now, 1, nil)
-	hold(p, c, now, time.Second, nil)
+	hold(p, c, now, time.Second, func() {
+		if p.pvDot != nil || p.lift() != 0 || c.shown && c.showH > p.peekStripH() {
+			t.Fatal("an item without previews showed the placeholder")
+		}
+	})
 	if got := strings.Join(*sent, ","); got != "seek" {
 		t.Fatalf("sent %s", got)
 	}
 }
 
 // A hold before the backend has a frame (the file still downloading)
-// pauses and resumes as any hold, with nothing drawn above the strip.
-func TestAHoldBeforeTheFramesAreInDrawsNone(t *testing.T) {
+// pauses and resumes as any hold, with the placeholder above the strip:
+// a dark box of the frame's size, the wait dots swelling in it.
+func TestAHoldBeforeTheFramesAreInShowsThePlaceholder(t *testing.T) {
 	p, fp, sent := previewPlaying(t)
 	fp.ready = false
 	c := &coreOSD{}
 	now := time.Now()
 	p.framed(now)
 	now = tickFields(p, c, now, 1, nil)
+	shown, dots := 0, map[int]bool{}
+	fw, fh := previewSize(720, 480)
 	hold(p, c, now, time.Second, func() {
-		if p.pvImg != nil || p.lift() != 0 || c.shown && c.showH > p.peekStripH() {
+		if p.pvImg != nil {
 			t.Fatal("a frame that was not ready was drawn")
 		}
+		if p.pvDot == nil || c.showH != p.peekStripH()+previewLift {
+			return
+		}
+		shown++
+		dots[p.pvDot.frame] = true
+		// the box: the panel's alpha or more over the frame's rows and
+		// width, clear round it, and purple in its middle (a dot)
+		x, y := -1, previewLift-PreviewGap-fh
+		for i := 0; i < c.showW; i++ {
+			if c.showAlpha[(y+fh/2)*c.showW+i] != 0 {
+				x = i
+				break
+			}
+		}
+		if x < 0 {
+			t.Fatal("no box above the strip")
+		}
+		for r := 0; r < previewLift; r++ {
+			for i := 0; i < c.showW; i++ {
+				a := c.showAlpha[r*c.showW+i]
+				in := r >= y && r < y+fh && i >= x && i < x+fw
+				if in && a < OsdAlpha || !in && a != 0 {
+					t.Fatalf("alpha %d at %d,%d (box at %d,%d)", a, i, r, x, y)
+				}
+			}
+		}
+		mid := ((y+fh/2)*c.showW + x + fw/2) * 4
+		if c.showAlpha[mid/4] != 255 || bytes.Equal(c.showPix[mid:mid+3], make([]byte, 3)) {
+			t.Fatalf("no dot in the box's middle: %v at alpha %d", c.showPix[mid:mid+3], c.showAlpha[mid/4])
+		}
 	})
+	if shown == 0 {
+		t.Fatal("the placeholder never showed")
+	}
+	if len(dots) < 2 {
+		t.Fatal("the placeholder's dots never moved")
+	}
 	if got := strings.Join(*sent, ","); got != "pause,resume,seek" || p.paused {
 		t.Fatalf("sent %s, paused %v", got, p.paused)
+	}
+	if p.pvDot != nil || p.lift() != 0 {
+		t.Fatal("the placeholder outlived the hold")
+	}
+}
+
+// A frame ready replaces the placeholder at once.
+func TestAFrameReplacesThePlaceholder(t *testing.T) {
+	p, fp, _ := previewPlaying(t)
+	fp.ready = false
+	c := &coreOSD{}
+	now := time.Now()
+	p.framed(now)
+	now = tickFields(p, c, now, 1, nil)
+	keyAt(p, c, input.Right, now)
+	now = tickFields(p, c, now, 40, nil)
+	if p.pvDot == nil || p.pvImg != nil {
+		t.Fatal("no placeholder while no frame is ready")
+	}
+	fp.ready = true
+	tickFields(p, c, now, 1, nil)
+	if p.pvDot != nil || p.pvImg != fp.img {
+		t.Fatal("the frame did not replace the placeholder")
+	}
+}
+
+// The frame floats on its own: opaque over its rows and width, its edge
+// pixels its own, nothing round it.
+func TestTheFrameIsBorderless(t *testing.T) {
+	p, fp, _ := previewPlaying(t)
+	for i := range fp.img.Pix {
+		fp.img.Pix[i] = 0xEE
+	}
+	p.pvImg, p.scrubTo = fp.img, p.dur/2
+	p.drawPreview(previewLift)
+	w, fw, fh := p.canvas.W, fp.img.W, fp.img.H
+	dotX := p.safeX() + int(float64(p.safeW())*p.scrubTo/p.dur+0.5)
+	x, y := previewX(dotX, fw, p.safeX(), p.safeW()), previewLift-PreviewGap-fh
+	if y != 0 {
+		t.Fatalf("the frame starts %d rows into the lift", y)
+	}
+	for r := 0; r < previewLift; r++ {
+		for i := 0; i < w; i++ {
+			k := r*w + i
+			in := r >= y && r < y+fh && i >= x && i < x+fw
+			if in && (p.alpha[k] != 255 || p.canvas.Pix[k*4] != 0xEE) {
+				t.Fatalf("the frame's pixel %d,%d is %d at alpha %d", i, r, p.canvas.Pix[k*4], p.alpha[k])
+			}
+			if !in && (p.alpha[k] != 0 || p.canvas.Pix[k*4] != 0) {
+				t.Fatalf("pixel %d,%d round the frame is drawn", i, r)
+			}
+		}
 	}
 }

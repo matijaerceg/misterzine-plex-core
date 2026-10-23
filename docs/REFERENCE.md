@@ -135,9 +135,11 @@ primary account. Automatic sign-in uses the saved server connection at startup.
   one seek. The last picture stays on screen until the new position plays.
 - When the server has made preview thumbnails for the video (Plex's "Generate
   video preview thumbnails" library setting), a hold of Left or Right shows a
-  small frame of the film at the dot's place above the scrubber or the strip.
-  The thumbnails download in the background once playback starts, so a hold
-  right after the start may show none for a moment. While the hold runs,
+  small borderless frame of the film at the dot's place above the scrubber or
+  the strip. The thumbnails download in the background once playback starts;
+  while none is ready yet near the dot (a hold right after the start), a dark
+  box of the same size with the animated wait dots stands in its place until
+  the frame arrives. While the hold runs,
   playback pauses; it resumes when the seek is sent, or when Back drops the
   scrub. A tap never pauses, and a video paused beforehand stays paused.
 - The progress bar shows how far is downloaded in pale lilac (cyan in the VCR

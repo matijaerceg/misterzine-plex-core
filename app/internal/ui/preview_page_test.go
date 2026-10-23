@@ -102,7 +102,8 @@ func TestAMovedFrameLeavesNothingOfTheLast(t *testing.T) {
 }
 
 // A run with no frame ready (there was one, then the dot outran the
-// decodes) shows the rows above the strip clear: no pixel, no alpha.
+// decodes) shows the placeholder above the strip, nothing else, and once
+// the hold ends the rows go clear: no pixel, no alpha.
 func TestARunWithoutAFrameLeavesTheRowsClear(t *testing.T) {
 	p, fp := brightPreview(t)
 	c := &coreOSD{}
@@ -115,12 +116,38 @@ func TestARunWithoutAFrameLeavesTheRowsClear(t *testing.T) {
 		t.Fatal("no frame while one is ready")
 	}
 	fp.ready = false
-	checked, shows := 0, c.shows
-	tickFields(p, c, now, 6, func(int) {
+	placeholder, shows := 0, c.shows
+	now = tickFields(p, c, now, 6, func(int) {
 		if p.pvImg != nil {
 			t.Fatal("a frame not ready is still drawn")
 		}
-		if c.shows > shows && c.showH > p.peekStripH() {
+		if p.pvDot == nil {
+			t.Fatal("no placeholder while the run waits on a frame")
+		}
+		if c.shows > shows && c.showH == p.peekStripH()+previewLift {
+			n := 0
+			for _, a := range c.showAlpha[:previewLift*c.showW] {
+				if a != 0 {
+					n++
+				}
+			}
+			fw, fh := previewSize(720, 480)
+			if n != fw*fh {
+				t.Fatalf("%d pixels drawn above the strip, the box is %d", n, fw*fh)
+			}
+			placeholder++
+		}
+	})
+	if placeholder == 0 {
+		t.Fatal("the placeholder was never shown")
+	}
+	p.Key(input.Event{Key: input.Right, Release: true}, now)
+	checked := 0
+	tickFields(p, c, now, 40, func(int) {
+		if p.pvShown() {
+			return // until the gesture's seek, as a frame would
+		}
+		if c.showH > p.peekStripH() {
 			lift := c.showH - p.peekStripH()
 			for i, b := range c.showPix[:lift*c.showW*4] {
 				if b != 0 || c.showAlpha[i/4] != 0 {
@@ -132,6 +159,9 @@ func TestARunWithoutAFrameLeavesTheRowsClear(t *testing.T) {
 	})
 	if checked == 0 {
 		t.Fatal("the rows were never shown clear")
+	}
+	if p.pvShown() || p.lift() != 0 {
+		t.Fatal("the placeholder outlived the hold")
 	}
 }
 

@@ -54,20 +54,27 @@ import (
 //     33 s at nice 10, so a hold in the first half minute had no frame.
 //   - It never fetches or decodes on the caller's thread, and a failed
 //     fetch or decode is retried a bounded number of times, not forever.
+//
+// What the UI does with it: during a held run the frame Frame gives floats
+// above the panel or the strip, borderless; while Frame gives nil (the
+// first sheet or file still on its way) a placeholder of the frame's size
+// takes its place, a dark box at the panel's alpha with the wait dots
+// swelling in its middle, until a frame is ready. A tap, an item without
+// previews (nil) and the end of the hold show neither.
 type previewer interface {
 	Frame(t float64) *gfx.Image
 	Near(t float64)
 	Close()
 }
 
-// The preview's geometry: frames are PreviewH lines high, with a 1 px
-// GreyLo frame and a 1 px black outline round them, and float PreviewGap
+// The preview's geometry: frames are PreviewH lines high, borderless (a
+// frame or outline looked awkward on a 15 kHz set), and float PreviewGap
 // lines above the panel or the strip. previewLift is the rows they take
 // above it, even so the panel keeps its field.
 const (
 	PreviewH    = 90
-	PreviewGap  = 8
-	previewLift = PreviewH + 4 + PreviewGap
+	PreviewGap  = 10 // where the bordered picture's bottom edge was
+	previewLift = PreviewH + PreviewGap
 )
 
 // previewSize is the frame's size on a cw x ch canvas shown as 4:3: 90
@@ -89,7 +96,7 @@ func previewImage(src *gfx.Image, w, h int) *gfx.Image {
 	return src.Crop(w, src.H).ScaleH(h)
 }
 
-// previewX is where the outlined frame (ow wide) goes: centred on the
+// previewX is where the frame (ow wide) goes: centred on the
 // dot's x and kept within the safe area.
 func previewX(dotX, ow, safeX, safeW int) int {
 	return max(safeX, min(dotX-ow/2, safeX+safeW-ow))
@@ -123,29 +130,53 @@ func (p *Playing) previewTick(now time.Time) {
 	} else {
 		p.preview.Near(p.pos)
 	}
+	// a held run shows its frame, or the placeholder while none is ready;
+	// not while the stall's dots are up, nor without room above the panel
+	// in the overlay region
+	up := p.pvOn && p.wait == nil && (previewLift+p.osdHeight())*p.canvasWidth()*4 <= ring.RegionSize
 	var img *gfx.Image
-	if p.pvOn && p.wait == nil {
+	if up {
 		img = p.preview.Frame(p.scrubTo)
 	}
-	if img != nil && (previewLift+p.osdHeight())*p.canvasWidth()*4 > ring.RegionSize {
-		img = nil // no room above the panel in the overlay region
-	}
+	was := p.pvShown()
 	if img != p.pvImg {
-		if img == nil {
-			// the overlay page keeps what is not drawn over: the next
-			// two panels (one for each page) still take the rows, clear
-			p.pvClear = 2
-		}
 		p.pvImg = img
 		p.pvGen++
 		p.dirty = true
 	}
+	if ph := up && img == nil; ph && p.pvDot == nil {
+		p.pvDot = newWaitDot("", now)
+		p.pvGen++
+		p.dirty = true
+	} else if !ph && p.pvDot != nil {
+		p.pvDot = nil
+		p.pvGen++
+		p.dirty = true
+	}
+	if p.pvDot != nil {
+		// the dots swell from the clock: each new frame of them repaints
+		if f := p.pvDot.frameAt(now); f != p.pvDot.frame {
+			p.pvDot.frame = f
+			p.pvGen++
+			p.dirty = true
+		}
+	}
+	if was && !p.pvShown() {
+		// the overlay page keeps what is not drawn over: the next two
+		// panels (one for each page) still take the rows, clear
+		p.pvClear = 2
+	}
+}
+
+// pvShown reports whether a frame or the placeholder is up.
+func (p *Playing) pvShown() bool {
+	return p.pvImg != nil || p.pvDot != nil
 }
 
 // shownLift notes a panel shown with lift rows above it: once the frame
 // is gone, each one so shown is a page the rows are clear on.
 func (p *Playing) shownLift(lift int) {
-	if lift > 0 && p.pvImg == nil && p.pvClear > 0 {
+	if lift > 0 && !p.pvShown() && p.pvClear > 0 {
 		p.pvClear--
 	}
 }
@@ -163,27 +194,29 @@ func (p *Playing) endPreview(now time.Time) {
 }
 
 // lift is the rows above the panel this compose takes for the preview:
-// while a frame shows, and for the panels that clear them after it.
+// while a frame or the placeholder shows, and for the panels that clear them after it.
 func (p *Playing) lift() int {
-	if p.pvImg == nil && p.pvClear == 0 {
+	if !p.pvShown() && p.pvClear == 0 {
 		return 0
 	}
 	return previewLift
 }
 
-// previewKey tells the overlay's keys apart while a frame shows or its
+// previewKey tells the overlay's keys apart while a frame or the
+// placeholder shows (pvGen counts the dots' frames too) or its
 // rows are being cleared.
 func (p *Playing) previewKey() string {
-	if p.pvImg == nil && p.pvClear == 0 {
+	if !p.pvShown() && p.pvClear == 0 {
 		return ""
 	}
 	return "|pv" + itoa(p.pvGen) + "." + itoa(p.pvClear)
 }
 
 // drawPreview paints the frame into the lift rows above the panel: clear
-// but for the frame, which is opaque, over the dot's place. The rows are
-// cleared whole every time, pixels and alpha: the page is written as it
-// is given, and an earlier frame or strip left in them would stay there.
+// but for the frame, opaque and borderless, over the dot's place, or the
+// placeholder in its place while no frame is ready. The rows are cleared
+// whole every time, pixels and alpha: the page is written as it is given,
+// and an earlier frame or strip left in them would stay there.
 func (p *Playing) drawPreview(lift int) {
 	w := p.canvas.W
 	c := &gfx.Canvas{W: w, H: lift, Pix: p.canvas.Pix[:w*lift*4]}
@@ -191,19 +224,50 @@ func (p *Playing) drawPreview(lift int) {
 	clear(c.Pix)
 	clear(alpha)
 	img := p.pvImg
-	if img == nil || p.dur <= 0 {
+	if img == nil && p.pvDot == nil || p.dur <= 0 {
 		return
 	}
-	ow, oh := img.W+4, img.H+4
+	fw, fh := previewSize(p.canvasWidth(), p.canvasHeight())
+	if img != nil {
+		fw, fh = img.W, img.H
+	}
 	dotX := p.safeX() + int(float64(p.safeW())*p.scrubTo/p.dur+0.5)
-	x, y := previewX(dotX, ow, p.safeX(), p.safeW()), lift-PreviewGap-oh
-	c.Fill(x, y, ow, oh, gfx.Black)
-	c.Frame(x+1, y+1, ow-2, oh-2, 1, gfx.GreyLo)
-	c.Blit(x+2, y+2, img)
-	for r := max(0, y); r < min(lift, y+oh); r++ {
+	x, y := previewX(dotX, fw, p.safeX(), p.safeW()), lift-PreviewGap-fh
+	if img == nil {
+		p.drawPlaceholder(c, alpha, x, y, fw, fh)
+		return
+	}
+	c.Blit(x, y, img)
+	for r := max(0, y); r < min(lift, y+fh); r++ {
 		row := alpha[r*w : (r+1)*w]
-		for i := max(0, x); i < min(w, x+ow); i++ {
+		for i := max(0, x); i < min(w, x+fw); i++ {
 			row[i] = 255
+		}
+	}
+}
+
+// drawPlaceholder paints the box a frame on its way stands in for: black
+// at the panel's alpha, the wait dots at their frame in its middle, each
+// dot's edge blended into the box (the dots' coverage over the box's).
+func (p *Playing) drawPlaceholder(c *gfx.Canvas, alpha []byte, x, y, fw, fh int) {
+	w := c.W
+	if len(p.pvDotAlpha) != len(alpha) {
+		p.pvDotAlpha = make([]byte, len(alpha))
+	}
+	cov := p.pvDotAlpha
+	clear(cov)
+	p.pvDot.draw(c, cov, x+fw/2, y+fh/2, p.pvDot.frame)
+	for r := max(0, y); r < min(c.H, y+fh); r++ {
+		for i := max(0, x); i < min(w, x+fw); i++ {
+			k := r*w + i
+			a := int(cov[k])
+			out := OsdAlpha + a*(255-OsdAlpha)/255
+			alpha[k] = byte(out)
+			// straight alpha: the dot's colour at its coverage over black
+			px := c.Pix[k*4 : k*4+3]
+			for j := range px {
+				px[j] = byte(int(px[j]) * a / out)
+			}
 		}
 	}
 }
