@@ -72,8 +72,9 @@ var (
 	// the logo cover MisterKun too.
 	NoHomeLogo = Feature{Premium: true, Since: 202609}
 	// PlaybackTheme is the playback controls' looks other than Standard
-	// (Options > Playback UI theme).
-	PlaybackTheme = Feature{Premium: true, Since: 202610}
+	// (Options > Playback UI theme). One code covers every current extra,
+	// so its threshold is the first code's.
+	PlaybackTheme = Feature{Premium: true, Since: 202609}
 )
 
 // Entry names a feature for the access overview and the coverage register.

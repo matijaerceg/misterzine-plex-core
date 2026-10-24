@@ -96,8 +96,8 @@ func TestFeatureLifecycle(t *testing.T) {
 			t.Fatal("catalogue entry without a threshold", e)
 		}
 	}
-	if !theme || PlaybackTheme.Since != 202610 || PlaybackTheme.Beta {
-		t.Fatal("the playback theme is not a supporter extra from October 2026")
+	if !theme || PlaybackTheme.Since != 202609 || PlaybackTheme.Beta {
+		t.Fatal("the playback theme is not a supporter extra covered by the first code")
 	}
 }
 
