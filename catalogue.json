@@ -2,18 +2,49 @@
   "schema": 1,
   "releases": {
     "beta": {
-      "id": "beta-0.1.0-beta.27",
-      "version": "0.1.0-beta.27",
+      "id": "beta-0.1.0-beta.27.1",
+      "version": "0.1.0-beta.27.1",
       "channel": "beta",
-      "notes": "## 0.1.0-beta.27\n\n- Send a report now also shows, for each playback, how fast the converted video arrived at the MiSTer (average and the busiest second) and how hard the MiSTer's decoder worked. Together with the server lines from beta.26, one report can now tell whether a stutter comes from the server, from the stream it sends, or from the MiSTer.\n\nExisting beta access codes continue to work.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.27/MisterZine-Plex-Core-beta-0.1.0-beta.27.zip",
-      "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 5149991,
-      "sha256": "707ca195e253d3039f32db1643517e1603965bf151a45468dd9def24f766dac6",
+      "notes": "# MisterZine Plex Core 0.1.0-beta.27.1\n\nA stepping stone from beta.27: the 0.1.0-beta.28 app, worker, FFmpeg and\nH.264 decoder core, packaged so that the updater installed with beta.27 can\ninstall them. After it starts, Updates offers 0.1.0-beta.28 itself.\n\n- Everything beta.28 brings is already in it; see the beta.28 notes for the\n  new playback path, scrub previews, the playback looks and the supporter\n  extras.\n- Settings, sign-in and codes are kept. Rollback keeps the previous release.\n- The output is chosen in the core's on-screen menu from now on.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.27.1/MisterZine-Plex-Core-beta-0.1.0-beta.27.1.zip",
+      "db_url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.27.1/release-db.json.zip",
+      "size": 13754651,
+      "sha256": "39a27b7661cf3562d45ebbb43b90b56628e23fcf0f34bff959c97455ca2726a3",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
+      },
+      "source": {
+        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.27.1.zip",
+        "size": 140064900,
+        "sha256": "2c49795e39acb921d30472df67f060c7a235cfdd3ff35b93c5d5b01570c44eb6",
+        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.27.1/MisterZine-Plex-Core-Source-beta-0.1.0-beta.27.1.zip"
       }
     }
-  }
+  },
+  "current": {
+    "beta": {
+      "id": "beta-0.1.0-beta.27.1",
+      "version": "0.1.0-beta.27.1",
+      "channel": "beta",
+      "notes": "# MisterZine Plex Core 0.1.0-beta.27.1\n\nA stepping stone from beta.27: the 0.1.0-beta.28 app, worker, FFmpeg and\nH.264 decoder core, packaged so that the updater installed with beta.27 can\ninstall them. After it starts, Updates offers 0.1.0-beta.28 itself.\n\n- Everything beta.28 brings is already in it; see the beta.28 notes for the\n  new playback path, scrub previews, the playback looks and the supporter\n  extras.\n- Settings, sign-in and codes are kept. Rollback keeps the previous release.\n- The output is chosen in the core's on-screen menu from now on.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.27.1/MisterZine-Plex-Core-beta-0.1.0-beta.27.1.zip",
+      "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
+      "size": 13754651,
+      "sha256": "39a27b7661cf3562d45ebbb43b90b56628e23fcf0f34bff959c97455ca2726a3",
+      "access": {
+        "batch": "initial-beta",
+        "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
+      },
+      "source": {
+        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.27.1.zip",
+        "size": 140064900,
+        "sha256": "2c49795e39acb921d30472df67f060c7a235cfdd3ff35b93c5d5b01570c44eb6",
+        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.27.1/MisterZine-Plex-Core-Source-beta-0.1.0-beta.27.1.zip"
+      }
+    }
+  },
+  "legacy_pin": [
+    "beta"
+  ]
 }
