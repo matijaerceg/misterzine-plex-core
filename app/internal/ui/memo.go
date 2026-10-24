@@ -29,8 +29,8 @@ var memos = []memo{
 	},
 	{
 		ID:    "2026-10-beta28",
-		Title: "Welcome to beta.28",
-		Text:  "Beta 28 is a major release and moves the core to Ben Owen's new H.264 decoder. If the in-app update showed this as beta 27.1, the update automatically bumped you to beta 28. Thanks for testing! -Matija",
+		Title: "Welcome to beta 28 and up",
+		Text:  "Beta 28 and up move the core to Ben Owen's new H.264 decoder. If the in-app update showed this as beta 27.1, the update automatically bumped you to beta 28 or newer. Thanks for testing! -Matija",
 	},
 }
 
