@@ -24,23 +24,23 @@
   },
   "current": {
     "beta": {
-      "id": "beta-0.1.0-beta.27.1",
-      "version": "0.1.0-beta.27.1",
+      "id": "beta-0.1.0-beta.28",
+      "version": "0.1.0-beta.28",
       "channel": "beta",
-      "notes": "# MisterZine Plex Core 0.1.0-beta.27.1\n\nA stepping stone from beta.27: the 0.1.0-beta.28 app, worker, FFmpeg and\nH.264 decoder core, packaged so that the updater installed with beta.27 can\ninstall them. After it starts, Updates offers 0.1.0-beta.28 itself.\n\n- Everything beta.28 brings is already in it; see the beta.28 notes for the\n  new playback path, scrub previews, the playback looks and the supporter\n  extras.\n- Settings, sign-in and codes are kept. Rollback keeps the previous release.\n- The output is chosen in the core's on-screen menu from now on.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.27.1/MisterZine-Plex-Core-beta-0.1.0-beta.27.1.zip",
+      "notes": "# MisterZine Plex Core 0.1.0-beta.28\n\nUpdating from 0.1.0-beta.27 or earlier: Updates offers 0.1.0-beta.27.1 first,\nthe stepping stone the old updater can install; this release follows from\nthere.\n\nA new playback path: video is now decoded by an H.264 decoder core on the\nMiSTer's FPGA, which replaces the previous core. Scrubbing shows frames of the\nfilm, the playback controls come in four looks, and supporters get a choice of\nHome logo and a Random tab.\n\n- From this release on, a release installs itself: the updater on the card\n  fetches and verifies the download, and the release's own installer puts it\n  in place and starts it. Later releases can change what the package contains\n  without a stepping stone like 0.1.0-beta.27.1.\n- Files the core can decode (H.264 High or Main, 8-bit, up to 1280x720) are\n  streamed as stored, without a transcode on the server. Everything else is\n  transcoded by your Plex server to H.264, up to 720p. If a stream played as\n  stored falls behind, playback switches once to a transcode at the same\n  position.\n- The output is now chosen in the core's on-screen menu: 480i60 (the default),\n  480p60, 576i50, 576p50 and Native HDMI, with a 4:3 or 16:9 Display Shape,\n  Refresh Rate Match, 240p Playback, Play 24fps at 25fps and De-flicker. PAL\n  displays are supported through the 576-line modes. **Video geometry** in\n  Options is now **Video calibration**.\n- Holding Left or Right on the scrubber shows a frame of the film at the dot,\n  when your Plex server has made video preview thumbnails for it. Playback\n  pauses while the hold runs and resumes at the seek. A dark box with the\n  wait dots stands in for a frame that is still loading.\n- Text subtitles (SRT, ASS/SSA, WebVTT) are drawn by the app, as white type\n  with a thin dark outline. **Subtitle background** in Options puts them on a\n  translucent box instead. Choosing, hiding or resizing them never restarts\n  the video, and a file with text subtitles can still play as stored. Picture\n  subtitles are still burned in by the server.\n- **Playback UI theme** chooses the look of the playback controls: Standard,\n  Icons, VCR or VCR without its band. The looks other than Standard are a\n  supporter extra.\n- **More** in the playback controls is one list: Crop, Downmix boost,\n  Subtitle size, Autoplay next and Video bitrate change in place with Left and\n  Right, and Playback info shows direct play or transcode, the picture, the\n  sound and the decoder's late frames.\n- **Video bitrate** offers 0.4, 1, 2, 3, 4, 6 and 8 Mbps (the default). The\n  steps below 3 Mbps are for weak Wi-Fi and also make the transcoded picture\n  smaller.\n- Supporter extras: **Home logo** draws the wordmark, MisterKun or no logo on\n  Home; the **Random** tab in libraries is out of beta and no longer needs\n  Show beta features. Each row carries the purple star; OK on a locked row\n  opens the code entry.\n- A library wall rounds from its last row to its first, a held direction\n  keeps up with the pictures, and letter jumps fetch nothing until they stop.\n  Continue Watching comes from the server's own list, and **Forget my\n  progress** clears an item's resume point.\n- Space or P on a USB keyboard pauses and resumes in one press. During\n  playback the first Back clears what is on screen, and a second Back within\n  half a second is ignored, so a double press no longer stops the video.\n- The progress bar shows how much is downloaded; a seek inside that range\n  reuses it. Surround sound is folded to stereo on the MiSTer when a file\n  plays as stored, with the same Surround downmix boost.\n- FFmpeg now comes inside the release; the installer no longer downloads it.\n  Each release's source is published beside it on GitHub.\n\nRollback to the previous release still works and brings back its core.\nNetwork seeking, server compatibility and different hardware setups remain\nbeta test areas.\n\nInstallers and update notices become available when this release and its\ncatalogue are published. See README.md for setup and feedback instructions.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.28/MisterZine-Plex-Core-beta-0.1.0-beta.28.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 13754651,
-      "sha256": "39a27b7661cf3562d45ebbb43b90b56628e23fcf0f34bff959c97455ca2726a3",
+      "size": 13754600,
+      "sha256": "b1bda6e92ef80b8267471933833f6f8f54e747b5a26f42674991abcb83f60f4d",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
       },
       "source": {
-        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.27.1.zip",
+        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.28.zip",
         "size": 140064900,
         "sha256": "2c49795e39acb921d30472df67f060c7a235cfdd3ff35b93c5d5b01570c44eb6",
-        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.27.1/MisterZine-Plex-Core-Source-beta-0.1.0-beta.27.1.zip"
+        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.28/MisterZine-Plex-Core-Source-beta-0.1.0-beta.28.zip"
       }
     }
   },
