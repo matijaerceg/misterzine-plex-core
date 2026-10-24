@@ -22,6 +22,10 @@ every video with subtitles the server burns in (picture subtitles such as
 PGS), is converted by the server. Run **Update All** or **Downloader** first so
 MiSTer Linux is current: the installer fails on older system images.
 
+The server must be reachable over IPv4. MiSTer Linux is built without IPv6, so
+no MiSTer app can reach a server that is only on IPv6: use the local network, an
+IPv4 route to the server, or Plex Relay, which the app tries on its own.
+
 1. Download the Public or Beta installer from
    [Releases](https://github.com/matijaerceg/misterzine-plex-core/releases)
    and put it in the SD card's `Scripts` folder. Choose Public for free releases or Beta for paid early access, when available
