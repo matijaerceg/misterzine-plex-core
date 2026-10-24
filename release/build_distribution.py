@@ -51,7 +51,12 @@ def installer(out, name, channel=None, pinned=None, database=None):
         '#!/bin/bash\npython3 /media/fat/misterzine-plex/update_service.py uninstall "$@"\n', newline='\n')
 
 
-def build(package, tag, notes, out, previous=None, source_archive=None, pin_legacy=False):
+def build(package, tag, notes, out, previous=None, source_archive=None, pin_legacy=False, memos=None):
+    """Write the distribution files for one release into out.
+
+    memos replaces the catalogue's notes (a list, see catalogue.memos); None
+    carries the previous catalogue's notes over unchanged.
+    """
     out.mkdir(parents=True, exist_ok=True)
     if not catalogue.IDENT.fullmatch(tag):
         raise ValueError('Invalid release tag')
@@ -100,6 +105,11 @@ def build(package, tag, notes, out, previous=None, source_archive=None, pin_lega
             pins.append(channel)
     if pins:
         cat['legacy_pin'] = pins
+    if memos is not None:
+        cat['memos'] = memos
+    if not cat.get('memos'):
+        cat.pop('memos', None)
+    catalogue.memos(cat)
     catalogue.catalogue(cat)
     for missing in {'public', 'beta'} - set(catalogue.offered_channels(cat)):
         (out / ('MisterZine-Plex-Install-' + missing.title() + '.sh')).unlink(missing_ok=True)
@@ -129,7 +139,8 @@ if __name__ == '__main__':
     p.add_argument('--source-archive', type=Path)
     p.add_argument('--pin-legacy', action='store_true',
                    help='freeze this release as the entry cards from beta.27 and earlier install')
+    p.add_argument('--memos', type=Path, help='JSON list of notes replacing the catalogue\'s (see publish_memos.py)')
     args = p.parse_args()
     build(args.package, args.tag, args.notes.read_text(), args.out,
           json.loads(args.previous.read_text()) if args.previous else None, args.source_archive,
-          args.pin_legacy)
+          args.pin_legacy, json.loads(args.memos.read_text()) if args.memos else None)

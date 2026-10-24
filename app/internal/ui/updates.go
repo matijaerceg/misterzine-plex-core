@@ -73,11 +73,13 @@ func (a *App) checkUpdates(manual bool, now time.Time) {
 				a.updates.nextCheck = time.Now().Add(5 * time.Minute)
 				if cacheErr == nil && a.updates.catalogue.Releases == nil {
 					a.updates.catalogue = cached
+					a.memoChecked = false // its memos get a look (memo.go)
 				}
 				return
 			}
 			a.updates.catalogue = c
 			a.updates.checked = started
+			a.memoChecked = false
 		})
 	}()
 }

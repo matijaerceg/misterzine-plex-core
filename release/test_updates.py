@@ -1325,6 +1325,56 @@ class UpdateTests(unittest.TestCase):
         self.assertNotIn('legacy_pin', cat)
         self.assertTrue((self.fixture / 'out/MisterZine-Plex-Install-Public.sh').exists())
 
+    def test_memos_validate_for_tooling_but_never_cost_cards_the_catalogue(self):
+        r, _, _ = self.release('one')
+        note = {'id': '2026-11-a', 'title': 'Heads up', 'text': 'A note.'}
+        cat = {'schema': 1, 'releases': {'public': r}, 'memos': [note]}
+        self.assertEqual(catalogue.memos(cat), [note])
+        self.assertEqual(catalogue.memos({'schema': 1, 'releases': {}}), [])
+        for bad in ([dict(note, id='bad id')], [dict(note, id='')], [note, dict(note, title='Again')],
+                    [dict(note, title=' Padded')], [dict(note, text='Tab\there')], [dict(note, text='')],
+                    [dict(note, text='x' * (catalogue.MEMO_TEXT_MAX + 1))], [dict(note, extra=1)],
+                    [{'id': '2026-11-b', 'title': 'No text'}], 'none',
+                    [dict(note, id='m%d' % i) for i in range(catalogue.MEMOS_MAX + 1)]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                catalogue.memos(dict(cat, memos=bad))
+        # The card-side validator leaves the key alone: a typo in a note must
+        # not stop updates, and the app drops what it cannot show.
+        catalogue.catalogue(dict(cat, memos='none'))
+        self.assertEqual(catalogue.offered(dict(cat, memos='none'), 'public'), r)
+
+    def test_release_publishes_carry_memos_and_publish_memos_replaces_them(self):
+        def written(out):
+            return json.loads((out / 'catalogue.json').read_text())
+        note = {'id': '2026-11-a', 'title': 'Heads up', 'text': 'A note.'}
+        _, one, _ = self.release('one')
+        build_distribution.build(one, 'v1.0.0', 'One', self.fixture / 'one', memos=[note])
+        cat = written(self.fixture / 'one')
+        self.assertEqual(cat['memos'], [note])
+        # A later release carries the notes over; one that passes a list replaces them.
+        _, two, _ = self.release('two')
+        build_distribution.build(two, 'v1.0.1', 'Two', self.fixture / 'two', cat)
+        self.assertEqual(written(self.fixture / 'two')['memos'], [note])
+        reworded = dict(note, text='A reworded note.')
+        build_distribution.build(two, 'v1.0.1', 'Two', self.fixture / 'three', cat, memos=[reworded])
+        self.assertEqual(written(self.fixture / 'three')['memos'], [reworded])
+        build_distribution.build(two, 'v1.0.1', 'Two', self.fixture / 'four', cat, memos=[])
+        self.assertNotIn('memos', written(self.fixture / 'four'))
+        with self.assertRaises(ValueError):
+            build_distribution.build(two, 'v1.0.1', 'Two', self.fixture / 'five', cat, memos=[dict(note, id='bad id')])
+        # publish_memos changes only the notes, and withdraws them with an empty list.
+        import publish_memos
+        later = dict(note, id='2026-12-b')
+        publish_memos.publish([note, later], self.fixture / 'memos', previous=written(self.fixture / 'two'))
+        after = written(self.fixture / 'memos')
+        self.assertEqual(after['memos'], [note, later])
+        self.assertEqual({k: v for k, v in after.items() if k != 'memos'},
+                         {k: v for k, v in written(self.fixture / 'two').items() if k != 'memos'})
+        publish_memos.publish([], self.fixture / 'none', previous=after)
+        self.assertNotIn('memos', written(self.fixture / 'none'))
+        with self.assertRaises(ValueError):
+            publish_memos.publish([dict(note, title='')], self.fixture / 'bad', previous=after)
+
     def test_channel_install_takes_the_current_entry(self):
         old, _, _ = self.release('bridge')
         new = dict(old, id='newest', version='1.0.1')

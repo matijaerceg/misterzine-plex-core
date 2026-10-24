@@ -115,6 +115,29 @@ which every later publish rewrites. Never edit or delete a pinned legacy
 entry, by hand or with the tools: old cards may update from it at any time,
 and publishing refuses a pinned channel whose entry is missing.
 
+## Memos
+
+`catalogue.json` may hold `memos`, a list of short notes from the developers,
+each `{"id", "title", "text"}`. The app shows the first note not yet dismissed
+over Home, once per id, and remembers dismissed ids in its config; a published
+note with the id of one compiled into the app replaces that note's text. So a
+note can be added, reworded or withdrawn between releases:
+
+```
+python3 release/publish_memos.py --show
+python3 release/publish_memos.py --memos notes.json            # inspect dist/distribution/catalogue.json
+python3 release/publish_memos.py --memos notes.json --publish
+```
+
+The list replaces the catalogue's notes whole and touches nothing else; an
+empty list withdraws them all. A reworded note keeps its id and reaches only
+cards that have not dismissed it; a note meant for everyone again takes a new
+id. Ids are up to 64 characters of letters, digits, `.`, `_` and `-`; titles up
+to 80 bytes, texts up to 600, at most 20 notes. A release publish carries the
+notes over unchanged unless given `--memos`. Cards validate the release entries
+only and the app drops a note it cannot show, so a mistake in a note never
+stops updates; the publishing tools refuse one.
+
 If publication stops after uploading, inspect the existing draft/published release
 and branch before retrying. Do not overwrite an existing release to bypass a hash
 failure. If the final push loses a race, regenerate against the latest catalogue

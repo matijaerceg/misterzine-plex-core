@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"plexcrt/internal/input"
+	"plexcrt/internal/updates"
 )
 
 var testMemos = []memo{{ID: "test-a", Title: "A", Text: "First note."}, {ID: "test-b", Title: "B", Text: "Second note."}}
@@ -184,5 +185,46 @@ func TestShowMemoNothingWhenAllSeen(t *testing.T) {
 	b.showMemo()
 	if len(b.stack) != 2 {
 		t.Fatalf("stack %d", len(b.stack))
+	}
+}
+
+func TestPublishedMemosRewordOrFollowTheCompiledOnes(t *testing.T) {
+	published := []updates.Memo{
+		{ID: "test-b", Title: "B2", Text: "Second note, reworded."},
+		{ID: "2026-11-new", Title: "New", Text: "Published later."},
+	}
+	got := mergeMemos(testMemos, published)
+	want := []memo{testMemos[0], {ID: "test-b", Title: "B2", Text: "Second note, reworded."}, {ID: "2026-11-new", Title: "New", Text: "Published later."}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("merged %+v", got)
+	}
+	if !slices.Equal(mergeMemos(testMemos, nil), testMemos) {
+		t.Fatal("no published memos changed the list")
+	}
+	// A catalogue that arrives after the first look brings its memo up on
+	// Home; one already dismissed stays away.
+	cfg := &Config{path: filepath.Join(t.TempDir(), "config.json")}
+	for _, m := range memos {
+		cfg.SeenMemos = append(cfg.SeenMemos, m.ID)
+	}
+	a := &App{Cfg: cfg, stack: []Screen{&Home{home: true}}}
+	a.showMemo()
+	if len(a.stack) != 1 || !a.memoChecked {
+		t.Fatal("a memo with nothing published")
+	}
+	a.updates.catalogue.Memos = []updates.Memo{{ID: "2026-11-new", Title: "New", Text: "Published later."}}
+	a.memoChecked = false // as checkUpdates does when a catalogue lands
+	a.showMemo()
+	p, ok := a.top().(*MemoPage)
+	if !ok || p.m.ID != "2026-11-new" {
+		t.Fatalf("top %T", a.top())
+	}
+	t0 := time.Now()
+	a.key(input.Event{Key: input.Enter}, t0)
+	a.key(input.Event{Key: input.Enter, Release: true}, t0.Add(MemoHold))
+	a.memoChecked = false
+	a.showMemo()
+	if len(a.stack) != 1 {
+		t.Fatal("a dismissed published memo came back")
 	}
 }

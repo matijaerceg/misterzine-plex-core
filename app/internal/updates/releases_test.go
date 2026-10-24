@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -260,5 +261,47 @@ func TestCatalogueSlots(t *testing.T) {
 	}
 	if got, err := Cached(root); err != nil || got.Current["public"].ID != "newest" || len(got.LegacyPin) != 1 {
 		t.Fatalf("cache round trip: %+v, %v", got, err)
+	}
+}
+
+func TestCatalogueMemosAreKeptWhenValidAndNeverFatal(t *testing.T) {
+	r := fixture()
+	enc := func(v any) string { b, _ := json.Marshal(v); return string(b) }
+	long := strings.Repeat("x", MemoTextMax+1)
+	raw := `{"schema":1,"releases":{"public":` + enc(r) + `},"memos":[` +
+		`{"id":"2026-10-a","title":"A","text":"First."},` +
+		`{"id":"bad id","title":"B","text":"Space in the id."},` +
+		`{"id":"2026-10-a","title":"Dup","text":"Same id again."},` +
+		`{"id":"2026-10-c","title":"C","text":"` + long + `"},` +
+		`{"id":"2026-10-d","title":"D","text":"Tab\there."},` +
+		`{"id":"2026-10-e","title":" E","text":"Padded title."},` +
+		`{"id":"2026-10-f","title":"F","text":"Last."}]}`
+	c, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatal("memos cost the catalogue:", err)
+	}
+	if len(c.Memos) != 2 || c.Memos[0].ID != "2026-10-a" || c.Memos[1].ID != "2026-10-f" {
+		t.Fatalf("memos %+v", c.Memos)
+	}
+	if _, ok := c.Offered("public"); !ok {
+		t.Fatal("release lost")
+	}
+	// A cached catalogue keeps them; one without any still parses.
+	root := t.TempDir()
+	if err := SaveCache(root, c); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Cached(root); err != nil || len(got.Memos) != 2 {
+		t.Fatalf("cache round trip: %+v, %v", got.Memos, err)
+	}
+	if c, err := Parse([]byte(`{"schema":1,"releases":{"public":` + enc(r) + `}}`)); err != nil || c.Memos != nil {
+		t.Fatalf("no memos: %v %+v", err, c.Memos)
+	}
+	many := make([]Memo, MemosMax+5)
+	for i := range many {
+		many[i] = Memo{ID: "m" + strconv.Itoa(i), Title: "T", Text: "t"}
+	}
+	if c, _ := Parse([]byte(`{"schema":1,"releases":{"public":` + enc(r) + `},"memos":` + enc(many) + `}`)); len(c.Memos) != MemosMax {
+		t.Fatalf("%d memos kept", len(c.Memos))
 	}
 }

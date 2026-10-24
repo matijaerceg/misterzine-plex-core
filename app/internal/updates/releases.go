@@ -57,6 +57,61 @@ type Catalogue struct {
 	Releases  map[string]Release `json:"releases"`
 	Current   map[string]Release `json:"current,omitempty"`
 	LegacyPin []string           `json:"legacy_pin,omitempty"`
+	Memos     []Memo             `json:"memos,omitempty"`
+}
+
+// A Memo is a note from the developers published with the catalogue, so one
+// can be added, reworded or withdrawn without an app release. The app shows
+// each id once (internal/ui, memo.go); a memo with the id of one compiled
+// into the app replaces its text.
+type Memo struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Text  string `json:"text"`
+}
+
+const (
+	MemoTitleMax = 80
+	MemoTextMax  = 600
+	MemosMax     = 20
+)
+
+var memoID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+
+// Valid says whether a memo can be shown: a plain id, a title and text of
+// printable characters within the limits.
+func (m Memo) Valid() bool {
+	plain := func(s string, max int) bool {
+		if s == "" || len(s) > max || strings.TrimSpace(s) != s {
+			return false
+		}
+		for _, r := range s {
+			if r < 0x20 || r == 0x7f {
+				return false
+			}
+		}
+		return true
+	}
+	return memoID.MatchString(m.ID) && plain(m.Title, MemoTitleMax) && plain(m.Text, MemoTextMax)
+}
+
+// validMemos keeps the memos that can be shown, in order, the first of each
+// id, up to MemosMax. A bad memo never costs the catalogue: that would stop
+// updates for everyone over a typo in a note.
+func validMemos(list []Memo) []Memo {
+	var out []Memo
+	seen := map[string]bool{}
+	for _, m := range list {
+		if !m.Valid() || seen[m.ID] {
+			continue
+		}
+		seen[m.ID] = true
+		out = append(out, m)
+		if len(out) == MemosMax {
+			break
+		}
+	}
+	return out
 }
 
 // Offered is the release this build installs for a channel: the current
@@ -131,6 +186,7 @@ func Parse(data []byte) (Catalogue, error) {
 			ids[r.ID] = true
 		}
 	}
+	c.Memos = validMemos(c.Memos)
 	return c, nil
 }
 func Fetch(ctx context.Context, client *http.Client, address string) (Catalogue, error) {

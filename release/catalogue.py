@@ -90,6 +90,35 @@ def catalogue(value):
     return value
 
 
+MEMO_ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}')
+MEMO_TITLE_MAX, MEMO_TEXT_MAX, MEMOS_MAX = 80, 600, 20
+
+
+def memos(value):
+    """Check the catalogue's "memos": notes the app shows once over Home.
+
+    Publishing tools call this so a bad note never reaches the catalogue. Cards
+    do not: the app drops a note it cannot show rather than refuse the whole
+    catalogue, and catalogue() leaves the key alone for the same reason.
+    """
+    notes = value.get('memos', [])
+    if not isinstance(notes, list) or len(notes) > MEMOS_MAX:
+        raise ValueError('Invalid memos')
+    ids = set()
+    for note in notes:
+        if not isinstance(note, dict) or set(note) != {'id', 'title', 'text'}:
+            raise ValueError('Invalid memo')
+        if not isinstance(note['id'], str) or not MEMO_ID.fullmatch(note['id']) or note['id'] in ids:
+            raise ValueError('Invalid memo id')
+        ids.add(note['id'])
+        for name, limit in (('title', MEMO_TITLE_MAX), ('text', MEMO_TEXT_MAX)):
+            text = note[name]
+            if (not isinstance(text, str) or not text or len(text.encode()) > limit or text.strip() != text
+                    or any(ord(c) < 32 or ord(c) == 127 for c in text)):
+                raise ValueError('Invalid memo ' + name)
+    return notes
+
+
 def offered(value, channel):
     """The entry this card installs for a channel, or None.
 

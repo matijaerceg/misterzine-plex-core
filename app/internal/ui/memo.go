@@ -6,6 +6,7 @@ import (
 
 	"plexcrt/internal/gfx"
 	"plexcrt/internal/input"
+	"plexcrt/internal/updates"
 )
 
 // A memo is a short note from the developers, bundled with the release. Each
@@ -46,8 +47,27 @@ func unseenMemo(cfg *Config, list []memo) (memo, bool) {
 	return memo{}, false
 }
 
-// showMemo puts the unseen memo, if any, over Home once per run: only when
-// Home is on top and connected, with no playback or stream start in the way.
+// mergeMemos is the compiled list with the catalogue's memos laid over it: a
+// published memo with a compiled one's id rewords it in place, any other is
+// added after. So a note can be published, changed or, by a new id, shown
+// again without an app release, and the compiled notes still show offline.
+func mergeMemos(compiled []memo, published []updates.Memo) []memo {
+	out := slices.Clone(compiled)
+	for _, p := range published {
+		m := memo{ID: p.ID, Title: p.Title, Text: p.Text}
+		if i := slices.IndexFunc(out, func(c memo) bool { return c.ID == p.ID }); i >= 0 {
+			out[i] = m
+		} else {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// showMemo puts the unseen memo, if any, over Home: only when Home is on
+// top and connected, with no playback or stream start in the way. It looks
+// once per run, and again when a catalogue arrives (updates.go), since the
+// first look usually comes before the MiSTer has its network.
 func (a *App) showMemo() {
 	if a.memoChecked || a.playing || !a.Starting.IsZero() || len(a.stack) == 0 {
 		return
@@ -57,7 +77,7 @@ func (a *App) showMemo() {
 		return // not Home, or Home still connecting: wait for it
 	}
 	a.memoChecked = true
-	if m, ok := unseenMemo(a.Cfg, memos); ok {
+	if m, ok := unseenMemo(a.Cfg, mergeMemos(memos, a.updates.catalogue.Memos)); ok {
 		a.Push(&MemoPage{app: a, m: m})
 	}
 }

@@ -20,9 +20,10 @@ def run(*args, cwd=None):
     return subprocess.run(args, cwd=cwd, check=True, text=True, stdout=subprocess.PIPE).stdout
 
 
-def publish(package, tag, notes, out, perform=False, previous=None, source_archive=None, pin_legacy=False):
+def publish(package, tag, notes, out, perform=False, previous=None, source_archive=None, pin_legacy=False,
+            memos=None):
     package = package.resolve()
-    release = build_distribution.build(package, tag, notes, out, previous, source_archive, pin_legacy)
+    release = build_distribution.build(package, tag, notes, out, previous, source_archive, pin_legacy, memos)
     source_asset = Path(source_archive).resolve() if source_archive else package.parent / release['source']['filename']
     with tempfile.TemporaryDirectory(prefix='plex-verify-') as tmp:
         update_service.unpack(package, Path(tmp), release)
@@ -44,7 +45,7 @@ def publish(package, tag, notes, out, perform=False, previous=None, source_archi
         if previous and any(r['id'] == release['id'] for slot in ('releases', 'current')
                             for r in previous.get(slot, {}).values()):
             raise ValueError('This release ID is already published')
-        build_distribution.build(package, tag, notes, out, previous, source_asset, pin_legacy)
+        build_distribution.build(package, tag, notes, out, previous, source_asset, pin_legacy, memos)
         note_file = checkout / 'release-notes.txt'
         note_file.write_text(notes)
         checksum = out / (package.name + '.sha256')
@@ -80,6 +81,8 @@ if __name__ == '__main__':
     p.add_argument('--source-archive',type=Path)
     p.add_argument('--publish',action='store_true')
     p.add_argument('--pin-legacy',action='store_true')
+    p.add_argument('--memos',type=Path,help='JSON list of notes replacing the catalogue\'s (see publish_memos.py)')
     a=p.parse_args()
     publish(a.package,a.tag,a.notes.read_text(),a.out,a.publish,
-            json.loads(a.previous.read_text()) if a.previous else None, a.source_archive, a.pin_legacy)
+            json.loads(a.previous.read_text()) if a.previous else None, a.source_archive, a.pin_legacy,
+            json.loads(a.memos.read_text()) if a.memos else None)
