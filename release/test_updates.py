@@ -1426,6 +1426,33 @@ class UpdateTests(unittest.TestCase):
         with patch.object(publish, 'run', side_effect=AssertionError('unexpected remote action')):
             publish.publish(archive,'v1.0.0','Synthetic notes',self.fixture/'publish')
 
+    def test_publishing_starts_from_a_catalogue_written_before_source_metadata(self):
+        # The published catalogue may still hold an entry from before the
+        # corresponding-source metadata existed; publishing on top of it must
+        # not refuse it, since build() replaces the channel being published.
+        old, _, _ = self.release('old', 'beta')
+        old = {k: v for k, v in old.items() if k != 'source'}
+        _, archive, _ = self.release('next', 'beta')
+        checkout = {}
+
+        def fake_run(*args, cwd=None):
+            if args[:2] == ('git', 'init'):
+                checkout['path'] = Path(args[-1])
+            elif args[:2] == ('git', 'ls-remote'):
+                return 'abc\trefs/heads/distribution\n'
+            elif args[:2] == ('git', 'fetch'):
+                (checkout['path'] / 'catalogue.json').write_text(
+                    json.dumps({'schema': 1, 'releases': {'beta': old}}))
+            return ''
+        with patch.object(publish, 'run', side_effect=fake_run):
+            publish.publish(archive, 'v1.1.0-beta.1', 'Synthetic notes', self.fixture / 'publish', perform=True,
+                            previous={'schema': 1, 'releases': {'beta': old}})
+        cat = json.loads((self.fixture / 'publish/catalogue.json').read_text())
+        self.assertEqual(cat['current']['beta']['id'], 'next')
+        self.assertEqual(cat['releases']['beta']['id'], 'next')
+        self.assertNotIn('public', cat['releases'])
+        self.assertTrue(checkout['path'])  # the branch was checked out and the publish ran through
+
 
 class FailureReasonTests(UpdateTests):
     """Every way activation can go wrong leaves its reason in the status the

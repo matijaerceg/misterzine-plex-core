@@ -41,7 +41,10 @@ def publish(package, tag, notes, out, perform=False, previous=None, source_archi
             run('git', 'fetch', '--depth=1', 'origin', 'distribution', cwd=checkout)
             run('git', 'reset', '--hard', 'FETCH_HEAD', cwd=checkout)
         old = checkout / 'catalogue.json'
-        previous = catalogue.catalogue(json.loads(old.read_text())) if old.exists() else None
+        # Not validated here: a catalogue written before the corresponding-source
+        # metadata existed is a valid starting point, and build() replaces the
+        # channel being published before it validates the rest.
+        previous = json.loads(old.read_text()) if old.exists() else None
         if previous and any(r['id'] == release['id'] for slot in ('releases', 'current')
                             for r in previous.get(slot, {}).values()):
             raise ValueError('This release ID is already published')
