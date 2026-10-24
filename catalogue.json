@@ -46,5 +46,12 @@
   },
   "legacy_pin": [
     "beta"
+  ],
+  "memos": [
+    {
+      "id": "2026-10-beta28",
+      "title": "Welcome to beta 28 and up",
+      "text": "Beta 28 and up move the core to Ben Owen's new H.264 decoder. If the in-app update showed this as beta 27.1, the update automatically bumped you to beta 28 or newer. Thanks for testing! -Matija"
+    }
   ]
 }
