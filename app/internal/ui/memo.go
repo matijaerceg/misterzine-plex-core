@@ -26,6 +26,11 @@ var memos = []memo{
 		Title: "Close to stable release!",
 		Text:  "We're close to a stable first release. Thanks for your support and issue reports so far! If you run into anything, please report it on Discord, GitHub or the MiSTer forum. -Matija",
 	},
+	{
+		ID:    "2026-10-beta28",
+		Title: "Welcome to beta.28",
+		Text:  "This release moves to the new H.264 core and player. If Updates offered this as 0.1.0-beta.27.1, that was the same release packaged so older installs could take it. You are on beta.28 now and will get future updates as usual. Thanks for testing! -Matija",
+	},
 }
 
 // MemoHold is how long OK must be held to dismiss a memo.
