@@ -9,7 +9,7 @@ module display_240_map_tb;
   reg [11:0] lines = 480;
   always #5 clk = ~clk;
 
-  disp_reader reader (
+  disp_reader reader (.gradient_dither(1'b0),
     .clk(clk), .ce(ce), .rst_n(rst_n), .h_pos(h_pos), .v_pos(v_pos), .de_in(1'b0),
     .il(il), .prog240(prog240), .pal(pal), .lines(lines), .last_line(last_line)
   );

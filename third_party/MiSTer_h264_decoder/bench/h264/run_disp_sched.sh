@@ -108,7 +108,7 @@ build() {   # src-root obj-dir -> 0 on success
   for f in $RTL; do files="$files $src/$f"; done
   for f in $TB; do files="$files $ROOT/$f"; done
   # shellcheck disable=SC2086
-  (cd "$src" && verilator --binary --timing -Wno-fatal -Wno-lint -Wno-style -j 8 --top-module disp_sched_tb \
+  (cd "$src" && verilator -Ih264 --binary --timing -Wno-fatal -Wno-lint -Wno-style -j 8 --top-module disp_sched_tb \
       -I"$src" --Mdir "$obj" $files) > "$obj.log" 2>&1
 }
 SC=$(python3 tools/disp_sched_ref.py --list)

@@ -88,7 +88,7 @@ module vid_equiv_tb;
     disp_reader #(.DPB_BASE(BASE)) rdr (
         .clk(clk),
 `ifndef MAIN_RTL
-        .ce(ce),
+        .gradient_dither(1'b0), .ce(ce),
 `endif
         .rst_n(rst_n), .h_pos, .v_pos, .de_in(pixel_en), .il, .pal, .lines(sg_lines), .last_line(sg_last),
         .pic_valid(1'b1), .pic_store(5'd17), .pic_field(1'b0), .pic_w_mbs(w_mbs), .pic_hf_mbs(hf_mbs),

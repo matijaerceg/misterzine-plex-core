@@ -151,3 +151,6 @@ set_max_delay -from [get_keepers {*ring_rd:*|pdw* *ring_rd:*|h0* *ring_rd:*|pts*
 set_max_delay -from [get_keepers {*pic_in:*|pd_ack*}]  -to [get_keepers {*ring_rd:*|pa_s1*}] 8.000
 set_max_delay -from [get_keepers {*pic_in:*|pd_busy*}] -to [get_keepers {*ring_rd:*|pb_s1*}] 8.000
 
+
+# OSD level enters the video domain through a two-flop synchronizer.
+set_false_path -to [get_registers {*|disp_reader_inst|gd_sync1}]

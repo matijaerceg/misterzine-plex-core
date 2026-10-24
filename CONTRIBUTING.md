@@ -66,7 +66,7 @@ Run the standalone raster bench from the vendored core directory:
 
 ```sh
 cd third_party/MiSTer_h264_decoder
-iverilog -g2012 -I. -o /tmp/sync_gen_240_tb h264/sync_gen.sv bench/h264/sync_gen_240_tb.sv
+iverilog -g2012 -I. -Ih264 -o /tmp/sync_gen_240_tb h264/sync_gen.sv bench/h264/sync_gen_240_tb.sv
 vvp /tmp/sync_gen_240_tb
 ```
 

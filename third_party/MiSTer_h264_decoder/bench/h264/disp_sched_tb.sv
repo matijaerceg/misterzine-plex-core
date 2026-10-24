@@ -124,7 +124,7 @@ wire [7:0]  d_burst;
 wire        d_read, d_wait, d_rdv;
 wire [63:0] d_rdata;
 wire [31:0] fetch_changes;
-disp_reader #(.DPB_BASE(BASE)) u_rd ( .lines(sg_lines), .last_line(sg_last),
+disp_reader #(.DPB_BASE(BASE)) u_rd (.gradient_dither(1'b0), .lines(sg_lines), .last_line(sg_last),
     .clk(sclk), .ce(1'b1), .rst_n(srst_n), .h_pos(h_pos), .v_pos(v_pos), .il(il), .pal(std == 2'd2), .de_in(1'b1),
     .pic_valid(sh_valid), .pic_store(sh_store), .pic_field(sh_field), .pic_w_mbs(sh_w), .pic_hf_mbs(sh_hf),
     .pic_parity(sh_parity), .pic_single(sh_single), .deint_mode(2'd2), .pic_colour(3'd1), .pic_siting(6'd0),

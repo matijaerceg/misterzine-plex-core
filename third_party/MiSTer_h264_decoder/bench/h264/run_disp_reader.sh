@@ -151,7 +151,7 @@ run_arm() {  # label sim-files tb marker plusargs
   local label=$1 files=$2 tb=$3 marker=$4 args=$5
   # shellcheck disable=SC2086
   rm -f .sim/${label}_sim   # iverilog leaves the old binary on a failed build: never run it
-  iverilog -g2012 -o .sim/${label}_sim $files $tb 2>&1 | grep -v "sorry\|warning"
+  iverilog -g2012 -Ih264 -o .sim/${label}_sim $files $tb 2>&1 | grep -v "sorry\|warning"
   # shellcheck disable=SC2086
   if [ -f .sim/${label}_sim ] && timeout 1200 vvp -n .sim/${label}_sim $args > .sim/${label}.log 2>&1 && grep -q "^PASS: $marker" .sim/${label}.log; then
     echo "  PASS $label: $(grep "^$marker:" .sim/${label}.log | sed "s/^$marker: //")"
@@ -166,7 +166,7 @@ DF="h264/sync_gen.sv h264/disp_fit.sv h264/disp_reader.sv $MODEL"
 DT=bench/h264/disp_reader_tb.sv
 # shellcheck disable=SC2086
 rm -f .sim/disp_sim   # iverilog leaves the old binary on a failed build: never run it
-iverilog -g2012 -o .sim/disp_sim $DF $DT 2>&1 | grep -v "sorry\|warning"
+iverilog -g2012 -Ih264 -o .sim/disp_sim $DF $DT 2>&1 | grep -v "sorry\|warning"
 disp_arm() {  # label plusargs -- one compile, the arms in parallel
   local label=$1 args=$2
   # shellcheck disable=SC2086
@@ -237,7 +237,7 @@ assert s.count(old) == 1, f"mutation anchor not unique/found: {old!r}"
 open(path, "w").write(s.replace(old, new))
 PYEOF
     # shellcheck disable=SC2086
-    if [ $? != 0 ] || ! iverilog -g2012 -o "$d/sim" "$d/$(basename "$file")" $others "$tb" 2>"$d/build.log"; then
+    if [ $? != 0 ] || ! iverilog -g2012 -Ih264 -o "$d/sim" "$d/$(basename "$file")" $others "$tb" 2>"$d/build.log"; then
       { echo "  $name: harness failure (anchor or build)"; echo MUTFAIL; } > "$RES/$name"; rm -rf "$d"; return
     fi
     # shellcheck disable=SC2086

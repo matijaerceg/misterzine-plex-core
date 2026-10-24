@@ -102,6 +102,7 @@ module disp_reader #(
     input  wire         clk,
     input  wire         ce,                // the dot: one clock in three on the 27 MHz rasters, every clock native
     input  wire         rst_n,
+    input  wire         gradient_dither,    // asynchronous OSD level; synchronized and latched per frame below
     input  wire  [11:0] h_pos,
     input  wire  [11:0] v_pos,
     input  wire         de_in,
@@ -701,6 +702,27 @@ module disp_reader #(
     wire  [1:0]  kern = !e_ko ? 2'd0 :
                         bob ? ((e_par == pic_parity) ? 2'd0 : 2'd1) :
                         (k_mode == 2'd2) ? 2'd2 : 2'd0;
+    // Dither only the final RGB precision reduction, before analog conversion.
+    // Same threshold for R/G/B preserves neutral grays. Stable frame coordinates
+    // avoid field-to-field pattern inversion. Two-dot pixels share a threshold.
+    `include "rgb_dither.svh"
+    (* async_reg = "true" *) logic gd_sync1, gd_sync2;
+    logic gd_frame;
+    logic [7:0] gd_pipe [0:6];
+    integer gd_i;
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            gd_sync1 <= 1'b0; gd_sync2 <= 1'b0; gd_frame <= 1'b0;
+            for (gd_i = 0; gd_i < 7; gd_i = gd_i + 1) gd_pipe[gd_i] <= 8'd128;
+        end else begin
+            gd_sync1 <= gradient_dither; gd_sync2 <= gd_sync1;
+            if (ce) begin
+                if (h_pos == 0 && v_pos == 0) gd_frame <= gd_sync2;
+                gd_pipe[0] <= gd_frame ? rgb_dither_rank(x[3:0], v_pos[3:0]) : 8'd128;
+                for (gd_i = 1; gd_i < 7; gd_i = gd_i + 1) gd_pipe[gd_i] <= gd_pipe[gd_i-1];
+            end
+        end
+    end
     logic signed [28:0] s0_k;
     logic [7:0]  s0_f, s0_wy;
     logic [1:0]  s0_sa, s0_sb, s0_sd, s0_kern;
@@ -931,9 +953,9 @@ module disp_reader #(
             p_dg <= $signed({1'b0, cf_bg}) * d2; p_eg <= $signed({1'b0, cf_rg}) * e2;
             s6_in <= s5_in;
             // stage 7: the sums
-            rr <= (p_c + p_ecr + 20'sd128) >>> 8;
-            gg <= (p_c - p_dg - p_eg + 20'sd128) >>> 8;
-            bb <= (p_c + p_dcb + 20'sd128) >>> 8;
+            rr <= (p_c + p_ecr + $signed({12'd0, gd_pipe[6]})) >>> 8;
+            gg <= (p_c - p_dg - p_eg + $signed({12'd0, gd_pipe[6]})) >>> 8;
+            bb <= (p_c + p_dcb + $signed({12'd0, gd_pipe[6]})) >>> 8;
             s7_in <= s6_in;
             // stage 8: the clip
             r <= !s7_in ? 8'd0 : (rr < 0) ? 8'd0 : (rr > 255) ? 8'd255 : rr[7:0];

@@ -88,9 +88,9 @@ if [ ! -d "$WT" ] || [ "$(git -C "$WT" rev-parse HEAD 2>/dev/null)" != "$MAIN_SH
 fi
 rm -f .sim/veq_main_sim .sim/veq_br_sim   # iverilog leaves the old binary on a failed build: never run it
 # shellcheck disable=SC2086
-( cd "$WT" && iverilog -g2012 -DMAIN_RTL -o "$ROOT/.sim/veq_main_sim" $RTL_MAIN "$ROOT/$MODEL" "$ROOT/$TB" 2>&1 | grep -v "sorry\|warning" )
+( cd "$WT" && iverilog -g2012 -Ih264 -DMAIN_RTL -o "$ROOT/.sim/veq_main_sim" $RTL_MAIN "$ROOT/$MODEL" "$ROOT/$TB" 2>&1 | grep -v "sorry\|warning" )
 # shellcheck disable=SC2086
-iverilog -g2012 -o .sim/veq_br_sim $RTL_BR $MODEL $TB 2>&1 | grep -v "sorry\|warning"
+iverilog -g2012 -Ih264 -o .sim/veq_br_sim $RTL_BR $MODEL $TB 2>&1 | grep -v "sorry\|warning"
 [ -f .sim/veq_main_sim ] && [ -f .sim/veq_br_sim ] || { echo "FAIL: build"; exit 1; }
 
 compare() {   # main-trace branch-trace -> "OK n" or "FAIL [class] ..."
@@ -167,7 +167,7 @@ open(os.path.join(d, f), 'w').write(s.replace(old, new))
 PYEOF
     [ -f "$RES/$name" ] && { rm -rf "$d"; return; }
     # shellcheck disable=SC2086
-    if ! ( cd "$d" && iverilog -g2012 -o "$d/sim" $RTL_BR "$ROOT/$MODEL" "$ROOT/$TB" 2> "$d/build.log" ); then
+    if ! ( cd "$d" && iverilog -g2012 -Ih264 -o "$d/sim" $RTL_BR "$ROOT/$MODEL" "$ROOT/$TB" 2> "$d/build.log" ); then
       { echo "  $name: DID NOT COMPILE (harness failure)"; echo MUTFAIL; } > "$RES/$name"; rm -rf "$d"; return
     fi
     local sc; for x in "${SCEN[@]}"; do [ "${x%%|*}" = "$scen" ] && sc=$x; done

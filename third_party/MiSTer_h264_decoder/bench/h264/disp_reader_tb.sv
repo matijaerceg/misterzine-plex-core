@@ -81,7 +81,7 @@ disp_fit fit (.clk(clk), .rst_n(rst_n), .w_mbs(w_mbs), .hf_mbs(hf_mbs), .crop(cr
     .geometry_clip_en(1'b0), .geometry_clip_x(12'd0), .geometry_clip_y(12'd0), .geometry_clip_w(12'd0), .geometry_clip_h(12'd0),
     .ow(f_ow), .oh(f_oh), .ox0(f_ox0), .oy0(f_oy0), .clip_en(f_clip_en), .clip_x(f_clip_x), .clip_y(f_clip_y), .clip_w(f_clip_w), .clip_h(f_clip_h), .sx(f_sx), .sy(f_sy),
     .dh_l2(f_dh), .dv_l2(f_dv), .wc(f_wc), .hc(f_hc), .lx(f_lx), .ty(f_ty), .crop_bad(), .snap(), .clamp(), .slide(f_slide), .lb(), .hpf(f_hpf), .vpf(f_vpf), .busy(f_busy));
-disp_reader #(.DPB_BASE(BASE)) dut ( .lines(sg_lines), .last_line(sg_last),.clk(clk), .ce(ce), .rst_n(rst_n), .h_pos(h_pos), .v_pos(v_pos), .de_in(pixel_en | test_de), .il(il), .pal(pal),
+disp_reader #(.DPB_BASE(BASE)) dut (.gradient_dither(1'b0), .lines(sg_lines), .last_line(sg_last),.clk(clk), .ce(ce), .rst_n(rst_n), .h_pos(h_pos), .v_pos(v_pos), .de_in(pixel_en | test_de), .il(il), .pal(pal),
     .pic_valid(1'b1), .pic_store(5'd17), .pic_field(field), .pic_w_mbs(w_mbs), .pic_hf_mbs(hf_mbs),
     .pic_parity(parity), .pic_single(single), .deint_mode(mode), .pic_colour(colour), .pic_siting(siting),
     .fit_ow(f_ow), .fit_oh(f_oh), .fit_ox0(f_ox0), .fit_oy0(f_oy0), .fit_sx(f_sx), .fit_sy(f_sy),
