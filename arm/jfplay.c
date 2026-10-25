@@ -37,6 +37,7 @@
 #include "video_geometry.h"
 #include "core_owner.h"
 #include "direct_check.h"
+#include "packet_pacing.h"
 #include "lag_watch.h"
 
 #define Q_PACKETS 8192
@@ -92,7 +93,7 @@ struct reader {
     struct packet_queue vq, aq;
     uint64_t seq;
     size_t bytes;
-    int done, eof_wait, mutex_init, cond_init;
+    int done, eof_wait, mutex_init, cond_init, queue_wait;
     atomic_int abort, err;
     atomic_int seek_interrupt;
     atomic_int_fast64_t playhead90;
@@ -470,8 +471,11 @@ static void *reader_main(void *arg)
             while (!atomic_load(&r->abort) && !r->seek_requested &&
                    (r->vq.count + r->aq.count >= Q_PACKETS ||
                     r->bytes + (size_t)pkt->size > Q_BYTES ||
-                    packet_beyond_reader_horizon(r, pkt)))
+                    packet_beyond_reader_horizon(r, pkt))) {
+                r->queue_wait = 1;
                 pthread_cond_wait(&r->changed, &r->mutex);
+            }
+            r->queue_wait = 0;
             if (atomic_load(&r->abort)) {
                 pthread_mutex_unlock(&r->mutex);
                 av_packet_free(&pkt); free(n); fatal = 1; break;
@@ -980,17 +984,17 @@ static AVPacket *take_packet(struct player *p, int *kind)
                          (apts == AV_NOPTS_VALUE || apts <= p->newest_video90 + AUDIO_LEAD)) ||
                         (r->done && !v));
     int64_t vpts = v ? packet_clock_pts90(p, v->pkt, p->rd.vi) : AV_NOPTS_VALUE;
-    int audio_pending = a || p->pcm.frames;
-    /* the mirror of the audio gate: once audio has been written, a video AU
-     * more than AUDIO_LEAD past it waits while audio is still pending, so the
-     * two stay level in ring order (the core parses the ring in write order
-     * into a 256-entry FIFO; audio far behind its video there is parsed late) */
-    int video_ok = !v || !audio_pending || p->newest_audio90 == INT64_MIN ||
-                   vpts == AV_NOPTS_VALUE || vpts <= p->newest_audio90 + VIDEO_LEAD ||
-                   (!(a && audio_ok) && !p->audio_ring_full); /* no audio can go: never stall */
+    struct packet_pacing pacing = {
+        .has_audio = r->ai >= 0, .audio_queued = a != NULL,
+        .reader_done = r->done, .reader_blocked = r->queue_wait,
+        .pcm_frames = p->pcm.frames, .video_written = p->newest_video90,
+        .audio_written = p->newest_audio90, .video_pts = vpts, .audio_pts = apts,
+    };
+    int video_ok = !v || packet_video_ready(pacing, AUDIO_RECORD_FRAMES, VIDEO_LEAD);
+    /* Preserve packet order when both streams are ready; prioritize audio
+     * when the video timestamp gate waits for it. */
     if (a && audio_ok && (!v || a->seq < v->seq || !video_ok)) { pkt = q_pop(&r->aq); *kind = 1; }
     else if (v && video_ok) { pkt = q_pop(&r->vq); *kind = 0; }
-    else if (a && audio_ok) { pkt = q_pop(&r->aq); *kind = 1; }
     if (pkt) { r->bytes -= (size_t)pkt->size; pthread_cond_broadcast(&r->changed); }
     p->input_done = r->done && !r->vq.head && !r->aq.head;
     pthread_mutex_unlock(&r->mutex);

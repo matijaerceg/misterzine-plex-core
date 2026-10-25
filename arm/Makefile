@@ -14,15 +14,15 @@ LIBS := $(ROOT)/build/arm/libh264ring.a \
 	$(PREFIX)/lib/libssl.a $(PREFIX)/lib/libcrypto.a \
 	-lm -ldl -lpthread -latomic
 
-.PHONY: all clean test contract-test core-owner-test audio-boost-test seek-cache-test seek-protocol-test h264-idr-test film-speed-test direct-check-test video-geometry-test
+.PHONY: all clean test contract-test core-owner-test audio-boost-test seek-cache-test seek-protocol-test h264-idr-test film-speed-test direct-check-test video-geometry-test packet-pacing-test
 all: jfplay
 
 # Every host test: none needs the ARM toolchain or a device.
 test: contract-test core-owner-test audio-boost-test seek-cache-test seek-protocol-test h264-idr-test \
-	film-speed-test direct-check-test video-geometry-test
+	film-speed-test direct-check-test video-geometry-test packet-pacing-test
 
 jfplay: jfplay.c audio_boost.h film_speed.h h264_idr.h seek_cache.h seek_protocol.h video_geometry.h core_owner.h \
-		direct_check.h lag_watch.h $(H264CHECK)/h264check.c $(H264CHECK)/h264check.h $(ROOT)/build/arm/libh264ring.a
+		direct_check.h packet_pacing.h lag_watch.h $(H264CHECK)/h264check.c $(H264CHECK)/h264check.h $(ROOT)/build/arm/libh264ring.a
 	$(CC) $(CFLAGS) -o $@ $< $(H264CHECK)/h264check.c $(LIBS)
 
 direct-check-test:
@@ -65,3 +65,7 @@ video-geometry-test:
 
 clean:
 	$(RM) jfplay
+
+packet-pacing-test:
+	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -O2 -o /tmp/jfplay-packet-pacing-test test_packet_pacing.c
+	/tmp/jfplay-packet-pacing-test

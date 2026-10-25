@@ -16,9 +16,13 @@ video and audio packets into bounded queues, while the main thread converts and
 tries to write records without ever blocking inside the ring library.  Decoded
 audio is also bounded to 96,000 stereo frames (about two seconds).  When either
 the local audio queue or the ring is full, jfplay leaves compressed audio in
-the reader queue, continues feeding video, services controls, and sleeps
-briefly as needed.  This prevents a slow network or temporarily thin audio
-buffer from stalling video without allowing decoded PCM to grow indefinitely.
+the reader queue, services controls, and sleeps briefly as needed. Video
+records stay within 100 ms of submitted audio, including while the demuxer
+is fetching the next audio packet. This keeps a burst of video from placing
+its matching audio too far back in the shared ring. Known audio timestamp
+gaps, the end of the stream, and a blocked reader can release this gate when
+less than one complete PCM record remains, so sparse audio cannot deadlock
+the bounded queues. Streams without audio do not use this gate.
 Compressed queues are capped at 64 MiB, 8192 packets, and 45 seconds ahead of
 the current playback point (whichever bound is reached first).
 
