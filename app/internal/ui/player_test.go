@@ -20,7 +20,7 @@ import (
 
 // The film the playback fakes serve: rating key "item", one part "part" in
 // Matroska, 300 s long, with a 720p H.264 video stream (playVideoDirect
-// unless the test says otherwise), a 5.1 track the server has selected
+// unless the test says otherwise), a stereo track the server has selected
 // (index 1), a stereo one (index 2), a text and a picture subtitle.
 const playMetadata = `<MediaContainer size="1"><Video ratingKey="item" key="/library/metadata/item" type="movie" title="Film" duration="300000">
 <Media id="1" bitrate="%[2]d" videoFrameRate="24p" container="mkv"><Part id="part" key="/library/parts/part/1700000000/file.mkv" duration="300000" container="mkv">
@@ -48,9 +48,11 @@ type playRequest struct {
 // transcode decision that accepts, and every other path answered empty.
 // It records each request; hooks let a test hold one up.
 type playServer struct {
-	mu    sync.Mutex
-	reqs  []playRequest
-	video string // the video stream's attributes
+	mu       sync.Mutex
+	reqs     []playRequest
+	video    string // the video stream's attributes
+	channels int
+	decision string
 	// onMetadata and onTimeline run inside those calls (the timeline's with
 	// its state), before the answer.
 	onMetadata func(n int)
@@ -62,7 +64,7 @@ type playServer struct {
 
 func newPlayServer(t *testing.T, video string) *playServer {
 	t.Helper()
-	f := &playServer{video: video}
+	f := &playServer{video: video, channels: 2}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.reqs = append(f.reqs, playRequest{r.Method, r.URL.Path, r.URL.Query()})
@@ -80,8 +82,12 @@ func newPlayServer(t *testing.T, video string) *playServer {
 			if onMetadata != nil {
 				onMetadata(n)
 			}
-			_, _ = fmt.Fprintf(w, playMetadata, f.video, 4500)
+			_, _ = fmt.Fprintf(w, strings.Replace(playMetadata, `channels="6"`, fmt.Sprintf(`channels="%d"`, f.channels), 1), f.video, 4500)
 		case "/video/:/transcode/universal/decision":
+			if f.decision != "" && r.URL.Query().Get("directStream") == "1" {
+				_, _ = w.Write([]byte(f.decision))
+				return
+			}
 			_, _ = w.Write([]byte(`<MediaContainer transcodeDecisionCode="1001" transcodeDecisionText="Direct play not available; Conversion OK.">
 <Video ratingKey="item"><Media width="1280" height="720" videoCodec="h264" audioCodec="aac"/></Video></MediaContainer>`))
 		case "/:/timeline":
@@ -148,6 +154,9 @@ func TestPlayerLaunchesAndReports(t *testing.T) {
 	for _, direct := range []bool{true, false} {
 		t.Run(map[bool]string{true: "direct", false: "transcode"}[direct], func(t *testing.T) {
 			f := newPlayServer(t, map[bool]string{true: playVideoDirect, false: playVideoTranscode}[direct])
+			if !direct {
+				f.channels = 6
+			}
 			p := f.player(t)
 			p.Kbps, p.Crop, p.Geometry = func() int { return 6000 }, func() Crop { return Crop14x9 }, func() string { return "12,8,10,6,940" }
 			var args []string

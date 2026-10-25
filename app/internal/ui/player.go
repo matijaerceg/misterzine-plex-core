@@ -49,7 +49,8 @@ type Player struct {
 }
 
 type Session struct {
-	p *Player
+	videoCopy bool // original video in a server-generated audio-conversion stream
+	p         *Player
 	// client is the Player's when the session started: its reports go to
 	// that server and account even after the app signs in elsewhere.
 	client *plex.Client
@@ -349,6 +350,7 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 		}
 		s.mu.Lock() // Direct reads it from the UI thread
 		s.direct = info.Direct
+		s.videoCopy = info.VideoCopy
 		s.mu.Unlock()
 		s.url = info.URL
 		duration := float64(s.item.Duration)
@@ -378,7 +380,7 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 	if paused {
 		args = append(args, "--hold")
 	}
-	if s.direct {
+	if s.direct || s.videoCopy {
 		// jfplay checks the stream before the first picture and watches that
 		// the core keeps up; it exits 7 when a transcode is needed.
 		args = append(args, "--direct")

@@ -60,6 +60,10 @@ func (s *Session) playbackInfo(ctx context.Context, kbps, offset int, audio, sub
 	if err != nil {
 		return nil, err
 	}
+	if info.VideoCopy {
+		s.logf("audio-only conversion: original video, server stereo AAC")
+		return info, nil
+	}
 	if info.Direct {
 		if v := info.Part.Video(); v != nil && v.ScanType == "interlaced" {
 			s.logf("direct stream is interlaced; jfplay checks for MBAFF before playing")
@@ -104,7 +108,7 @@ func (s *Session) fallbackLocked(err error) bool {
 		return false
 	}
 	s.mu.Lock()
-	if !s.direct || s.fellBack || s.closing || s.stopRequested {
+	if (!s.direct && !s.videoCopy) || s.fellBack || s.closing || s.stopRequested {
 		s.mu.Unlock()
 		return false
 	}

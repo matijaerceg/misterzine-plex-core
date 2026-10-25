@@ -14,14 +14,25 @@ the server first, because a transcode follows the part's selected streams.
 
 Unless a subtitle must be burned in, the app then checks the file's video
 against the core's own limits: H.264 High or Main, level 4.1 or lower, 8-bit,
-CABAC entropy coding, at most 1280x720, at most 30 frames per second above
+CABAC entropy coding, at most 1280 pixels wide and 3,600 rounded-up 16x16
+blocks per picture, at most 30 frames per second above
 854 pixels wide (60 at or below), and an average bitrate of at most 6 Mbit/s
 above 854 pixels wide (8 Mbit/s at or below). It also checks the video bitrate
 against the **Video bitrate** setting: the setting is there for a link that
 cannot carry more, so a file whose video is above it is never streamed as
 stored. A value the server does not report is not held against the file. A
-file that fits is streamed directly: `jfplay` opens the file on the server
+file that fits and has supported mono/stereo audio is streamed directly: `jfplay` opens the file on the server
 (`/library/parts/...`) as stored.
+
+Surround audio, unknown channel counts and unsupported audio codecs require
+server conversion to stereo AAC. When the video passes the checks above and
+no subtitle needs burning in, the app requests video copy with an explicit
+AAC two-channel capability limit. It verifies Plex's video-copy decision;
+if Plex instead proposes video encoding, it requests the normal bounded
+transcode. Video copy retains the worker's parameter-set check and fallback.
+The audio conversion is triggered by capabilities, not a low bitrate target.
+The picture block budget permits shapes such as 968x722, but not 1280x722 or
+1920x1080; the block-rate limit is 108,000 per second with 1% rounding slack.
 
 Otherwise the app asks the server's universal transcoder for a decision
 (`/video/:/transcode/universal/decision`) and plays its progressive Matroska
@@ -124,7 +135,8 @@ Anti-Twitter request, so the OSD choice stays in force during playback.
 
 ## Audio and subtitles
 
-Audio is decoded by `jfplay` and downmixed to stereo PCM for the core. Audio
+Audio is decoded by `jfplay` to PCM for the core; surround is converted to
+stereo by the server before it reaches the worker. Audio
 changes during playback restart at the current position. A direct stream
 passes the selected track's index in the file to the worker; a transcode
 carries the track selected on the server.

@@ -232,13 +232,23 @@ var (
 
 // DirectAudioEligible reports whether jfplay decodes the audio track a
 // direct stream would play: the one with an ID, else the part's selected
-// one. A part without sound, or a codec the server does not name, passes.
+// one. Known mono/stereo tracks with supported codecs pass, as does a part
+// without sound. Surround and unknown formats need server conversion.
 func DirectAudioEligible(part MediaPart, audioID string) (bool, string) {
 	st := part.selected(StreamAudio)
 	if audioID != "" {
 		st = part.Stream(audioID)
 	}
-	if st == nil || st.Type != StreamAudio || st.Codec == "" || directAudioCodecs[strings.ToLower(st.Codec)] {
+	if st == nil || st.Type != StreamAudio {
+		return true, ""
+	}
+	if st.Channels > 2 {
+		return false, fmt.Sprintf("%d-channel audio needs stereo conversion", st.Channels)
+	}
+	if st.Channels <= 0 {
+		return false, "unknown audio channel count"
+	}
+	if directAudioCodecs[strings.ToLower(st.Codec)] {
 		return true, ""
 	}
 	return false, "audio " + st.Codec
@@ -325,7 +335,7 @@ func ProfileExtra(videoKbps int, sourceFPS float64) string {
 		return "add-limitation(scope=videoCodec&scopeName=h264&type=upperBound&name=" + name + "&value=" + value + ")"
 	}
 	lines := []string{
-		"add-limitation(scope=videoAudioCodec&scopeName=*&type=upperBound&name=audio.channels&value=2)",
+		"add-limitation(scope=videoAudioCodec&scopeName=aac&type=upperBound&name=audio.channels&value=2&isRequired=true)",
 		"add-limitation(scope=videoCodec&scopeName=h264&type=match&name=video.profile&list=high|main)",
 		limit("video.level", strconv.Itoa(directMaxLevel)),
 		limit("video.bitDepth", "8"),
@@ -414,10 +424,11 @@ type PlaybackRequest struct {
 
 // PlaybackInfo is the answer: how the item plays.
 type PlaybackInfo struct {
-	Session string
-	Part    MediaPart
-	Direct  bool   // the file as stored plays; else the server's transcode
-	URL     string // what jfplay opens; never carries the token (StreamHeaders does)
+	Session   string
+	Part      MediaPart
+	Direct    bool   // the file as stored plays; else a server-generated stream
+	VideoCopy bool   // server copies video while converting audio; still needs worker precheck
+	URL       string // what jfplay opens; never carries the token (StreamHeaders does)
 	// Decision is the server's transcodeDecisionText, and Width and Height
 	// the transcode's picture when the server says it.
 	Decision      string
@@ -482,7 +493,77 @@ func (c *Client) PlaybackInfo(ctx context.Context, r PlaybackRequest) (*Playback
 			return nil, err
 		}
 	}
+	copyVideo, _ := DirectEligible(*part, r.VideoKbps)
+	copyVideo = copyVideo && !r.ForceTranscode && burn == "0"
 	q := c.transcodeQuery(r, info.Session, *part)
+	if copyVideo {
+		// The client already checked the video cap. A Plex maxVideoBitrate
+		// request can force video encoding even for an eligible source.
+		q.Del("maxVideoBitrate")
+		q.Del("videoResolution")
+		q.Del("videoQuality")
+		q.Set("directStream", "1")
+		q.Set("X-Plex-Client-Profile-Name", "Chrome")
+		q.Set("audioChannels", "2")
+		q.Set("X-Plex-Client-Profile-Extra", "add-limitation(scope=videoAudioCodec&scopeName=aac&type=upperBound&name=audio.channels&value=2&isRequired=true)+add-transcode-target(type=videoProfile&context=streaming&protocol=http&container=mkv&videoCodec=h264&audioCodec=aac&replace=true)")
+	}
+	for {
+		d, err := c.playbackDecision(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+		if copyVideo && !d.copiesVideo() {
+			// Never accept an uncapped encode if the server declined video copy.
+			copyVideo = false
+			q = c.transcodeQuery(r, info.Session, *part)
+			continue
+		}
+		for _, media := range d.Media {
+			for _, st := range media.Streams {
+				if st.Type == StreamAudio && st.Channels > 2 {
+					return nil, fmt.Errorf("the server did not provide stereo audio")
+				}
+			}
+		}
+		info.Decision, info.VideoCopy = d.Text, copyVideo
+		if len(d.Media) > 0 {
+			info.Width, info.Height = d.Media[0].Width, d.Media[0].Height
+		}
+		info.URL = c.transcodeURL(q)
+		break
+	}
+	return info, nil
+}
+
+// playbackDecision includes per-stream decisions: the container being
+// transcoded does not mean its video was re-encoded.
+type playbackDecision struct {
+	Code  string `xml:"transcodeDecisionCode,attr"`
+	Text  string `xml:"transcodeDecisionText,attr"`
+	Media []struct {
+		Width   int `xml:"width,attr"`
+		Height  int `xml:"height,attr"`
+		Streams []struct {
+			Type     int    `xml:"streamType,attr"`
+			Decision string `xml:"decision,attr"`
+			Channels int    `xml:"channels,attr"`
+		} `xml:"Part>Stream"`
+	} `xml:"Video>Media"`
+}
+
+func (d playbackDecision) copiesVideo() bool {
+	if len(d.Media) == 0 {
+		return false
+	}
+	for _, st := range d.Media[0].Streams {
+		if st.Type == StreamVideo {
+			return st.Decision == "copy"
+		}
+	}
+	return false
+}
+
+func (c *Client) playbackDecision(ctx context.Context, q url.Values) (*playbackDecision, error) {
 	req, err := c.playbackReq(ctx, "/video/:/transcode/universal/decision", q)
 	if err != nil {
 		return nil, err
@@ -491,31 +572,17 @@ func (c *Client) PlaybackInfo(ctx context.Context, r PlaybackRequest) (*Playback
 	if err != nil {
 		return nil, err
 	}
-	var d struct {
-		Code  string `xml:"transcodeDecisionCode,attr"`
-		Text  string `xml:"transcodeDecisionText,attr"`
-		Media []struct {
-			Width  int `xml:"width,attr"`
-			Height int `xml:"height,attr"`
-		} `xml:"Video>Media"`
-	}
+	var d playbackDecision
 	if err := xml.Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("transcode decision: %w", err)
 	}
-	info.Decision = d.Text
 	if d.Code != "" && d.Code != "1000" && d.Code != "1001" {
-		// the server will not transcode this file: say why
-		text := d.Text
-		if text == "" {
-			text = "Cannot play this file."
+		if d.Text == "" {
+			d.Text = "Cannot play this file."
 		}
-		return nil, fmt.Errorf("the server will not convert this file: %s", text)
+		return nil, fmt.Errorf("the server will not convert this file: %s", d.Text)
 	}
-	if len(d.Media) > 0 {
-		info.Width, info.Height = d.Media[0].Width, d.Media[0].Height
-	}
-	info.URL = c.transcodeURL(q)
-	return info, nil
+	return &d, nil
 }
 
 // transcodeQuery is the universal transcoder's parameters for a request,

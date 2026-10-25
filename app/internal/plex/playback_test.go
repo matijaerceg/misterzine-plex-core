@@ -32,6 +32,7 @@ type playbackServer struct {
 	reqs     []*http.Request
 	refuse   string // transcodeDecisionText of a refusal, "" for conversion OK
 	metadata string
+	decision string
 	srv      *httptest.Server
 	c        *Client
 }
@@ -52,6 +53,10 @@ func newPlaybackServer(t *testing.T) *playbackServer {
 		case r.URL.Path == "/video/:/transcode/universal/decision":
 			if f.refuse != "" {
 				_, _ = w.Write([]byte(`<MediaContainer transcodeDecisionCode="2000" transcodeDecisionText="` + f.refuse + `"/>`))
+				return
+			}
+			if f.decision != "" {
+				_, _ = w.Write([]byte(f.decision))
 				return
 			}
 			_, _ = w.Write([]byte(`<MediaContainer transcodeDecisionCode="1001" transcodeDecisionText="Direct play not available; Conversion OK.">
@@ -237,7 +242,7 @@ func TestTranscodeSizeAndProfileExtra(t *testing.T) {
 	}
 	extra := ProfileExtra(4000, 23.976)
 	for _, want := range []string{
-		"add-limitation(scope=videoAudioCodec&scopeName=*&type=upperBound&name=audio.channels&value=2)",
+		"add-limitation(scope=videoAudioCodec&scopeName=aac&type=upperBound&name=audio.channels&value=2&isRequired=true)",
 		"type=match&name=video.profile&list=high|main)",
 		"name=video.level&value=41)", "name=video.bitDepth&value=8)",
 		"name=video.width&value=1280)", "name=video.height&value=720)", "name=video.frameRate&value=60)",
@@ -261,6 +266,7 @@ func TestTranscodeSizeAndProfileExtra(t *testing.T) {
 
 func TestPlaybackInfoDirect(t *testing.T) {
 	f := newPlaybackServer(t)
+	f.metadata = strings.Replace(f.metadata, `channels="6"`, `channels="2"`, 1)
 	info, err := f.c.PlaybackInfo(context.Background(), PlaybackRequest{RatingKey: "101", StartSeconds: 60, VideoKbps: 6000, SubtitleStream: "-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -462,7 +468,7 @@ func TestDirectContainerAndAudio(t *testing.T) {
 	}
 	part.Container = "mkv"
 	part.Streams[1].Codec, part.Streams[1].Selected = "truehd", true
-	part.Streams = append(part.Streams, MediaStream{ID: "3", Type: StreamAudio, Index: 2, Codec: "aac"})
+	part.Streams = append(part.Streams, MediaStream{ID: "3", Type: StreamAudio, Index: 2, Codec: "aac", Channels: 2})
 	if got, _ := DirectEligible(part, MaxVideoKbps); !got {
 		t.Fatal("the video alone is eligible")
 	}
