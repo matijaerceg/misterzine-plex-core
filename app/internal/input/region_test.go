@@ -68,8 +68,9 @@ func TestLegacyJoyMapping(t *testing.T) {
 	for pad, want := range map[uint32]uint32{
 		PadRight: 1 << Right, PadLeft: 1 << Left, PadDown: 1 << Down, PadUp: 1 << Up,
 		PadB: 1 << Enter, PadA: 1 << Back, PadLB: 1 << JumpBack, PadRB: 1 << JumpFwd,
-		PadX | PadY | PadStart | PadBack | PadLT | PadRT | PadLS | PadRS: 0,
+		PadX | PadY | PadBack | PadLT | PadRT | PadLS | PadRS: 0,
 		PadB | PadUp: 1<<Enter | 1<<Up,
+		PadStart:     1 << Start,
 	} {
 		if got := LegacyJoy(pad); got != want {
 			t.Errorf("LegacyJoy(%04x) = %02x, want %02x", pad, got, want)
@@ -297,4 +298,56 @@ func TestRegionKeyboardRepeatsItself(t *testing.T) {
 		}
 	}
 	quiet(t, events, 200*time.Millisecond)
+}
+
+func TestStartPressDoesNotRepeatOrLeakAcrossCoreMenu(t *testing.T) {
+	s := &regionSource{}
+	out := make(chan Event, 32)
+	p := newPoller(s, out, false)
+	now := time.Now()
+	step := func() { now = now.Add(time.Second); p.step(now) }
+	want := func(release bool) {
+		t.Helper()
+		select {
+		case e := <-out:
+			if e.Key != Start || e.Release != release || e.Repeat {
+				t.Fatalf("Start event: %+v", e)
+			}
+		default:
+			t.Fatal("missing Start event")
+		}
+		if len(out) != 0 {
+			t.Fatal("extra Start events")
+		}
+	}
+	quiet := func() {
+		t.Helper()
+		if len(out) != 0 {
+			t.Fatalf("unexpected event: %+v", <-out)
+		}
+	}
+	s.pad(2, PadStart)
+	step()
+	want(false)
+	step()
+	step()
+	quiet() // held well beyond the normal repeat delay
+	s.pad(2, 0)
+	step()
+	want(true)
+	s.pad(2, PadStart)
+	step()
+	want(false)
+	s.osdBit(true)
+	step()
+	want(true)
+	s.osdBit(false)
+	step()
+	quiet() // still held when the core menu closes
+	s.pad(2, 0)
+	step()
+	quiet()
+	s.pad(2, PadStart)
+	step()
+	want(false)
 }

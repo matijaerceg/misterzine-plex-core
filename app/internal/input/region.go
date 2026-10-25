@@ -67,10 +67,12 @@ const (
 //	bit 5     Back                            <- A
 //	bit 6     L (JumpBack)                    <- LB
 //	bit 7     R (JumpFwd)                     <- RB
+//	bit 8     Start (pause/play)               <- Start
 //
 // Use B to confirm and A to go back with the H.264 core's pad mapping.
 // These are gamepad actions only; keyboard Enter and Escape are unchanged.
-// X, Y, the triggers, Start, Back (Select) and the stick clicks have no role yet.
+// Start pauses or resumes playback. X, Y, the triggers, Back (Select) and
+// the stick clicks have no role yet.
 func LegacyJoy(pad uint32) uint32 {
 	j := pad & 0xF
 	if pad&PadB != 0 {
@@ -84,6 +86,9 @@ func LegacyJoy(pad uint32) uint32 {
 	}
 	if pad&PadRB != 0 {
 		j |= 1 << JumpFwd
+	}
+	if pad&PadStart != 0 {
+		j |= 1 << Start
 	}
 	return j
 }

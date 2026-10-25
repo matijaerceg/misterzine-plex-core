@@ -14,7 +14,7 @@ import (
 )
 
 // Key is a logical control, one bit each in the legacy joystick word
-// (LegacyJoy): the d-pad, OK, Back, L, R. L/R jump sections.
+// (LegacyJoy): the d-pad, OK, Back, L, R, Start. L/R jump sections.
 type Key int
 
 const (
@@ -26,10 +26,11 @@ const (
 	Back
 	JumpBack // L
 	JumpFwd  // R
+	Start    // pause/play during playback
 	None
 )
 
-var names = [...]string{"right", "left", "down", "up", "enter", "back", "l", "r", "none"}
+var names = [...]string{"right", "left", "down", "up", "enter", "back", "l", "r", "start", "none"}
 
 func (k Key) String() string { return names[k] }
 
@@ -163,7 +164,7 @@ func newPoller(src Source, out chan<- Event, specials bool) *poller {
 			p.osd = OSDOpen(&p.in)
 			p.coreLost = uint16(p.in[wMisc] >> 48)
 			if p.osd {
-				p.mask = 0xFF
+				p.mask = (1 << None) - 1
 			}
 		}
 	} else {
@@ -220,13 +221,13 @@ func (p *poller) pads(cur uint32, now time.Time) {
 	pressed := cur &^ p.prevJoy
 	released := p.prevJoy &^ cur
 	p.prevJoy = cur
-	// OK and Back do not auto-repeat, but holds still need releases.
-	for _, k := range []Key{Enter, Back} {
+	// OK, Back and Start do not auto-repeat, but holds still need releases.
+	for _, k := range []Key{Enter, Back, Start} {
 		if released&(1<<k) != 0 {
 			p.send(Event{Key: k, Release: true})
 		}
 	}
-	for b := 0; b < 8; b++ {
+	for b := 0; b < int(None); b++ {
 		if pressed&(1<<b) != 0 {
 			k := Key(b)
 			p.send(Event{Key: k})
@@ -376,6 +377,6 @@ func (p *poller) releaseKeys(now time.Time) {
 	}
 	p.kbHeld = 0
 	p.backspaceNext = time.Time{}
-	p.mask = 0xFF
+	p.mask = (1 << None) - 1
 	p.pads(0, now)
 }

@@ -618,11 +618,11 @@ func (p *Playing) burnsSubtitle() bool {
 
 // Key handles a pad event during playback; returns true when playback
 // should stop (or move along the queue: Next is set).
-// pauseKey reports a keyboard's Space or P: they pause and resume
+// pauseKey reports controller Start or a keyboard's Space or P: they pause and resume
 // directly during playback. MiSTer main passes Space as scan code 0x29,
 // which the input map reads as OK, so every other screen keeps it as OK.
 func pauseKey(ev input.Event) bool {
-	return ev.Keyboard && (ev.ScanCode == 0x29 || ev.ScanCode == 0x4D)
+	return ev.Key == input.Start || ev.Keyboard && (ev.ScanCode == 0x29 || ev.ScanCode == 0x4D)
 }
 
 // togglePause is the Pause button: the launcher pauses or resumes, and the
@@ -636,7 +636,7 @@ func (p *Playing) togglePause(now time.Time) {
 }
 
 func (p *Playing) Key(ev input.Event, now time.Time) bool {
-	if pauseKey(ev) && p.list == nil {
+	if pauseKey(ev) && (p.list == nil || ev.Key == input.Start) {
 		if ev.Release || ev.Repeat {
 			return false
 		}

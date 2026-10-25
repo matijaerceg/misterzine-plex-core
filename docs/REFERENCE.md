@@ -115,6 +115,8 @@ primary account. Automatic sign-in uses the saved server connection at startup.
   a button and skip the ones with nothing to do (Prev on the first episode,
   Audio with one track); OK presses it. The controls hide after four seconds
   unless paused. Down closes them.
+- Controller Start pauses or resumes playback in one press, including with
+  the controls or a playback list open. Holding Start does not repeat.
 - On a USB keyboard, Space or P pauses and resumes playback in one press; a
   pause brings up the controls showing **Play**. A USB remote whose play key
   MiSTer does not pass through can be remapped to Space in MiSTer's keyboard

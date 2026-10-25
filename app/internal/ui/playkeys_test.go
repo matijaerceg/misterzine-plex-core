@@ -210,3 +210,36 @@ func TestSpacePausesAndResumes(t *testing.T) {
 		t.Fatal("P did more than resume")
 	}
 }
+
+func TestControllerStartPausesAndResumes(t *testing.T) {
+	for _, view := range []string{"hidden", "controls", "list"} {
+		t.Run(view, func(t *testing.T) {
+			p := waitPlaying(t)
+			now := time.Now()
+			p.framed(now)
+			if view != "hidden" {
+				p.show(now)
+			}
+			if view == "list" {
+				p.openMore()
+			}
+			list := p.list
+			toggles := 0
+			p.send = func(cmd string) {
+				if cmd != "toggle" {
+					t.Fatalf("Start sent %q", cmd)
+				}
+				toggles++
+			}
+			p.Key(input.Event{Key: input.Start}, now)
+			p.Key(input.Event{Key: input.Start, Repeat: true}, now.Add(time.Second))
+			p.Key(input.Event{Key: input.Start, Release: true}, now.Add(2*time.Second))
+			if !p.paused || toggles != 1 || !p.visible || p.list != list {
+				t.Fatalf("pause: paused=%v toggles=%d visible=%v list changed=%v", p.paused, toggles, p.visible, p.list != list)
+			}
+			if p.Key(input.Event{Key: input.Start}, now.Add(3*time.Second)) || p.paused || toggles != 2 || p.list != list || p.Next != 0 {
+				t.Fatalf("resume: paused=%v toggles=%d list changed=%v next=%d", p.paused, toggles, p.list != list, p.Next)
+			}
+		})
+	}
+}
