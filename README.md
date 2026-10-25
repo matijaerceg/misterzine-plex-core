@@ -1,4 +1,4 @@
-# MisterZine Plex Core
+# MisterZine Plex Client Core for MiSTer FPGA
 
 Watch your Plex library on MiSTer. Built for CRTs, with controller navigation
 and HDMI support. The Go application handles browsing and playback controls;
