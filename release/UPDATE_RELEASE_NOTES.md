@@ -1,19 +1,25 @@
-# MisterZine Plex Core 0.1.0-beta.29
+# MisterZine Plex Core 0.1.0-beta.30
 
-Updating from 0.1.0-beta.27 or earlier: Updates offers 0.1.0-beta.27.1 first,
-the stepping stone the old updater can install; this release follows from
-there.
+This update improves gradients, controller playback controls, server-outage
+handling, and the choice between original video and server conversion.
 
-A small release on top of 0.1.0-beta.28, which brought the H.264 decoder core
-and the new playback path.
+- **Gradient Dither** is on by default. It smooths colour gradients in the
+  final picture and can be switched off in the core OSD.
+- The controller **Start** button pauses and resumes playback.
+- Menus stay responsive while the server is unavailable. Requests can be
+  cancelled, and a connection error offers a retry instead of leaving the
+  screen apparently frozen.
+- Original H.264 video can play at unusual dimensions when it fits the
+  decoder's picture and frame-rate limits. This permits some pictures slightly
+  taller than 720 pixels; it does not add 1080p decoding.
+- Surround audio is converted to stereo by the server. Eligible video stays
+  unchanged during audio conversion; supported mono/stereo audio can still
+  play directly. The selected video bitrate remains a limit on original video.
+- Audio/video feeding is paced more carefully to avoid starving audio when
+  video packets arrive in bursts.
 
-- The supporter code covers every current extra. **Playback UI theme** was
-  asking for a code that does not exist; it now unlocks with the same code as
-  the screensaver, the Home logo and the Random tab.
+Existing settings, calibration and saved access are preserved by updates.
+Rollback restores the previous application and core. This remains a beta;
+please include the title, playback position and symptoms when reporting an issue.
 
-Rollback to the previous release still works and brings back its core.
-Network seeking, server compatibility and different hardware setups remain
-beta test areas.
-
-Installers and update notices become available when this release and its
-catalogue are published. See README.md for setup and feedback instructions.
+Cards on 0.1.0-beta.27 or earlier first update through 0.1.0-beta.27.1.
