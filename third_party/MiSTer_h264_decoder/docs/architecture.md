@@ -986,14 +986,14 @@ two halves, and Main's own menu button defaults to the pad's Guide / Home).
 
 ### The pad (the `J` line)
 
-`CONF_STR` declares `JN,OK,Back,Page Back,Page Forward` (bits 4-7; `[3:0]` remain the d-pad).
-Only the four controls used by the programs are offered in MiSTer's button mapping: OK and Back
-for navigation, with the shoulders available as optional Page Back / Page Forward shortcuts.
+`CONF_STR` declares `JN,OK,Back,Page Back,Page Forward,Pause/Play` (bits 4-8; `[3:0]` remain the d-pad).
+Only the five controls used by the programs are offered in MiSTer's button mapping: OK and Back
+for navigation, with the shoulders available as optional Page Back / Page Forward shortcuts and Start toggling pause/play.
 `JN`: Main does not turn the left stick into d-pad bits (`JD`, its default) -- the stick and the
 d-pad reach the program separately. Never `J1` (it turns the keyboard into player 1's pad) or
-`X` (it disables the OSD). `jn,A,B,L,R` gives Main its normal automatic mapping by **position**.
+`X` (it disables the OSD). `jn,A,B,L,R,Start` gives Main its normal automatic mapping by **name**.
 The compact button slots are translated at the `ring_in` boundary to the established input-region
-layout (d-pad `[3:0]`, B `[5]`, A `[4]`, LB `[8]`, RB `[9]`), keeping the application interface's
+layout (d-pad `[3:0]`, B `[5]`, A `[4]`, LB `[8]`, RB `[9]`, Start `[11]`), keeping the application interface's
 button meanings. **No Guide button** (decided 2026-09-29): it would be bit 16 -- Main then sends
 the word as two halves (a torn read) -- and Main's own menu button defaults to the pad's Guide /
 Home button anyway.

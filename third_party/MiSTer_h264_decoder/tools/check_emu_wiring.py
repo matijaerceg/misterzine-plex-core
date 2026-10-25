@@ -275,15 +275,15 @@ def main():
         bad('ddr_mux2', 'no ddr_mux2 drives %s' % port)
         return None, {}
 
-    # The OSD exposes only the four app roles; adapt their compact JN slots to
+    # The OSD exposes the five app roles; adapt their compact JN slots to
     # the stable input-region bits consumed by existing HPS clients.
-    for literal in ('"JN,OK,Back,Page Back,Page Forward;"', '"jn,A,B,L,R;"'):
+    for literal in ('"JN,OK,Back,Page Back,Page Forward,Pause/Play;"', '"jn,A,B,L,R,Start;"'):
         if literal not in src:
             bad('pad mapping', 'CONF_STR must contain %s' % literal)
     m = re.search(r'function\s+\[31:0\]\s+input_region_joy\s*\(input\s+\[31:0\]\s+joy\)\s*;?\s*begin\s*input_region_joy\s*=\s*([^;]+);\s*end\s*endfunction', src)
-    want_map = "{22'b0,joy[7:6],2'b0,joy[4],joy[5],joy[3:0]}"
+    want_map = "{20'b0,joy[8],1'b0,joy[7:6],2'b0,joy[4],joy[5],joy[3:0]}"
     if not m or m.group(1).replace(' ', '') != want_map:
-        bad('input_region_joy', 'must preserve d-pad [3:0], map compact OK/Back to legacy B/A [5:4], shoulders to LB/RB [9:8], and clear unused bits')
+        bad('input_region_joy', 'must preserve d-pad [3:0], map compact OK/Back to legacy B/A [5:4], shoulders to LB/RB [9:8], Pause/Play to Start [11], and clear unused bits')
     _, conn = inst('ring_in')
     want_joy = '{' + ','.join('input_region_joy(joystick_%d)' % p for p in range(5, -1, -1)) + '}'
     if conn.get('joy', '').replace(' ', '') != want_joy:

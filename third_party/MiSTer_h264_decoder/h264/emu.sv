@@ -181,8 +181,8 @@ assign LOCKED    = locked & vid_locked;
 // the reference feeder (hps/h264play) is how a stream reaches the rig.
 //
 // The pad (interface 0.6, docs/architecture.md "Input (interface 0.6)"): the J line names the
-// four controls used by the programs: OK, Back and optional page shortcuts. "JN": the left stick
-// is not turned into d-pad bits. "jn": Main's automatic map by position. The compact J-line
+// five controls used by the programs: OK, Back, optional page shortcuts and Pause/Play. "JN": the left stick
+// is not turned into d-pad bits. "jn": Main's automatic map by name. The compact J-line
 // button bits are translated below to the original input-region positions used by the app.
 // Never "J1" (the keyboard would become player 1's pad) or "X" (no OSD).
 //
@@ -216,8 +216,8 @@ localparam CONF_STR = {
 	"-;",
 	"-;",
 	"R[0],Reset;",
-	"JN,OK,Back,Page Back,Page Forward;",
-	"jn,A,B,L,R;",
+	"JN,OK,Back,Page Back,Page Forward,Pause/Play;",
+	"jn,A,B,L,R,Start;",
 	"v,1;",
 	"V,",`CORE_VERSION," ",`BUILD_DATE,";"
 };
@@ -1858,9 +1858,9 @@ wire  [4:0] in_ix;
 wire [63:0] in_word;
 function [31:0] input_region_joy(input [31:0] joy);
 	begin
-		// Compact JN slots: OK, Back, Page Back, Page Forward. Preserve the
-		// ring/app layout: d-pad [3:0], B [5], A [4], LB [8], RB [9].
-		input_region_joy = {22'b0, joy[7:6], 2'b0, joy[4], joy[5], joy[3:0]};
+		// Compact JN slots: OK, Back, Page Back, Page Forward, Pause/Play. Preserve the
+		// ring/app layout: d-pad [3:0], B [5], A [4], LB [8], RB [9], Start [11].
+		input_region_joy = {20'b0, joy[8], 1'b0, joy[7:6], 2'b0, joy[4], joy[5], joy[3:0]};
 	end
 endfunction
 ring_in ring_in_inst (
