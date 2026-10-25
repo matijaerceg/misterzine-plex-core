@@ -2,6 +2,7 @@ package ring
 
 import (
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -16,6 +17,7 @@ type heartbeat struct {
 	began []atomic.Int64
 	stop  chan struct{}
 	done  chan struct{}
+	once  sync.Once
 }
 
 func newHeartbeat(t *testing.T, period time.Duration, fields int) *heartbeat {
@@ -38,8 +40,12 @@ func newHeartbeat(t *testing.T, period time.Duration, fields int) *heartbeat {
 			atomic.StoreUint32(&words[2*wSeqHead], v)
 		}
 	}()
-	t.Cleanup(func() { close(h.stop); <-h.done })
+	t.Cleanup(h.close)
 	return h
+}
+
+func (h *heartbeat) close() {
+	h.once.Do(func() { close(h.stop); <-h.done })
 }
 
 // threadCPU is the CPU time the calling thread has run for.
@@ -55,6 +61,8 @@ func threadCPU() time.Duration {
 func waitFields(t *testing.T, period, draw time.Duration, fields int) (cpu, late, worst time.Duration, skipped int) {
 	t.Helper()
 	h := newHeartbeat(t, period, fields)
+	// Stop this clock before the caller starts another timing measurement.
+	defer h.close()
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	for h.r.Field() < 2 { // the generator is running
