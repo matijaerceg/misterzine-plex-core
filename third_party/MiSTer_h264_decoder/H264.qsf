@@ -12,6 +12,8 @@
 # tools/seed_sweep.sh restores its own snapshot).
 #
 # SEED LEDGER (append one line per fit that ships or teaches something; never delete):
+#   2026-10-25 (Plex 0.1.0-beta.30, source 15de904): SEED 9,
+#     clk_dec 102.31/102.48 MHz, clk_vid 95.84/92.96 MHz; both gates PASS.
 #   2026-10-24 (gradient dither default On + Start, source 328e108): SEED 9,
 #     clk_dec 101.73/101.66 MHz, clk_vid 95.79/94.80 MHz; both gates PASS.
 #   date (branch/slug): SEED n, clk_dec 100C/-40C MHz, ALM %, M10K, DSP, build name, commit

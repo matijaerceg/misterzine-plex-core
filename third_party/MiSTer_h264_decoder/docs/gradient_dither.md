@@ -1,4 +1,4 @@
-# Experimental gradient dithering
+# Gradient dithering
 
 Gradient Dither in the core menu defaults to On. On distributes the final RGB
 rounding error across a stable 16 by 16 pixel pattern. This can soften banding
