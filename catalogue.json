@@ -24,23 +24,23 @@
   },
   "current": {
     "beta": {
-      "id": "beta-0.1.0-beta.29",
-      "version": "0.1.0-beta.29",
+      "id": "beta-0.1.0-beta.30-20261025",
+      "version": "0.1.0-beta.30",
       "channel": "beta",
-      "notes": "# MisterZine Plex Core 0.1.0-beta.29\n\nUpdating from 0.1.0-beta.27 or earlier: Updates offers 0.1.0-beta.27.1 first,\nthe stepping stone the old updater can install; this release follows from\nthere.\n\nA small release on top of 0.1.0-beta.28, which brought the H.264 decoder core\nand the new playback path.\n\n- The supporter code covers every current extra. **Playback UI theme** was\n  asking for a code that does not exist; it now unlocks with the same code as\n  the screensaver, the Home logo and the Random tab.\n\nRollback to the previous release still works and brings back its core.\nNetwork seeking, server compatibility and different hardware setups remain\nbeta test areas.\n\nInstallers and update notices become available when this release and its\ncatalogue are published. See README.md for setup and feedback instructions.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.29/MisterZine-Plex-Core-beta-0.1.0-beta.29.zip",
+      "notes": "# MisterZine Plex Core 0.1.0-beta.30\n\nThis update improves gradients, controller playback controls, server-outage\nhandling, menu audio, and the choice between original video and server conversion.\n\n- **Gradient Dither** is on by default. It smooths colour gradients in the\n  final picture and can be switched off in the core OSD.\n- The controller **Start** button pauses and resumes playback.\n- Menus stay responsive while the server is unavailable. Requests can be\n  cancelled, and a connection error offers a retry instead of leaving the\n  screen apparently frozen.\n- Original H.264 video can play at unusual dimensions when it fits the\n  decoder's picture and frame-rate limits. This permits some pictures slightly\n  taller than 720 pixels; it does not add 1080p decoding.\n- Surround audio is converted to stereo by the server. Eligible video stays\n  unchanged during audio conversion; supported mono/stereo audio can still\n  play directly. The selected video bitrate remains a limit on original video.\n- Audio/video feeding is paced more carefully to avoid starving audio when\n  video packets arrive in bursts.\n\n- Navigation clicks play promptly while browsing. Navigation sounds retain\n  their Off, Quiet and Loud settings.\n- The navigation melody chooser includes Trolo, Sahur, Astro, Tetro and Cat.\n- Show theme music is available again when supplied by the server, with an\n  independent Theme music toggle. Themes mix with navigation clicks and stop\n  before video playback.\n\nExisting settings, calibration and saved access are preserved by updates.\nRollback restores the previous application and core. This remains a beta;\nplease include the title, playback position and symptoms when reporting an issue.\n\nCards on 0.1.0-beta.27 or earlier first update through 0.1.0-beta.27.1.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.30/MisterZine-Plex-Core-beta-0.1.0-beta.30-20261025.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 13754637,
-      "sha256": "9cd6160fc24679a2535d5eeaa5749a7d68ee08edf05acba695b1e8d3de88a1a6",
+      "size": 14133376,
+      "sha256": "7947dc203b0ac4886e33a114e633791cea6e1d5ed9cead91fd568e905ceb48b1",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
       },
       "source": {
-        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.29.zip",
-        "size": 140063914,
-        "sha256": "8e2956bec0fd3459d39e8270a9af951fbe1ff8578e7601f373ff8d8a976484a0",
-        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.29/MisterZine-Plex-Core-Source-beta-0.1.0-beta.29.zip"
+        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.30-20261025.zip",
+        "size": 140098289,
+        "sha256": "fba17747936a23ad5375602010384bfaf5cf151c15e9751835f88235cd512828",
+        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.30/MisterZine-Plex-Core-Source-beta-0.1.0-beta.30-20261025.zip"
       }
     }
   },
