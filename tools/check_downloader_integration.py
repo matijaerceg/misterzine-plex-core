@@ -61,6 +61,7 @@ def exercise(archive):
         ini = root / 'updates/downloader.ini'
 
         def publish(payload, timestamp):
+            release.update(size=len(payload), sha256=hashlib.sha256(payload).hexdigest())
             (server / 'package.zip').write_bytes(payload)
             db = {'v':1, 'db_id':catalogue.DB_ID, 'timestamp':timestamp,
                   'folders':{catalogue.STAGING:{}}, 'files':{
