@@ -155,6 +155,11 @@ func TestDirectEligible(t *testing.T) {
 		want bool
 	}{
 		{"720p high", videoPart(ok720, 0), true},
+		{"narrow 722 lines", videoPart(with(ok720, func(v *MediaStream) { v.Width, v.Height, v.FrameRate = 968, 722, 29.97 }), 0), true},
+		{"rounded block boundary", videoPart(with(ok720, func(v *MediaStream) { v.Width, v.Height, v.FrameRate = 1280, 721, 29.97 }), 0), false},
+		{"narrow tall within budget", videoPart(with(ok720, func(v *MediaStream) { v.Width, v.Height, v.FrameRate = 960, 960, 29.97 }), 0), true},
+		{"narrow tall over rate", videoPart(with(ok720, func(v *MediaStream) { v.Width, v.Height, v.FrameRate = 848, 1024, 60 }), 0), false},
+		{"over block budget", videoPart(with(ok720, func(v *MediaStream) { v.Width, v.Height, v.FrameRate = 1200, 800, 24 }), 0), false},
 		{"480p60 main", videoPart(ok480, 0), true},
 		{"no probe data trusts the worker's check", MediaPart{ID: "9"}, true},
 		{"unknown values pass", videoPart(MediaStream{Codec: "h264"}, 0), true},

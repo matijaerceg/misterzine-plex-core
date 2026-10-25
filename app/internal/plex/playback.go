@@ -44,8 +44,10 @@ const (
 	directMaxKbpsSD = 8000
 	// directSDWidth is the widest picture the core decodes at 60 frames/s.
 	directSDWidth = 854
-	// directMaxWidth and directMaxHeight bound the picture (3,600 macroblocks).
-	directMaxWidth, directMaxHeight = 1280, 720
+	// Match the worker: at most 80 blocks wide and 3,600 16x16 blocks per picture.
+	// Cropped dimensions are rounded up; jfplay checks the actual SPS before decoding.
+	directMaxWidth, directMaxBlocks = 1280, 3600
+	directMaxBlockRate              = 108000
 	// directMaxFPSSD / directMaxFPSHD are the frame-rate limits for the two
 	// size classes; directFPSSlack absorbs 29.97-style rounding in metadata.
 	directMaxFPSSD, directMaxFPSHD, directFPSSlack = 60.0, 30.0, 0.5
@@ -274,7 +276,8 @@ func DirectEligible(part MediaPart, capKbps int) (bool, string) {
 	if video.CABAC == "0" {
 		return false, "CAVLC"
 	}
-	if video.Width > directMaxWidth || video.Height > directMaxHeight {
+	blocks := ((int64(video.Width) + 15) / 16) * ((int64(video.Height) + 15) / 16)
+	if video.Width > directMaxWidth || blocks > directMaxBlocks {
 		return false, fmt.Sprintf("size %dx%d", video.Width, video.Height)
 	}
 	hd := video.Width > directSDWidth
@@ -284,6 +287,9 @@ func DirectEligible(part MediaPart, capKbps int) (bool, string) {
 	}
 	if fps := part.fps(); fps > maxFPS+directFPSSlack {
 		return false, fmt.Sprintf("%.3g frames/s at %d wide", fps, video.Width)
+	}
+	if rate := float64(blocks) * part.fps(); rate > directMaxBlockRate*1.01 {
+		return false, fmt.Sprintf("picture block rate %.0f exceeds %d", rate, directMaxBlockRate)
 	}
 	bitrate := video.Bitrate
 	if bitrate <= 0 {
