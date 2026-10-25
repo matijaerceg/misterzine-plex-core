@@ -3,6 +3,7 @@
 package plex
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/xml"
@@ -99,11 +100,15 @@ func (c *Client) getSlow(path string, q url.Values) ([]byte, error) {
 }
 
 func (c *Client) fetch(cl *http.Client, path string, q url.Values) ([]byte, error) {
+	return c.fetchContext(context.Background(), cl, path, q)
+}
+
+func (c *Client) fetchContext(ctx context.Context, cl *http.Client, path string, q url.Values) ([]byte, error) {
 	r, err := c.req(path, q)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := cl.Do(r)
+	resp, err := cl.Do(r.WithContext(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -462,12 +467,16 @@ func (c *Client) Sections() ([]Section, error) {
 
 // Items fetches a listing path (section view, children key) with a size cap.
 func (c *Client) Items(path string, q url.Values, max int) ([]*Item, error) {
+	return c.ItemsContext(context.Background(), path, q, max)
+}
+
+func (c *Client) ItemsContext(ctx context.Context, path string, q url.Values, max int) ([]*Item, error) {
 	if q == nil {
 		q = url.Values{}
 	}
 	q.Set("X-Plex-Container-Start", "0")
 	q.Set("X-Plex-Container-Size", strconv.Itoa(max))
-	data, err := c.Get(path, q)
+	data, err := c.fetchContext(ctx, c.http, path, q)
 	if err != nil {
 		return nil, err
 	}
@@ -654,7 +663,11 @@ func (c *Client) FirstChars(section string, q url.Values) ([]Letter, error) {
 
 // Item fetches one item's metadata, with its markers.
 func (c *Client) Item(ratingKey string) (*Item, error) {
-	items, err := c.Items("/library/metadata/"+ratingKey, url.Values{"includeMarkers": {"1"}}, 1)
+	return c.ItemContext(context.Background(), ratingKey)
+}
+
+func (c *Client) ItemContext(ctx context.Context, ratingKey string) (*Item, error) {
+	items, err := c.ItemsContext(ctx, "/library/metadata/"+ratingKey, url.Values{"includeMarkers": {"1"}}, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -846,12 +859,16 @@ func (c *Client) SectionRecent(section string, count int) (*Hub, error) {
 
 // Put sends a PUT to a path (stream selection, Continue Watching).
 func (c *Client) Put(path string, q url.Values) error {
+	return c.PutContext(context.Background(), path, q)
+}
+
+func (c *Client) PutContext(ctx context.Context, path string, q url.Values) error {
 	r, err := c.req(path, q)
 	if err != nil {
 		return err
 	}
 	r.Method = "PUT"
-	resp, err := c.http.Do(r)
+	resp, err := c.http.Do(r.WithContext(ctx))
 	if err != nil {
 		return err
 	}
@@ -874,11 +891,15 @@ func (c *Client) SelectSubtitle(partID, streamID string) error {
 
 // Scrobble marks an item watched (true) or unwatched (false).
 func (c *Client) Scrobble(ratingKey string, watched bool) error {
+	return c.ScrobbleContext(context.Background(), ratingKey, watched)
+}
+
+func (c *Client) ScrobbleContext(ctx context.Context, ratingKey string, watched bool) error {
 	path := "/:/scrobble"
 	if !watched {
 		path = "/:/unscrobble"
 	}
-	_, err := c.Get(path, url.Values{"key": {ratingKey}, "identifier": {"com.plexapp.plugins.library"}})
+	_, err := c.fetchContext(ctx, c.http, path, url.Values{"key": {ratingKey}, "identifier": {"com.plexapp.plugins.library"}})
 	return err
 }
 
@@ -1010,4 +1031,8 @@ func LangName(tag string) string {
 		return n
 	}
 	return "Language " + strings.ToUpper(base)
+}
+
+func (c *Client) RemoveFromContinueWatchingContext(ctx context.Context, key string) error {
+	return c.PutContext(ctx, "/actions/removeFromContinueWatching", url.Values{"ratingKey": {key}})
 }

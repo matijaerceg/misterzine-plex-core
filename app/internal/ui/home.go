@@ -299,6 +299,7 @@ func (h *Home) pollHome(now time.Time) {
 		select {
 		case result := <-h.refreshResult:
 			h.refreshResult = nil
+			h.app.serverResult(result.err)
 			h.updating = false
 			h.app.dirty = true
 			if result.err != nil && h.err == nil {

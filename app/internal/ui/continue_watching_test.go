@@ -121,6 +121,7 @@ func TestPreplayRemovesFromContinueWatching(t *testing.T) {
 
 	p.cur = len(p.actions) - 1
 	p.Key(input.Event{Key: input.Enter}, time.Now())
+	settleServerRequest(t, a)
 	if got := srv.removals(); !slices.Equal(got, []string{"m1"}) {
 		t.Fatalf("removal sent for %v", got)
 	}
@@ -151,7 +152,8 @@ func TestContinueRemovalRefusedKeepsTheAction(t *testing.T) {
 	p.pollRefresh(time.Now())
 	p.cur = len(p.actions) - 1
 	p.Key(input.Event{Key: input.Enter}, time.Now())
-	if p.actions[p.cur] != RemoveContinue || a.Notice == "" {
+	settleServerRequest(t, a)
+	if p.actions[p.cur] != RemoveContinue || !a.serverOffline {
 		t.Fatalf("refused removal: actions %q, cursor %d, notice %q", p.actions, p.cur, a.Notice)
 	}
 	if len(h.hubs[0].Items) != 1 || h.refreshAt.IsZero() {
@@ -172,6 +174,7 @@ func TestContinueAnswerFromBeforeRemovalIsDropped(t *testing.T) {
 	p.cw.pending = stale
 	p.cur = len(p.actions) - 1
 	p.Key(input.Event{Key: input.Enter}, time.Now())
+	settleServerRequest(t, a)
 	stale <- map[string]bool{"m1": true}
 	p.pollRefresh(time.Now())
 	if slices.Contains(p.actions, RemoveContinue) {
@@ -207,6 +210,7 @@ func TestSeasonRemovesEpisodeFromContinueWatching(t *testing.T) {
 	s.rebuild()
 	s.act = len(s.actions) - 1
 	s.do(s.actions[s.act])
+	settleServerRequest(t, a)
 	if got := srv.removals(); !slices.Equal(got, []string{"e2"}) {
 		t.Fatalf("removal sent for %v", got)
 	}

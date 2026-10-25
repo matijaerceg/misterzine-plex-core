@@ -78,6 +78,10 @@ func newPagedServer(t *testing.T, size int) *pagedServer {
 				`<Directory ratingKey="902" key="/library/collections/902/children" type="collection" subtype="movie" title="Second Set" childCount="3"/>`+
 				`</MediaContainer>`)
 		default:
+			if strings.HasPrefix(r.URL.Path, "/library/metadata/") {
+				fmt.Fprintf(w, `<MediaContainer><Video ratingKey="%s" type="movie" title="Test film" summary="Synthetic metadata"/></MediaContainer>`, strings.TrimPrefix(r.URL.Path, "/library/metadata/"))
+				return
+			}
 			io.WriteString(w, `<MediaContainer size="0"></MediaContainer>`)
 		}
 	}))
@@ -560,6 +564,7 @@ func TestWallViewKeepsItsPlace(t *testing.T) {
 
 	// an item's page and back: the same tile, the same order
 	press(input.Enter)
+	settleServerRequest(t, a)
 	if _, ok := a.top().(*Preplay); !ok {
 		t.Fatalf("OK on a film opened %T", a.top())
 	}
@@ -753,6 +758,7 @@ func TestWallViewHearsTheLibraryLeft(t *testing.T) {
 	waitUntil(t, "the listing", func() bool { return w.pager.Get(0) != nil })
 
 	press(input.Enter) // a film's page, and back
+	settleServerRequest(t, a)
 	if _, ok := a.top().(*Preplay); !ok {
 		t.Fatalf("OK on a film opened %T", a.top())
 	}

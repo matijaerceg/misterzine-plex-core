@@ -36,6 +36,7 @@ func (r *viewRefresh) poll(a *App, now time.Time, fetch func() ([]*plex.Item, er
 		select {
 		case result := <-r.pending:
 			r.pending = nil
+			a.serverResult(result.err)
 			r.next = now.Add(viewRefreshInterval)
 			if result.err == nil {
 				apply(result.items)

@@ -611,3 +611,8 @@ logo; the BETA and UPDATE marks then start where the wordmark did. The drawer
 and the sign-in screen keep the wordmark. It needs a code covering September 2026;
 without one, Home shows the wordmark whatever the row was set to. A logo hidden
 with the earlier **Hide home logo** row reads as Off.
+
+Server outages: opening a title and changing watch state keep the controls responsive.
+Back cancels a pending request. A failed request offers Retry and Back; late replies
+after cancellation cannot open another page. Failed background refreshes retain
+cached content and show Server unavailable until a subsequent request succeeds.

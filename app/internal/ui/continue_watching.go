@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"maps"
 	"time"
 
@@ -72,23 +73,25 @@ func (l *continueList) has(key string) bool { return l.keys[key] }
 
 // removeContinue takes an item out of Continue Watching on the server, then
 // out of the page's list and the Home row at once, not at their next
-// fetch. False when the server refused; the notice line says so.
-func (a *App) removeContinue(it *plex.Item, l *continueList) bool {
-	if err := a.Plex.RemoveFromContinueWatching(it.RatingKey); err != nil {
-		a.Log.Printf("remove from continue watching %s: %v", it.RatingKey, err)
-		a.Notice, a.NoticeAt = "Could not remove it from Continue Watching.", time.Now()
-		a.dirty = true
-		return false
-	}
-	l.pending = nil // an answer from before the removal would still hold it
-	delete(l.keys, it.RatingKey)
-	for _, screen := range a.stack {
-		if h, ok := screen.(*Home); ok && h.home {
-			h.dropContinue(it.RatingKey)
+// fetch. The request screen reports failures.
+func (a *App) removeContinue(it *plex.Item, l *continueList, done func()) {
+	client, key := a.Plex, it.RatingKey
+	a.requestServer(func(ctx context.Context) (func(), error) {
+		if err := client.RemoveFromContinueWatchingContext(ctx, key); err != nil {
+			return nil, err
 		}
-	}
-	a.dirty = true
-	return true
+		return func() {
+			l.pending = nil // an answer from before the removal would still hold it
+			delete(l.keys, it.RatingKey)
+			for _, screen := range a.stack {
+				if h, ok := screen.(*Home); ok && h.home {
+					h.dropContinue(it.RatingKey)
+				}
+			}
+			a.dirty = true
+			done()
+		}, nil
+	})
 }
 
 // dropContinue takes an item out of the Continue Watching row and has the
