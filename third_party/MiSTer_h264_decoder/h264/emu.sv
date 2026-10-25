@@ -170,7 +170,7 @@ assign LOCKED    = locked & vid_locked;
 //     stock Main truncates the About line at 30 chars and splits CONF_STR on , and ;.
 //   * This string is INSIDE CONF_STR = inside the netlist, so changing it re-rolls the
 //     fit. Set it before the build that will ship, not after.
-`define CORE_VERSION "dev-rgbdither"
+`define CORE_VERSION "plex-dev-dither1"
 
 // The OSD definition. Every option, button and file extension here MUST be documented
 // in the manual: tools/docs_check.py parses this block (by its terminator, never a
@@ -198,7 +198,7 @@ assign LOCKED    = locked & vid_locked;
 // [23] legacy match refresh (ignored), [24] playback 240p, [25] film speed,
 // [26] free (reserved), and [28:27] refresh-match mode. CONF_STR stays at v1 so existing
 // HPS values remain intact; the new profile defaults to 480i60.
-// [30] Gradient Dither is a new, default-Off final RGB rounding option.
+// [30] Gradient Dither defaults to On; bit 30 disables final RGB rounding dither.
 // The first entry is the core's name: the OSD title, MiSTer.ini's per-core section and
 // /tmp/CORENAME (what the app and jfplay --core-name test for), whatever the rbf is called.
 localparam CONF_STR = {
@@ -212,7 +212,7 @@ localparam CONF_STR = {
 	"H0O[4:3],Deinterlace,Weave,Bob,Blend;",
 	"h0O[7],HDMI Deinterlace,Weave,Bob;",
 	"O[29],De-flicker,On,Off;",
-	"O[30],Gradient Dither,Off,On;",
+	"O[30],Gradient Dither,On,Off;",
 	"-;",
 	"-;",
 	"R[0],Reset;",
@@ -1356,7 +1356,7 @@ disp_reader #(.DPB_BASE(29'h0640_0000)) disp_reader_inst (
 	.pic_single        (v_sh_single),
 	.deint_mode        (v_deint),            // Deinterlace: Weave / Bob / Blend (latched per frame)
 	.pic_colour        (v_colour),           // (0.16, docs/colour.md) the shown picture's colour code, latched per refresh
-	.gradient_dither   (status[30]),
+	.gradient_dither   (~status[30]),
 	.pic_siting        (v_siting),           // (docs/chroma.md) its chroma siting, latched with it
 	.fit_ow            (v_fit_ow),
 	.fit_oh            (v_fit_oh),

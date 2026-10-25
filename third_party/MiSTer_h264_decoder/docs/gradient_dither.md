@@ -1,6 +1,6 @@
 # Experimental gradient dithering
 
-Gradient Dither in the core menu defaults to Off. On distributes the final RGB
+Gradient Dither in the core menu defaults to On. On distributes the final RGB
 rounding error across a stable 16 by 16 pixel pattern. This can soften banding
 without adding a constant color offset. It cannot remove encoded compression
 artifacts or recover precision already lost in earlier scaling stages.
@@ -13,7 +13,7 @@ The pattern follows full-frame raster coordinates, with one threshold per logica
 pixel for two-dot modes. It does not invert between fields. The OSD level crosses
 two synchronizer registers and is selected at the next frame origin.
 
-Status bit 30 selects the option. Off retains the original +128 fixed rounding.
+Status bit 30 disables the option when set; zero selects On. Off retains the original +128 fixed rounding.
 On substitutes every integer threshold from 0 through 255 once in each 16 by 16
 tile. For a constant Q8 value, the tile average is exactly its clipped ideal value.
 This is an average guarantee for constant input, not for arbitrary varying images.
