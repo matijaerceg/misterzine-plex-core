@@ -226,6 +226,8 @@ static void fail(struct player *p, int code, const char *fmt, ...)
 
 static void signal_handler(int sig) { (void)sig; caught_signal = 1; }
 
+#include "menu_audio.h"
+
 static int parse_int(const char *s, int lo, int hi, int *out)
 {
     char *end;
@@ -1935,6 +1937,12 @@ static void cleanup(struct player *p, int reader_started)
 
 int main(int argc, char **argv)
 {
+    if (argc >= 2 && !strcmp(argv[1], "--menu-audio")) {
+        if (argc == 2) return menu_audio_main(NULL);
+        if (argc == 4 && !strcmp(argv[2], "--core-name") && argv[3][0])
+            return menu_audio_main(argv[3]);
+        return EX_ARGS;
+    }
     struct player p;
     struct stat fifo_st;
     int rc, reader_started = 0, reader_err = 0, result = 0;

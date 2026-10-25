@@ -74,7 +74,8 @@ var (
 	// PlaybackTheme is the playback controls' looks other than Standard
 	// (Options > Playback UI theme). One code covers every current extra,
 	// so its threshold is the first code's.
-	PlaybackTheme = Feature{Premium: true, Since: 202609}
+	PlaybackTheme    = Feature{Premium: true, Since: 202609}
+	NavigationMelody = Feature{Premium: true, Since: 202609}
 )
 
 // Entry names a feature for the access overview and the coverage register.
@@ -90,6 +91,7 @@ func Catalog() []Entry {
 		{"random-sort", "Random library order", RandomSort},
 		{"no-home-logo", "Home logo: MisterKun or none", NoHomeLogo},
 		{"playback-theme", "Playback UI theme", PlaybackTheme},
+		{"navigation-melody", "Navigation melody", NavigationMelody},
 	}
 }
 

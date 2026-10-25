@@ -120,9 +120,9 @@ func (o *Options) items() []option {
 		}, at: func() (int, int) { return cfg.subtitleSizeIndex(), len(SubtitleSizes) }},
 		{label: "Subtitle background", get: func() bool { return cfg.SubtitleBox }, set: func(v bool) { cfg.SubtitleBox = v }},
 		{label: "Theme music", get: func() bool { return !cfg.NoTheme }, set: func(v bool) { cfg.NoTheme = !v }, after: o.app.syncTheme},
-		// Navigation sounds (Config.NoTaps) has no row while the H.264 core has no
-		// path for the tick: its audio is the video's only (the PlexCRT core clicked
-		// in its mixer). The saved setting is kept for when it comes back.
+		{label: "Navigation sounds", val: func() string { return []string{"Off", "Quiet", "Loud"}[cfg.menuAudioLevel()] }, step: func(d int) {
+			cfg.setMenuAudioLevel(cfg.menuAudioLevel() + d)
+		}, at: func() (int, int) { return cfg.menuAudioLevel(), 3 }, after: o.app.menuAudioSettingChanged},
 		optionGap(),
 	}...)
 	items = extraOptions(o.app, items)

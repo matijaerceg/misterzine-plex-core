@@ -44,9 +44,18 @@ func (a *App) focusPosition() focusPosition {
 }
 
 func (a *App) tap() {
-	if a.Cfg != nil && !a.Cfg.NoTaps {
-		if out, ok := a.Out.(interface{ Tap() }); ok {
-			out.Tap()
+	if level := a.Cfg.menuAudioLevel(); level > 0 && !a.playing && !a.menuAudioHeld {
+		note := a.premiumMenuNote(false)
+		accepted := false
+		if a.menuNavDown && a.premiumMenuSustain() {
+			accepted = a.menuAudio.Tone(level, note)
+			a.menuToneOn = accepted
+		} else {
+			a.silenceMenuTone()
+			accepted = a.menuAudio.Tap(level, note)
+		}
+		if accepted {
+			a.premiumMenuNote(true)
 		}
 	}
 }

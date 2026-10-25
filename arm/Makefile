@@ -18,11 +18,12 @@ LIBS := $(ROOT)/build/arm/libh264ring.a \
 all: jfplay
 
 # Every host test: none needs the ARM toolchain or a device.
-test: contract-test core-owner-test audio-boost-test seek-cache-test seek-protocol-test h264-idr-test \
+test: menu-click-test contract-test core-owner-test audio-boost-test seek-cache-test seek-protocol-test h264-idr-test \
 	film-speed-test direct-check-test video-geometry-test packet-pacing-test
 
-jfplay: jfplay.c audio_boost.h film_speed.h h264_idr.h seek_cache.h seek_protocol.h video_geometry.h core_owner.h \
+jfplay: jfplay.c menu_audio.h menu_click.h menu_tone.h audio_boost.h film_speed.h h264_idr.h seek_cache.h seek_protocol.h video_geometry.h core_owner.h \
 		direct_check.h packet_pacing.h lag_watch.h $(H264CHECK)/h264check.c $(H264CHECK)/h264check.h $(ROOT)/build/arm/libh264ring.a
+
 	$(CC) $(CFLAGS) -o $@ $< $(H264CHECK)/h264check.c $(LIBS)
 
 direct-check-test:
@@ -32,6 +33,13 @@ direct-check-test:
 
 contract-test:
 	python3 test_jfplay_contract.py
+
+.PHONY: menu-click-test
+menu-click-test:
+	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -O2 -o /tmp/jfplay-menu-click-test test_menu_click.c -lm
+	/tmp/jfplay-menu-click-test
+	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -O2 -o /tmp/jfplay-menu-audio-test test_menu_audio.c -lm
+	/tmp/jfplay-menu-audio-test
 
 core-owner-test:
 	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -O2 -o /tmp/jfplay-core-owner-test test_core_owner.c

@@ -129,8 +129,15 @@ the meaning carried over (`compat.go`).
   overlay generation/state/error, raster (word 80), aspect (word 47).
   `Field()` is the heartbeat; `Foreign`/`Published` follow the display's
   `fetch_changes` (word 13) while a picture is shown. Idle dimming is the
-  software brightness applied as frames are copied into a page; `Tap`, the
-  PlexCRT core's click, is a no-op (`compat.go`).
+  software brightness applied as frames are copied into a page.
+- **Menu audio.** `jfplay --menu-audio` owns the audio ring while browsing.
+  A short silent PCM record starts the audio-only clock; the worker reports
+  readiness before the app sends selection-change taps. Five synthesized
+  click buffers provide small random pitch changes without consecutive repeats.
+  Taps during preparation or an outstanding click are dropped, not queued.
+  The app closes the worker's input and reaps it before launching playback,
+  then prepares a new menu-audio session when playback ends. The worker stops
+  on core ownership or session loss; the app bounds recovery retries.
 - **Launch.** `ring.Open` calls `LaunchCore` (MGL in `/tmp/h264ring.mgl`,
   `load_core` written once to `/dev/MiSTer_cmd`, only when `/tmp/CORENAME`
   does not already name the app's core, `MisterZine Plex Core`, the only name

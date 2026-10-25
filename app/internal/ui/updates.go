@@ -131,7 +131,12 @@ func (a *App) pollUpdates(now time.Time) {
 			if old := a.updates.status; s.Stage == "failed" && (old.Stage != "failed" || old.Updated != s.Updated || old.Message != s.Message) {
 				a.updates.failedAt = time.Now()
 			}
+			wasActivating := a.updates.status.Stage == "activating"
 			a.updates.status = s
+			if wasActivating && s.Stage == "failed" {
+				a.menuAudioHeld = false
+				a.syncMenuAudio()
+			}
 		})
 	}()
 }
@@ -150,8 +155,13 @@ func (a *App) updateNote(now time.Time) string {
 
 // fail records a failure the updater did not write itself.
 func (a *App) fail(r *updates.Release, message string) {
+	wasActivating := a.updates.status.Stage == "activating"
 	a.updates.status = updates.Status{Stage: "failed", Release: r, Message: message}
 	a.updates.failedAt = time.Now()
+	if wasActivating {
+		a.menuAudioHeld = false
+		a.syncMenuAudio()
+	}
 }
 
 // ownChannel is the channel whose releases come first: a development build
@@ -292,9 +302,15 @@ func (a *App) startUpdate(action string, r *updates.Release) {
 	}
 	a.updates.launch++
 	a.updates.waiting, a.updates.before, a.updates.message = true, now.Updated, ""
+	if action == "activate" {
+		a.menuAudioHeld = true
+		a.stopMenuAudio()
+	}
 	exited, err := updates.Start(root, action, r)
 	a.updates.exited = exited
 	if err != nil {
+		a.menuAudioHeld = false
+		a.syncMenuAudio()
 		a.fail(shown, "Could not start the updater. Run "+updates.Installer()+" from Scripts to repair update support.")
 		return
 	}

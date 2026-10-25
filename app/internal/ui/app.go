@@ -174,14 +174,22 @@ type App struct {
 	pagers map[string]*Pager     // listings kept for the session, by path and query
 	places map[string]*wallPlace // the libraries' views that keep their place, by section key
 	// CacheDir is where artwork is kept (for a client made after sign-in).
-	cacheDir      string
-	aspects       Aspects // show shapes for the 4:3 filter
-	lastSection   string  // the library the drawer opened last; it opens on it again
-	theme         Theme
-	lastFocus     focusPosition
-	focusReady    bool
-	accountLookup bool         // UI-thread owned; prevents overlapping account-name requests
-	access        access.Month // the coverage of the codes on this card (premium.go)
+	cacheDir                        string
+	aspects                         Aspects // show shapes for the 4:3 filter
+	lastSection                     string  // the library the drawer opened last; it opens on it again
+	theme                           Theme
+	menuAudio                       *menuAudio
+	menuAudioRunning, menuAudioHeld bool
+	menuAudioRetry                  time.Time
+	menuAudioFailures               int
+	premiumAudioState               any // optional audio extension state, owned by this App
+	menuNavDown, menuToneOn         bool
+	menuNavRepeat                   bool
+	menuNavKey                      input.Key
+	lastFocus                       focusPosition
+	focusReady                      bool
+	accountLookup                   bool         // UI-thread owned; prevents overlapping account-name requests
+	access                          access.Month // the coverage of the codes on this card (premium.go)
 }
 
 // SetCacheDir sets where artwork is cached.
@@ -436,8 +444,16 @@ func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 		}
 	}
 	a.flushSettings() // a track just chosen, say: on the card before the play
-	a.theme.Stop()    // ALSA is single-client: wait for aplay before the launcher
+	a.theme.Stop()    // Finish the theme before handing audio to playback.
 	defer a.syncTheme()
+	a.menuAudioHeld = true
+	a.stopMenuAudio()
+	defer func() {
+		a.menuAudioHeld = false
+		a.focusReady = false
+		a.menuAudioRetry = time.Time{}
+		a.syncMenuAudio()
+	}()
 	a.Player.Reap()
 	a.crop = a.Cfg.Crop.valid()
 	for {
@@ -1195,6 +1211,10 @@ func (a *App) homeUpdating() bool {
 // Run drives input, drawing and presentation until stop closes or the
 // menu's Exit sets ToMenu.
 func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
+	a.menuAudioRunning = true
+	a.syncMenuAudio()
+	a.syncTheme()
+	defer func() { a.menuAudioRunning = false; a.stopMenuAudio() }()
 	defer a.theme.Stop()
 	defer a.flushSettings()
 	a.events = events
@@ -1278,6 +1298,7 @@ func (a *App) Run(events <-chan input.Event, stop <-chan struct{}) {
 		a.showMemo()
 		a.idle(time.Now(), a.menuWaiting()) // the idle tick checks it every second
 		a.pollUpdates(time.Now())
+		a.syncMenuAudio()
 		if h, ok := a.top().(*Home); ok {
 			h.pollHome(time.Now())
 		} else if h, ok := a.stack[0].(*Home); ok && h.updating {
@@ -1389,6 +1410,7 @@ func (a *App) pacedTransition() bool {
 }
 
 func (a *App) key(ev input.Event, now time.Time) {
+	a.menuAudioInput(ev)
 	if a.wake(ev, now) {
 		return
 	}

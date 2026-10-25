@@ -40,3 +40,7 @@ func (a *App) premiumWallViews(s plex.Section) []wallView { return nil }
 
 // premiumVersion is the extras' line for -version; "" in the public build.
 func PremiumVersion() string { return "" }
+
+// Pitch zero selects the standard random click in public builds.
+func (a *App) premiumMenuNote(advance bool) int { return 0 }
+func (a *App) premiumMenuSustain() bool         { return false }

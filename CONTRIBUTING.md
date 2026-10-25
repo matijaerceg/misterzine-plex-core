@@ -77,7 +77,8 @@ uses a disposable `/media` card tree and a supplied official Downloader archive.
 Hardware-dependent changes also need a MiSTer test. Verify direct streaming and
 transcoding, continuous audio/video, pause/resume, repeated seeking, stop/restart,
 and the server's saved position. Confirm that only one `jfplay` runs during
-playback and none remain after stop. Test crop on an analog display when
+playback and no media worker remains after stop. With Navigation sounds enabled, a single
+`jfplay --menu-audio` process is expected while browsing. Test crop on an analog display when
 changing it. Test credentials and media must belong to the tester; playback can
 update watched state. Keep raw test journals, credentials, deployment logs and
 session notes in a private directory outside Git. Public docs should describe

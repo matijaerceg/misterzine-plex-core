@@ -20,6 +20,7 @@ type Config struct {
 	EarlyAccessUpdates bool     `json:"early_access_updates"`
 	RecentSearches     []string `json:"recent_searches,omitempty"`
 	NoTaps             bool     `json:"no_taps"`
+	QuietTaps          bool     `json:"quiet_taps,omitempty"` // absent in older settings retains Loud
 	NoTheme            bool     `json:"no_theme"`
 	Progressive        bool     `json:"progressive"`             // legacy 480p choice; now only picks the calibration's line ends
 	FourThree          bool     `json:"only_4x3"`                // hide media wider than 4:3

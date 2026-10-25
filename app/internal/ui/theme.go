@@ -14,11 +14,12 @@ import (
 
 const themeGain = 0.275 // half the previous 0.55 level
 
-// Theme owns both children. Stop waits until ALSA has been released, including
+// Theme owns both children. Stop waits until theme output has been released, including
 // when decoding, network access or an audio write stalls. Cancel, for
 // navigation, does not wait: the fade runs out behind the next page, and
-// the next theme waits for it before it opens the device.
+// the next theme waits for it before it writes to the shared menu audio pipe.
 type Theme struct {
+	play   func(context.Context, string, string)
 	key    string
 	cancel context.CancelFunc
 	done   chan struct{} // closed once this player and every one before it are gone
@@ -39,7 +40,7 @@ func (t *Theme) Cancel() {
 	t.key = ""
 }
 
-// Stop is Cancel that waits until every player has released ALSA: playback
+// Stop is Cancel that waits until every player has released theme output: playback
 // needs the device.
 func (t *Theme) Stop() {
 	t.Cancel()
@@ -62,6 +63,10 @@ func (t *Theme) Select(c *plex.Client, ffmpeg, key, path string) {
 	t.key = key
 	ctx, cancel := context.WithCancel(context.Background())
 	prev, done := t.done, make(chan struct{})
+	play := t.play
+	if play == nil {
+		play = themePlay
+	}
 	t.cancel, t.done = cancel, done
 	go func() {
 		defer func() {
@@ -75,14 +80,14 @@ func (t *Theme) Select(c *plex.Client, ffmpeg, key, path string) {
 			return
 		}
 		if prev != nil {
-			// ALSA is single-client: the last theme's fade first
+			// The previous theme must finish its fade first
 			select {
 			case <-prev:
 			case <-ctx.Done():
 				return
 			}
 		}
-		themePlay(ctx, ffmpeg, file)
+		play(ctx, ffmpeg, file)
 	}()
 }
 
@@ -175,6 +180,12 @@ func playThemeCommands(ctx context.Context, commands func(context.Context) (*exe
 
 // Dialogs within a show inherit that show's music; navigation pages do not.
 func (a *App) syncTheme() {
+	a.syncMenuAudio()
+	if a.menuAudio == nil {
+		a.theme.Cancel()
+		return
+	}
+	a.theme.play = a.menuAudio.PlayTheme
 	if a.Cfg == nil || a.Cfg.NoTheme || a.Plex == nil {
 		a.theme.Cancel()
 		return

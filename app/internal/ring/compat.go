@@ -8,8 +8,8 @@ import (
 
 // The Ring's side of what the UI asks of its output: the picture-rectangle
 // interface, brightness (done in software, on the pixels as they are copied
-// into a page), the input region, and Tap, a no-op kept for the Navigation
-// sounds option (the PlexCRT core clicked; the H.264 core has no click).
+// into a page), the input region, and the legacy no-op Tap method.
+// Menu navigation audio now runs through jfplay --menu-audio.
 
 // Full is full brightness.
 const Full = 256
@@ -41,8 +41,7 @@ func (r *Ring) Brightness() (level int, supported bool) {
 	return int(Full - r.dim), true
 }
 
-// Tap was a click into the PlexCRT core's audio mixer; the H.264 core's
-// audio is the player's.
+// Tap is retained for older presenters. The UI uses its menu-audio worker.
 func (r *Ring) Tap() {}
 
 // InputRegion copies the core's input region (words 48-71) consistently:

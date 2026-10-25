@@ -26,6 +26,38 @@ the bounded queues. Streams without audio do not use this gate.
 Compressed queues are capped at 64 MiB, 8192 packets, and 45 seconds ahead of
 the current playback point (whichever bound is reached first).
 
+## Menu navigation audio
+
+`jfplay --menu-audio` runs the menu click worker without opening media or loading
+an FPGA core. The Plex app also passes `--core-name` with its own core name. The process takes the normal exclusive ring lock, opens an audio-only session,
+and sends one silent 28 ms PCM record to start the presentation clock. It writes
+`ready` followed by a newline to stdout once that record has played (about one
+second). After readiness, each command is a newline-terminated stdin line:
+
+- `tap` plays a synthesized click at the Loud level with one of five nearby
+  pitches, never repeating the previous random pitch.
+- `tap LEVEL MIDI` selects level `1` (Quiet, half the Loud sample amplitude) or
+  `2` (Loud). MIDI `0` selects the same five random variants; a MIDI note from
+  `48` through `96` selects a fixed pitch, with note `69` at 440 Hz.
+- `ton LEVEL MIDI` sustains a fixed pitch. Repeat it while navigating to keep
+  the tone alive, or change its pitch without a silent gap. `end` releases it
+  with a short fade. A missing keepalive stops the tone after 650 ms.
+
+Other values and malformed lines are discarded. All clicks use the same 28 ms
+envelope; their sample buffers are prepared once at startup. The app implements
+Off by stopping the worker. The protocol carries individual notes, with no
+built-in note sequences.
+
+Sustained tones use a phase-continuous sine with a 5 ms attack/release and a
+bounded PCM queue of at most 112 ms. Quiet has half the Loud amplitude. Sustained
+output uses a lower peak than short clicks to keep continuous sound comfortable.
+
+Taps received during preparation or while a click is outstanding are discarded;
+bursts coalesce instead of building a backlog. Closing stdin or sending SIGTERM
+ends the worker. The app waits for it to exit before starting media playback.
+Core replacement, a stale raster heartbeat, or a lost session also ends it.
+This mode does not read or write the media worker's control FIFO or status file.
+
 ## Invocation
 
 ```

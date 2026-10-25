@@ -2,31 +2,25 @@ package ui
 
 import "testing"
 
-type tapPresenter struct {
-	Presenter
-	taps int
-}
-
-func (p *tapPresenter) Tap() { p.taps++ }
-
 func TestTapsFollowPresentedSelection(t *testing.T) {
-	out := &tapPresenter{}
+	m := &menuAudio{taps: make(chan menuTap, 10)}
+	m.ready.Store(true)
 	s := &Options{}
-	a := &App{Out: out, Cfg: &Config{}, stack: []Screen{s}}
+	a := &App{menuAudio: m, Cfg: &Config{}, stack: []Screen{s}}
 	a.selectionPresented()
 	a.selectionPresented()
-	if out.taps != 0 {
+	if len(m.taps) != 0 {
 		t.Fatal("startup/redraw clicked")
 	}
 	s.cur++
 	a.selectionPresented()
 	a.selectionPresented()
-	if out.taps != 1 {
+	if len(m.taps) != 1 {
 		t.Fatal("selection must click exactly once")
 	}
 	a.stack = append(a.stack, &Chooser{})
 	a.selectionPresented()
-	if out.taps != 2 {
+	if len(m.taps) != 2 {
 		t.Fatal("new screen selection must click")
 	}
 	a.Cfg.NoTaps = true
@@ -34,7 +28,7 @@ func TestTapsFollowPresentedSelection(t *testing.T) {
 	a.selectionPresented()
 	a.Cfg.NoTaps = false
 	a.selectionPresented()
-	if out.taps != 2 {
+	if len(m.taps) != 2 {
 		t.Fatal("muted changes must not replay")
 	}
 }
