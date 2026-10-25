@@ -1,7 +1,7 @@
 # MisterZine Plex Core 0.1.0-beta.30
 
 This update improves gradients, controller playback controls, server-outage
-handling, and the choice between original video and server conversion.
+handling, menu audio, and the choice between original video and server conversion.
 
 - **Gradient Dither** is on by default. It smooths colour gradients in the
   final picture and can be switched off in the core OSD.
@@ -17,6 +17,13 @@ handling, and the choice between original video and server conversion.
   play directly. The selected video bitrate remains a limit on original video.
 - Audio/video feeding is paced more carefully to avoid starving audio when
   video packets arrive in bursts.
+
+- Navigation clicks play promptly while browsing. Navigation sounds retain
+  their Off, Quiet and Loud settings.
+- The navigation melody chooser includes Trolo, Sahur, Astro, Tetro and Cat.
+- Show theme music is available again when supplied by the server, with an
+  independent Theme music toggle. Themes mix with navigation clicks and stop
+  before video playback.
 
 Existing settings, calibration and saved access are preserved by updates.
 Rollback restores the previous application and core. This remains a beta;
