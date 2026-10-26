@@ -12,7 +12,7 @@ import (
 	"plexcrt/internal/plex"
 )
 
-const themeGain = 0.275 // half the previous 0.55 level
+const themeGain = 1.0 // preserve source level; the envelope only fades in and out
 
 // Theme owns both children. Stop waits until theme output has been released, including
 // when decoding, network access or an audio write stalls. Cancel, for
