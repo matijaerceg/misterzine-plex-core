@@ -1,6 +1,7 @@
 package ui
 
 import (
+ "plexcrt/internal/input"
 	"testing"
 	"time"
 )
@@ -54,4 +55,13 @@ func TestPlaybackInfoScrollHint(t *testing.T) {
  l.items = make([]string, 16)
  l.infoScrollHint()
  if l.hint != "Up/Down" { t.Fatal("overflow must explain scrolling") }
+}
+
+func TestPlaybackMenuWraps(t *testing.T) {
+ _, p := infoFixture(t)
+ p.openInfo(time.Now())
+ p.Key(input.Event{Key: input.Up}, time.Now())
+ if p.list.cur != len(p.list.items)-1 { t.Fatal("Up must wrap to last row") }
+ p.Key(input.Event{Key: input.Down}, time.Now())
+ if p.list.cur != 0 || p.list.to != 0 { t.Fatal("Down must wrap to first row and restore title") }
 }

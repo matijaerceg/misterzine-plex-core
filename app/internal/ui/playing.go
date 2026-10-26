@@ -703,10 +703,12 @@ func (p *Playing) Key(ev input.Event, now time.Time) bool {
 		switch ev.Key {
 		case input.Up, input.Down:
 			from := l.cur
-			if ev.Key == input.Up && l.cur > 0 {
-				l.cur--
-			} else if ev.Key == input.Down && l.cur < len(l.items)-1 {
-				l.cur++
+			if n := len(l.items); n > 0 {
+				if ev.Key == input.Up {
+					l.cur = (l.cur + n - 1) % n
+				} else {
+					l.cur = (l.cur + 1) % n
+				}
 			}
 			l.window()
 			if p.arrowsMove(l, from) {
