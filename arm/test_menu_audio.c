@@ -30,6 +30,7 @@ static uint64_t last_write_at;
 static int stalled, wrong_core;
 static unsigned frames[256], completed;
 static int theme_test;
+static unsigned theme_gaps;
 struct command { uint64_t at; const char *text; };
 static struct command script[8];
 
@@ -69,6 +70,7 @@ static int h264ring_try_write_audio(h264ring *r, const void *bytes, uint32_t len
     assert(writes < 256);
     memcpy(captured[writes], bytes, len);
     frames[writes] = len / 4;
+    if (theme_test && writes > 1 && !finish_at) ++theme_gaps;
     if (!finish_at) finish_at = clock_ms + (writes ? len / 192 : 1000);
     ++pending_writes;
     last_write_at = clock_ms;
@@ -77,7 +79,7 @@ static int h264ring_try_write_audio(h264ring *r, const void *bytes, uint32_t len
 }
 static void h264ring_close(h264ring *r) { (void)r; ++closes; }
 static int fake_poll(struct pollfd *fds, nfds_t n, int timeout)
-{ (void)fds; (void)n; clock_ms += (unsigned)timeout; return 0; }
+{ (void)fds; (void)n; clock_ms += theme_test ? 8 : (unsigned)timeout; return 0; }
 static ssize_t fake_read(int fd, void *bytes, size_t size)
 {
     if (fd == 3 && theme_test) {
@@ -122,6 +124,7 @@ static void reset(void)
     caught_signal = stalled = wrong_core = 0;
     completed = 0;
     theme_test = 0;
+    theme_gaps = 0;
     unsetenv("MZ_MENU_PCM_FD");
     memset(script, 0, sizeof script);
     memset(captured, 0, sizeof captured);
@@ -212,6 +215,7 @@ int main(void)
         }
     }
     assert(heard_theme && heard_click);
+    assert(theme_gaps == 0);
     puts("menu audio lifecycle tests passed");
     return 0;
 }

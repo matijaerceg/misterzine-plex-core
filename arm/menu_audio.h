@@ -105,43 +105,51 @@ static int menu_audio_main(const char *core_name)
             tone_until = mono_ms() + 650; /* lost release / stalled UI watchdog */
         }
         if (mono_ms() >= tone_until) tone.midi = 0;
-        if (pcm_fd >= 0 && theme_bytes < sizeof theme_pcm) {
-            ssize_t n = read(pcm_fd, (char *)theme_pcm + theme_bytes, sizeof theme_pcm - theme_bytes);
-            if (n > 0) theme_bytes += (size_t)n;
-            else if (n == 0) pcm_fd = -1;
-            else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) goto done;
-        }
-        if (ready && (theme_bytes || theme_click)) {
-            if (tap && !theme_click) {
-                unsigned note = input.command.midi ?
-                    MENU_CLICK_NOTES + input.command.midi - MENU_CLICK_MIDI_FIRST :
-                    menu_click_note(&random, previous);
-                theme_click = clicks.pcm[input.command.level - 1][note];
-                click_frame = 0;
-                if (!input.command.midi) previous = (int)note;
+        /* Refill a bounded 30 ms cushion in one pass. One 5 ms record
+         * per scheduler wake starves on the DE10 under menu load. */
+        int handled_theme = 0;
+        for (unsigned fill = 0; fill < 6; ++fill) {
+            if (pcm_fd >= 0 && theme_bytes < sizeof theme_pcm) {
+                ssize_t n = read(pcm_fd, (char *)theme_pcm + theme_bytes, sizeof theme_pcm - theme_bytes);
+                if (n > 0) theme_bytes += (size_t)n;
+                else if (n == 0) pcm_fd = -1;
+                else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) goto done;
             }
-            if (queued < 480 && (theme_bytes || theme_click)) {
-                for (unsigned i = 0; i < 480; ++i) {
-                    int value = i * 2 < theme_bytes ? theme_pcm[i] : 0;
-                    if (theme_click && click_frame + i / 2 < MENU_CLICK_FRAMES)
-                        value += theme_click[click_frame * 2 + i];
-                    mixed_pcm[i] = value > 32767 ? 32767 : value < -32768 ? -32768 : value;
+            if (ready && (theme_bytes || theme_click)) {
+                if (tap && !theme_click) {
+                    unsigned note = input.command.midi ?
+                        MENU_CLICK_NOTES + input.command.midi - MENU_CLICK_MIDI_FIRST :
+                        menu_click_note(&random, previous);
+                    theme_click = clicks.pcm[input.command.level - 1][note];
+                    click_frame = 0;
+                    if (!input.command.midi) previous = (int)note;
                 }
-                if (!core_owner_ok(&p)) goto done;
-                int rc = h264ring_try_write_audio(p.ring, mixed_pcm, sizeof mixed_pcm, -1);
-                if (rc && rc != -EAGAIN) goto done;
-                if (!rc) {
-                    theme_bytes = 0;
-                    submitted += 240;
-                    if (!queued) progress_deadline = mono_ms() + 200;
-                    if (theme_click) {
-                        click_frame += 240;
-                        if (click_frame >= MENU_CLICK_FRAMES) theme_click = NULL;
+                if (queued < 1440 && (theme_bytes || theme_click)) {
+                    for (unsigned i = 0; i < 480; ++i) {
+                        int value = i * 2 < theme_bytes ? theme_pcm[i] : 0;
+                        if (theme_click && click_frame + i / 2 < MENU_CLICK_FRAMES)
+                            value += theme_click[click_frame * 2 + i];
+                        mixed_pcm[i] = value > 32767 ? 32767 : value < -32768 ? -32768 : value;
+                    }
+                    if (!core_owner_ok(&p)) goto done;
+                    int rc = h264ring_try_write_audio(p.ring, mixed_pcm, sizeof mixed_pcm, -1);
+                    if (rc && rc != -EAGAIN) goto done;
+                    if (!rc) {
+                        theme_bytes = 0;
+                        submitted += 240;
+                        if (!queued) progress_deadline = mono_ms() + 200;
+                        queued += 240;
+                        if (theme_click) {
+                            click_frame += 240;
+                            if (click_frame >= MENU_CLICK_FRAMES) theme_click = NULL;
+                        }
                     }
                 }
-            }
-            continue;
+                handled_theme = 1;
+                if (queued >= 1440) break;
+            } else break;
         }
+        if (handled_theme) continue;
         if (tone.midi || tone.gain > 0) {
             tap = 0;
             /* AUD_PLAYED may advance by whole records. Keep multiple records
