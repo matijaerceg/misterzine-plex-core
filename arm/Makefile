@@ -17,6 +17,13 @@ LIBS := $(ROOT)/build/arm/libh264ring.a \
 .PHONY: all clean test contract-test core-owner-test audio-boost-test seek-cache-test seek-protocol-test h264-idr-test film-speed-test direct-check-test video-geometry-test packet-pacing-test
 all: jfplay
 
+jfplay: pal_diagnostic.h
+
+.PHONY: pal-diagnostic-test
+pal-diagnostic-test:
+	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/jfplay-pal-diagnostic-test test_pal_diagnostic.c
+	/tmp/jfplay-pal-diagnostic-test
+
 # Every host test: none needs the ARM toolchain or a device.
 test: video-bitrate-test menu-click-test contract-test core-owner-test audio-boost-test seek-cache-test seek-protocol-test h264-idr-test \
 	film-speed-test direct-check-test video-geometry-test packet-pacing-test

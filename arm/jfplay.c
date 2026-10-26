@@ -40,6 +40,7 @@
 #include "packet_pacing.h"
 #include "video_bitrate.h"
 #include "lag_watch.h"
+#include "pal_diagnostic.h"
 
 #define Q_PACKETS 8192
 #define Q_BYTES (64u * 1024u * 1024u)
@@ -104,6 +105,10 @@ struct reader {
 };
 
 struct player {
+    struct pal_headers pal_headers;
+    uint64_t pal_last_ms;
+    unsigned pal_lines;
+    char pal_last_state[512];
     struct video_bitrate bitrate;
     struct config cfg;
     h264ring *ring;
@@ -667,6 +672,14 @@ static void extend_buffer_interval(int64_t pts, int64_t duration, int64_t tolera
                                    int64_t *start, int64_t *end);
 static int64_t video_duration90(struct player *p, const AVPacket *pkt);
 
+static void pal_log_header(unsigned type, const uint8_t *data, size_t len)
+{
+    char hex[1025];
+    for (size_t i=0;i<len;i++) snprintf(hex+2*i,3,"%02x",data[i]);
+    hex[2*len]=0;
+    logmsg("PAL-DIAG-1 parameter_set type=%u bytes=%zu hex=%s",type,len,hex);
+}
+
 static int write_au(struct player *p, AVPacket *pkt, unsigned flags)
 {
     if (!core_owner_ok(p)) return AVERROR_EXIT;
@@ -675,7 +688,10 @@ static int write_au(struct player *p, AVPacket *pkt, unsigned flags)
                         film_speed_pts90(p->film_speed, source_pts);
     int rc = h264ring_try_write_au(p->ring, pkt->data, (uint32_t)pkt->size,
                                    clock_pts == AV_NOPTS_VALUE ? -1 : clock_pts, flags);
-    if (!rc) video_bitrate_add(&p->bitrate, (uint32_t)pkt->size, video_duration90(p, pkt));
+    if (!rc) {
+        video_bitrate_add(&p->bitrate, (uint32_t)pkt->size, video_duration90(p, pkt));
+        pal_capture_headers(&p->pal_headers,pkt->data,(size_t)pkt->size,pal_log_header);
+    }
     if (!rc && source_pts != AV_NOPTS_VALUE) {
         p->newest_video90 = clock_pts;
         extend_buffer_interval(source_pts, video_duration90(p, pkt), 22500,
@@ -1306,6 +1322,23 @@ static void write_status(struct player *p, int force)
     int have = p->ring && core_owner_ok(p) && !h264ring_status(p->ring, &st);
     if (!force && now - p->last_status_ms < 250) return;
     p->last_status_ms = now;
+    if (have && p->pal_lines < 80) {
+        char state[512];
+        snprintf(state,sizeof state,"profile=%u match=%u raster=%ux%u interlaced=%u std=%u picture=%u flags=%u paused=%u film=%u version=%u",
+          (unsigned)H264RING_ST(&st,DISPLAY_PROFILE),(unsigned)H264RING_ST(&st,DISPLAY_REFRESH_MATCH_MODE),
+          (unsigned)H264RING_ST(&st,RASTER_W),(unsigned)H264RING_ST(&st,RASTER_H),
+          (unsigned)H264RING_ST(&st,RASTER_IL),(unsigned)H264RING_ST(&st,RASTER_STD),
+          (unsigned)H264RING_ST(&st,FIT_VALID),(unsigned)H264RING_ST(&st,DISP_FLAGS),
+          (unsigned)H264RING_ST(&st,PAUSED),(unsigned)H264RING_ST(&st,DISPLAY_FILM_SPEED),
+          (unsigned)H264RING_ST(&st,VERSION));
+        if (strcmp(state,p->pal_last_state) || (p->pal_lines < 5 && now-p->pal_last_ms>=1000)) {
+            logmsg("PAL-DIAG-1 core %s decoded=%u shown=%u cadence=%u reanchor=%u",
+              state,(unsigned)H264RING_ST(&st,FE_PIC),(unsigned)H264RING_ST(&st,DISP_PICK),
+              (unsigned)H264RING_ST(&st,DISP_CADENCE),(unsigned)H264RING_ST(&st,DISP_REANCHOR));
+            snprintf(p->pal_last_state,sizeof p->pal_last_state,"%s",state);
+            p->pal_last_ms=now;++p->pal_lines;
+        }
+    }
     if (have) {
         late = (unsigned)H264RING_ST(&st, DISP_LATE);
         errors = (unsigned)H264RING_ST(&st, RC_ERR);
@@ -1486,6 +1519,11 @@ static int open_media(struct player *p)
     p->rd.vi = av_find_best_stream(p->fmt, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
     if (p->rd.vi < 0 || p->fmt->streams[p->rd.vi]->codecpar->codec_id != AV_CODEC_ID_H264) return AVERROR_DECODER_NOT_FOUND;
     AVRational nominal_rate = av_guess_frame_rate(p->fmt, p->fmt->streams[p->rd.vi], NULL);
+    AVStream *diag_stream = p->fmt->streams[p->rd.vi];
+    logmsg("PAL-DIAG-1 demux guessed=%d/%d avg=%d/%d raw=%d/%d timebase=%d/%d",
+           nominal_rate.num,nominal_rate.den,diag_stream->avg_frame_rate.num,
+           diag_stream->avg_frame_rate.den,diag_stream->r_frame_rate.num,
+           diag_stream->r_frame_rate.den,diag_stream->time_base.num,diag_stream->time_base.den);
     p->nominal_video_rate = nominal_rate;
     if (nominal_rate.num > 0 && nominal_rate.den > 0)
         p->nominal_video_duration90 = av_rescale_q(1, av_inv_q(nominal_rate), (AVRational){1, 90000});
