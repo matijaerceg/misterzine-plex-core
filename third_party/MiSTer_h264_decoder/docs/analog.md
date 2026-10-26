@@ -764,3 +764,6 @@ The Plex-branded seed-7 build produced pixel-identical Off and On captures to
 that Jellyfin test, also with zero decoder, front-end and display-fetch errors.
 Both builds pass the 101.4 MHz decoder and 86 MHz video timing gates at both
 slow corners (Jellyfin seed 13; Plex seed 7).
+
+The maintainer also confirmed the visible improvement during Plex video
+playback, completing visual verification in both apps.
