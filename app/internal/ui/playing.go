@@ -52,6 +52,7 @@ type Playing struct {
 	scrubTick              int           // fields into a run: the time is repainted every other one
 	focus                  int
 	paused                 bool
+	pausedSeek             bool // selected position waits for an explicit resume
 	pos                    float64
 	dur                    float64
 	bufferStart, bufferEnd float64   // confirmed contiguous downloaded A/V interval
@@ -325,6 +326,9 @@ func (p *Playing) status() {
 		return
 	}
 	p.statusVals = values
+	if p.pausedSeek {
+		return
+	} // preserve the selected position and user pause
 	pos, err := strconv.ParseFloat(values["position"], 64)
 	if err != nil {
 		return
@@ -444,6 +448,14 @@ func (p *Playing) seekBy(d float64) {
 }
 
 func (p *Playing) seekTo_(t float64) {
+	if p.paused && !p.pvPaused {
+		p.pausedSeek = true
+		p.seekTo = max(0, min(t, p.dur-6))
+		p.pos = p.seekTo
+		p.dirty = true
+		return // do not flush the frozen picture until the user resumes
+	}
+	p.pausedSeek = false
 	p.seekTo = max(0, min(t, p.dur-6))
 	p.pos = p.seekTo
 	p.seekAt = time.Now()
@@ -630,6 +642,12 @@ func pauseKey(ev input.Event) bool {
 // togglePause is the Pause button: the launcher pauses or resumes, and the
 // panel shows Play while paused.
 func (p *Playing) togglePause(now time.Time) {
+	if p.paused && p.pausedSeek {
+		p.paused, p.pausedAt, p.pvPaused = false, now, false
+		p.send("resume")
+		p.seekTo_(p.seekTo)
+		return
+	}
 	p.paused = !p.paused
 	p.pausedAt = now   // the launcher's report lags: believed again once it caught up
 	p.pvPaused = false // the user's own pause or play from here on: the scrub leaves it be

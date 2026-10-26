@@ -32,6 +32,11 @@ func TestTimelineOKResumesPausedScrub(t *testing.T) {
 				if !p.paused {
 					t.Fatal("releasing the scrub resumed a user pause")
 				}
+				for _, command := range commands {
+					if strings.HasPrefix(command, "seek ") || command == "resume" {
+						t.Fatalf("paused release disturbed picture: %q", commands)
+					}
+				}
 				commands = nil
 				keyAt(p, c, input.Enter, now.Add(time.Millisecond))
 				if p.paused {
@@ -47,5 +52,20 @@ func TestTimelineOKResumesPausedScrub(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestPausedSeekStartCommitsSelection(t *testing.T) {
+	p, _, _ := previewPlaying(t)
+	var commands []string
+	p.send = func(s string) { commands = append(commands, s) }
+	p.paused = true
+	p.seekTo_(120)
+	if !p.pausedSeek || len(commands) != 0 {
+		t.Fatal("paused seek must retain picture")
+	}
+	p.togglePause(time.Now())
+	if p.paused || p.pausedSeek || len(commands) != 2 || commands[0] != "resume" || commands[1] != "seek 120" {
+		t.Fatalf("resume commands %q", commands)
 	}
 }

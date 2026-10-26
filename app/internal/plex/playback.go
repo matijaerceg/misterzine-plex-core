@@ -498,9 +498,9 @@ func (c *Client) PlaybackInfo(ctx context.Context, r PlaybackRequest) (*Playback
 	copyVideo, videoReason := DirectEligible(*part, r.VideoKbps)
     switch {
     case burn != "0": info.ConversionReason = "Subtitle burn-in"
-    case r.ForceTranscode: info.ConversionReason = "Decoder requested conversion"
+    case r.ForceTranscode: info.ConversionReason = "Decoder compatibility"
     case !copyVideo: info.ConversionReason = videoReason
-    default: info.ConversionReason = "Audio needs conversion"
+    default: info.ConversionReason = "Audio compatibility"
     }
 	copyVideo = copyVideo && !r.ForceTranscode && burn == "0"
 	q := c.transcodeQuery(r, info.Session, *part)
@@ -523,7 +523,7 @@ func (c *Client) PlaybackInfo(ctx context.Context, r PlaybackRequest) (*Playback
 		if copyVideo && !d.copiesVideo() {
 			// Never accept an uncapped encode if the server declined video copy.
 			copyVideo = false
-			info.ConversionReason = "Server requires video conversion"
+			info.ConversionReason = "Server video policy"
 			q = c.transcodeQuery(r, info.Session, *part)
 			continue
 		}
