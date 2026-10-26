@@ -424,6 +424,8 @@ type PlaybackRequest struct {
 
 // PlaybackInfo is the answer: how the item plays.
 type PlaybackInfo struct {
+	ConversionReason string
+	VideoDecision, AudioDecision string
 	Session   string
 	Part      MediaPart
 	Direct    bool   // the file as stored plays; else a server-generated stream
@@ -493,7 +495,13 @@ func (c *Client) PlaybackInfo(ctx context.Context, r PlaybackRequest) (*Playback
 			return nil, err
 		}
 	}
-	copyVideo, _ := DirectEligible(*part, r.VideoKbps)
+	copyVideo, videoReason := DirectEligible(*part, r.VideoKbps)
+    switch {
+    case burn != "0": info.ConversionReason = "Subtitle burn-in"
+    case r.ForceTranscode: info.ConversionReason = "Decoder requested conversion"
+    case !copyVideo: info.ConversionReason = videoReason
+    default: info.ConversionReason = "Audio needs conversion"
+    }
 	copyVideo = copyVideo && !r.ForceTranscode && burn == "0"
 	q := c.transcodeQuery(r, info.Session, *part)
 	if copyVideo {
@@ -515,6 +523,7 @@ func (c *Client) PlaybackInfo(ctx context.Context, r PlaybackRequest) (*Playback
 		if copyVideo && !d.copiesVideo() {
 			// Never accept an uncapped encode if the server declined video copy.
 			copyVideo = false
+			info.ConversionReason = "Server requires video conversion"
 			q = c.transcodeQuery(r, info.Session, *part)
 			continue
 		}
@@ -523,6 +532,12 @@ func (c *Client) PlaybackInfo(ctx context.Context, r PlaybackRequest) (*Playback
 				if st.Type == StreamAudio && st.Channels > 2 {
 					return nil, fmt.Errorf("the server did not provide stereo audio")
 				}
+			}
+		}
+		if len(d.Media) > 0 {
+			for _, st := range d.Media[0].Streams {
+				if st.Type == StreamVideo { info.VideoDecision = st.Decision }
+				if st.Type == StreamAudio { info.AudioDecision = st.Decision }
 			}
 		}
 		info.Decision, info.VideoCopy = d.Text, copyVideo

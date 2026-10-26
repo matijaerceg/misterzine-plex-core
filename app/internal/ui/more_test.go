@@ -155,6 +155,7 @@ func infoFixture(t *testing.T) (*App, *Playing) {
 		Audio: []plex.Stream{{ID: "1", Title: "English AC3 5.1", Selected: true, Channels: 6}},
 		Subs:  []plex.Stream{{ID: "3", Title: "English SRT", Selected: true, Text: true}}}
 	p.direct = func() bool { return false }
+	p.streamModes = func() (string, string) { return "Transcoded", "Transcoded" }
 	p.pos, p.dur = 600, 1800
 	p.statusVals = map[string]string{"state": "playing", "width": "1280", "height": "720", "fps": "23.976",
 		"video_bitrate": "4200000", "audio_codec": "ac3", "audio_channels_in": "6", "audio_boost": "150",
@@ -170,9 +171,9 @@ func TestPlaybackInfoShowsWhatIsKnownAndRefreshes(t *testing.T) {
 	if l == nil || l.kind != moreInfo || l.set != -1 {
 		t.Fatalf("Playback info did not open: %+v", l)
 	}
-	want := map[string]string{"Source": "Transcode", "Video": "1280x720 H.264", "Frame rate": "23.976 fps",
-		"Bitrate": "4.2 Mbps", "Bitrate cap": "6 Mbps", "Audio": "AC3 5.1", "Downmix": "Stereo", "Boost": "150%",
-		"Subtitles": "English SRT", "Position": "10:00 / 30:00", "Late frames": "3", "Decode errors": "0",
+	want := map[string]string{"Video": "H.264 · Transcoded", "Resolution": "1280x720", "Frame rate": "23.976 fps",
+		"Video nominal": "4.2 Mbps", "Bitrate cap": "6 Mbps", "Audio": "AC3 5.1 · Transcoded", "Downmix": "Stereo", "Boost": "150%",
+		"Subtitles": "English SRT", "Late frames": "3", "Decode errors": "0",
 		"Sound buffer": "1.5 s"}
 	if len(l.items) != len(want) || len(l.vals) != len(l.items) {
 		t.Fatalf("rows %v = %v", l.items, l.vals)
@@ -194,7 +195,7 @@ func TestPlaybackInfoShowsWhatIsKnownAndRefreshes(t *testing.T) {
 	for i, item := range l.items {
 		got[item] = l.vals[i]
 	}
-	if got["Late frames"] != "9" || got["Decode errors"] != "1" || got["Refused"] != "2 sps" || got["Position"] != "10:01 / 30:00" || l.loaded {
+	if got["Late frames"] != "9" || got["Decode errors"] != "1" || got["Refused"] != "2 sps" || got["Position"] != "" || l.loaded {
 		t.Fatalf("refresh: %v loaded %v", got, l.loaded)
 	}
 	pressPlay(p, input.Enter)
@@ -210,9 +211,10 @@ func TestPlaybackInfoShowsWhatIsKnownAndRefreshes(t *testing.T) {
 func TestPlaybackInfoDirectPlayHasNoCap(t *testing.T) {
 	_, p := infoFixture(t)
 	p.direct = func() bool { return true }
+	p.streamModes = func() (string, string) { return "Original", "Original" }
 	p.openInfo(time.Now())
 	for i, item := range p.list.items {
-		if item == "Source" && p.list.vals[i] != "Direct play" || item == "Bitrate" && p.list.vals[i] != "4.2 Mbps" || item == "Bitrate cap" {
+		if item == "Source" || item == "Video nominal" && p.list.vals[i] != "4.2 Mbps" || item == "Bitrate cap" {
 			t.Errorf("%s = %q", item, p.list.vals[i])
 		}
 	}

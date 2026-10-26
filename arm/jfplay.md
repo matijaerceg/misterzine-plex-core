@@ -247,7 +247,12 @@ and fractional seconds use three decimal places.
 | `film_speed` | `1` when PAL film speed-up (24 to 25 fps) is active, otherwise `0`. |
 | `ntsc_slowdown` | `1` when the 1000/1001 NTSC slowdown is active, otherwise `0`. |
 | `audio_output_rate` | PCM rate in Hz the audio is resampled to (48000 unless a film-speed clock is active). |
-| `video_bitrate` | Container/stream video bitrate in bits per second. |
+| `video_bitrate` | Optional container/stream nominal video bitrate in bits per second; not measured. |
+| `video_bitrate_recent` | Measured encoded-video bits per media second over the last completed approximately two-second sample; excludes audio/container overhead and download bursts. Zero until ready. |
+| `video_bitrate_average` | Measured encoded-video bits per media second since start or the last seek; zero until one media second is sampled. Pauses do not dilute either measurement. Values describe video fed to the core, which may be slightly ahead of the displayed picture. |
+| `output_width` | Actual core raster width; not the HDMI scaler output. |
+| `output_height` | Actual core raster height from a valid hardware status read. |
+| `output_interlaced` | Actual core raster interlace flag (1 interlaced, 0 progressive). |
 | `audio_codec` | Decoder codec name, or empty when there is no audio. |
 | `audio_channels_in` | Channels reported by the first decoded input frame. |
 | `audio_boost` | Configured surround gain percentage. |

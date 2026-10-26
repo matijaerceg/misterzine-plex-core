@@ -255,24 +255,38 @@ func (p *Playing) infoRows() (items, vals []string) {
 		n, _ := strconv.Atoi(strings.TrimSpace(st[k]))
 		return n
 	}
-	direct := p.isDirect()
-	if p.direct != nil {
-		add("Source", map[bool]string{true: "Direct play", false: "Transcode"}[direct])
+	videoMode, audioMode := "", ""
+	if p.streamModes != nil {
+		videoMode, audioMode = p.streamModes()
+	} else if p.direct != nil && p.isDirect() {
+		videoMode, audioMode = "Original", "Original"
+	}
+	withMode := func(value, mode string) string {
+		if value == "" || mode == "" {
+			return value
+		}
+		return value + " · " + mode
 	}
 	if w, h := num("width"), num("height"); w > 0 && h > 0 {
-		// the core decodes H.264 only: a direct stream is H.264 or is
-		// refused, and every transcode is made H.264
-		add("Video", itoa(w)+"x"+itoa(h)+" H.264")
+		add("Video", withMode("H.264", videoMode))
+		add("Resolution", itoa(w)+"x"+itoa(h))
 	}
 	if fps, err := strconv.ParseFloat(st["fps"], 64); err == nil && fps > 0 {
 		add("Frame rate", strings.TrimRight(strings.TrimRight(strconv.FormatFloat(fps, 'f', 3, 64), "0"), ".")+" fps")
 	}
-	bitrate := ""
-	if bps, err := strconv.ParseInt(st["video_bitrate"], 10, 64); err == nil && bps > 0 {
-		bitrate = strconv.FormatFloat(float64(bps)/1e6, 'f', 1, 64) + " Mbps"
+	rate := func(key string) string {
+		bps, err := strconv.ParseInt(st[key], 10, 64)
+		if err != nil || bps <= 0 {
+			return ""
+		}
+		return strconv.FormatFloat(float64(bps)/1e6, 'f', 1, 64) + " Mbps"
 	}
-	add("Bitrate", bitrate)
-	if !direct {
+	add("Video now", rate("video_bitrate_recent"))
+	add("Video avg", rate("video_bitrate_average"))
+	if rate("video_bitrate_average") == "" {
+		add("Video nominal", rate("video_bitrate"))
+	}
+	if videoMode == "Transcoded" {
 		add("Bitrate cap", strconv.FormatFloat(float64(p.app.Cfg.BitrateKbps())/1000, 'f', -1, 64)+" Mbps")
 	}
 	audio := strings.ToUpper(strings.TrimSpace(st["audio_codec"]))
@@ -290,7 +304,7 @@ func (p *Playing) infoRows() (items, vals []string) {
 	if layout := channelLayout(ch); layout != "" {
 		audio = strings.TrimSpace(audio + " " + layout)
 	}
-	add("Audio", audio)
+	add("Audio", withMode(audio, audioMode))
 	if ch > 2 {
 		// jfplay mixes surround down to the stereo output with the boost
 		add("Downmix", "Stereo")
@@ -305,11 +319,16 @@ func (p *Playing) infoRows() (items, vals []string) {
 		}
 	}
 	add("Subtitles", sub)
-	pos := clock(int(p.pos))
-	if p.dur > 0 {
-		pos += " / " + clock(int(p.dur))
+	if w, h := num("output_width"), num("output_height"); w > 0 && h > 0 {
+		scan := "p"
+		if num("output_interlaced") != 0 {
+			scan = "i"
+		}
+		add("Core output", itoa(w)+"x"+itoa(h)+scan)
 	}
-	add("Position", pos)
+	if p.conversionReason != nil {
+		add("Conversion", p.conversionReason())
+	}
 	if st != nil {
 		add("Late frames", itoa(num("late")))
 		add("Decode errors", itoa(num("errors")))

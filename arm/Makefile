@@ -18,10 +18,10 @@ LIBS := $(ROOT)/build/arm/libh264ring.a \
 all: jfplay
 
 # Every host test: none needs the ARM toolchain or a device.
-test: menu-click-test contract-test core-owner-test audio-boost-test seek-cache-test seek-protocol-test h264-idr-test \
+test: video-bitrate-test menu-click-test contract-test core-owner-test audio-boost-test seek-cache-test seek-protocol-test h264-idr-test \
 	film-speed-test direct-check-test video-geometry-test packet-pacing-test
 
-jfplay: jfplay.c menu_audio.h menu_click.h menu_tone.h audio_boost.h film_speed.h h264_idr.h seek_cache.h seek_protocol.h video_geometry.h core_owner.h \
+jfplay: jfplay.c video_bitrate.h menu_audio.h menu_click.h menu_tone.h audio_boost.h film_speed.h h264_idr.h seek_cache.h seek_protocol.h video_geometry.h core_owner.h \
 		direct_check.h packet_pacing.h lag_watch.h $(H264CHECK)/h264check.c $(H264CHECK)/h264check.h $(ROOT)/build/arm/libh264ring.a
 
 	$(CC) $(CFLAGS) -o $@ $< $(H264CHECK)/h264check.c $(LIBS)
@@ -77,3 +77,8 @@ clean:
 packet-pacing-test:
 	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -O2 -o /tmp/jfplay-packet-pacing-test test_packet_pacing.c
 	/tmp/jfplay-packet-pacing-test
+
+.PHONY: video-bitrate-test
+video-bitrate-test:
+	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -O2 -o /tmp/jfplay-video-bitrate-test test_video_bitrate.c
+	/tmp/jfplay-video-bitrate-test

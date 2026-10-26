@@ -38,6 +38,7 @@
 #include "core_owner.h"
 #include "direct_check.h"
 #include "packet_pacing.h"
+#include "video_bitrate.h"
 #include "lag_watch.h"
 
 #define Q_PACKETS 8192
@@ -103,6 +104,7 @@ struct reader {
 };
 
 struct player {
+    struct video_bitrate bitrate;
     struct config cfg;
     h264ring *ring;
     AVFormatContext *fmt;
@@ -673,6 +675,7 @@ static int write_au(struct player *p, AVPacket *pkt, unsigned flags)
                         film_speed_pts90(p->film_speed, source_pts);
     int rc = h264ring_try_write_au(p->ring, pkt->data, (uint32_t)pkt->size,
                                    clock_pts == AV_NOPTS_VALUE ? -1 : clock_pts, flags);
+    if (!rc) video_bitrate_add(&p->bitrate, (uint32_t)pkt->size, video_duration90(p, pkt));
     if (!rc && source_pts != AV_NOPTS_VALUE) {
         p->newest_video90 = clock_pts;
         extend_buffer_interval(source_pts, video_duration90(p, pkt), 22500,
@@ -1408,10 +1411,19 @@ static void write_status(struct player *p, int force)
     fprintf(f, "width=%d\n", vs ? vs->codecpar->width : 0);
     fprintf(f, "height=%d\n", vs ? vs->codecpar->height : 0);
     fprintf(f, "fps=%.3f\n", fr.den ? av_q2d(fr) : 0.0);
+    if (have) {
+        struct h264ring_raster raster;
+        h264ring_raster(&st, &raster);
+        fprintf(f, "output_width=%u\n", raster.w);
+        fprintf(f, "output_height=%u\n", raster.h);
+        fprintf(f, "output_interlaced=%d\n", raster.interlaced);
+    }
     fprintf(f, "film_speed=%d\n", p->film_speed.enabled && p->film_speed.scale_num < p->film_speed.scale_den);
     fprintf(f, "ntsc_slowdown=%d\n", p->film_speed.enabled && p->film_speed.scale_num > p->film_speed.scale_den);
     fprintf(f, "audio_output_rate=%d\n", film_speed_audio_rate(p->film_speed, 48000));
     fprintf(f, "video_bitrate=%lld\n", (long long)(vs ? vs->codecpar->bit_rate : 0));
+    fprintf(f, "video_bitrate_recent=%llu\n", (unsigned long long)p->bitrate.recent_bps);
+    fprintf(f, "video_bitrate_average=%llu\n", (unsigned long long)video_bitrate_average(&p->bitrate));
     fprintf(f, "audio_codec=%s\n", ac);
     fprintf(f, "audio_channels_in=%d\n", p->audio_channels_in);
     fprintf(f, "audio_boost=%d\n", p->cfg.audio_boost);
@@ -1625,6 +1637,7 @@ static int service_seek(struct player *p)
         p->newest_video90 = INT64_MIN;
         p->newest_audio90 = INT64_MIN;
         p->buffered_video_valid = p->buffered_video_broken = 0;
+        p->bitrate = (struct video_bitrate){0};
         p->buffered_audio_valid = p->buffered_audio_broken = 0;
         p->audio_next90 = AV_NOPTS_VALUE;
         p->audio_ring_full = 0;

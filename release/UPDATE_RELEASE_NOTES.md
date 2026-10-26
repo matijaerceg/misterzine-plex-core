@@ -7,6 +7,9 @@
 - Pressing OK on the playhead after scrubbing while paused now resumes playback
   from the selected position. Releasing the scrub alone keeps playback paused.
 
+- Playback info separates video and audio conversion, shows measured video bitrate
+  and core output, and explains conversion. The duplicate Position row is removed.
+
 Verified with actual DE10 output captures and visible playback checks in both apps.
 Existing settings, calibration and saved access are preserved. Rollback restores
 the previous application and core.

@@ -49,8 +49,10 @@ type Player struct {
 }
 
 type Session struct {
-	videoCopy bool // original video in a server-generated audio-conversion stream
-	p         *Player
+	conversionReason             string
+	videoDecision, audioDecision string // server decisions for the selected streams
+	videoCopy                    bool   // original video in a server-generated audio-conversion stream
+	p                            *Player
 	// client is the Player's when the session started: its reports go to
 	// that server and account even after the app signs in elsewhere.
 	client *plex.Client
@@ -351,6 +353,8 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 		s.mu.Lock() // Direct reads it from the UI thread
 		s.direct = info.Direct
 		s.videoCopy = info.VideoCopy
+		s.videoDecision, s.audioDecision = info.VideoDecision, info.AudioDecision
+		s.conversionReason = info.ConversionReason
 		s.mu.Unlock()
 		s.url = info.URL
 		duration := float64(s.item.Duration)
@@ -1091,4 +1095,37 @@ func (s *Session) Stop() {
 	}
 	s.stopProcessLocked()
 	s.finishLocked(nil)
+}
+
+// StreamModes keeps video and audio conversion separate, even in a remuxed stream.
+func (s *Session) StreamModes() (string, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.direct {
+		return "Original", "Original"
+	}
+	video, audio := conversionLabel(s.videoDecision), conversionLabel(s.audioDecision)
+	if s.videoCopy {
+		video = "Original"
+	}
+	return video, audio
+}
+
+func conversionLabel(decision string) string {
+	switch strings.ToLower(decision) {
+	case "copy", "directplay", "directstream":
+		return "Original"
+	case "transcode":
+		return "Transcoded"
+	}
+	return ""
+}
+
+func (s *Session) ConversionReason() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.direct {
+		return ""
+	}
+	return s.conversionReason
 }
