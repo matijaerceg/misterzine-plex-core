@@ -730,7 +730,11 @@ func (p *Playing) Key(ev input.Event, now time.Time) bool {
 				if (p.running(now) || p.settle) && p.app.osd != nil {
 					p.scrubTo = p.fromX(p.app.osd.DotX())
 				}
-				p.armed = false
+				p.armed, p.held, p.settle = false, 0, false
+				// OK confirms the playhead and plays from it. Resume first:
+				// seeking alone preserves a user pause, including on restart.
+				p.paused, p.pausedAt, p.pvPaused = false, now, false
+				p.send("resume")
 				p.seekTo_(p.scrubTo)
 			}
 		case input.Down:
