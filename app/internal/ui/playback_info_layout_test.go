@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"plexcrt/internal/access"
 	"plexcrt/internal/gfx"
+	"plexcrt/internal/input"
 	"plexcrt/internal/ring"
 	"testing"
 	"time"
@@ -141,5 +142,63 @@ func TestInfoRecentIssuesRebaselineAfterWorkerReset(t *testing.T) {
 	p.refreshInfo(now.Add(3 * time.Second))
 	if p.infoRecent != "0 late / 0 errors in 1.0s" {
 		t.Fatal(p.infoRecent)
+	}
+}
+
+func TestInfoArrowsNeverSelectOrLeave(t *testing.T) {
+	_, p := infoFixture(t)
+	var sent []string
+	p.send = func(command string) { sent = append(sent, command) }
+	p.openInfo(time.Now())
+	l := p.list
+	for _, key := range []input.Key{input.Up, input.Down, input.Left, input.Right} {
+		for _, ev := range []input.Event{{Key: key}, {Key: key, Repeat: true}, {Key: key, Release: true}} {
+			p.Key(ev, time.Now())
+			if p.list != l || l.cur != 0 || l.to != 0 || l.at != 0 || len(sent) != 0 {
+				t.Fatalf("Info arrow acted: %+v", ev)
+			}
+		}
+	}
+	p.Key(input.Event{Key: input.Back}, time.Now())
+	l = p.list
+	if l.kind != "More" || l.items[l.cur] != moreInfo {
+		t.Fatal("Back must return to More's Info row")
+	}
+	for _, key := range []input.Key{input.Left, input.Right} {
+		for _, ev := range []input.Event{{Key: key}, {Key: key, Repeat: true}, {Key: key, Release: true}} {
+			p.Key(ev, time.Now())
+			if p.list != l || l.items[l.cur] != moreInfo || len(sent) != 0 {
+				t.Fatalf("More Info arrow acted: %+v", ev)
+			}
+		}
+	}
+	p.Key(input.Event{Key: input.Enter}, time.Now())
+	if p.list.kind != moreInfo {
+		t.Fatal("OK must still open Info")
+	}
+	p.Key(input.Event{Key: input.Enter}, time.Now())
+	if p.list.kind != "More" {
+		t.Fatal("OK must still return to More")
+	}
+}
+
+func TestInfoHidesSelectionBarAndMoreRestoresIt(t *testing.T) {
+	p := waitPlaying(t)
+	p.starting = false
+	p.visible = true
+	p.pvTried = true
+	now := time.Now()
+	p.statAt = now
+	p.openInfo(now)
+	c := &coreOSD{barOn: true}
+	defer p.closePainter(c)
+	tickFields(p, c, now, 2, nil)
+	if c.barOn {
+		t.Fatal("Info retained selection bar")
+	}
+	p.Key(input.Event{Key: input.Back}, now)
+	tickFields(p, c, now, 2, nil)
+	if !c.barOn {
+		t.Fatal("More lost its selection bar")
 	}
 }

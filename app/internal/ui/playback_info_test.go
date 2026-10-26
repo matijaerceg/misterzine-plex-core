@@ -63,7 +63,7 @@ func TestPlaybackInfoScrollHint(t *testing.T) {
 
 func TestPlaybackMenuWraps(t *testing.T) {
 	_, p := infoFixture(t)
-	p.openInfo(time.Now())
+	p.openMore()
 	p.Key(input.Event{Key: input.Up}, time.Now())
 	if p.list.cur != len(p.list.items)-1 {
 		t.Fatal("Up must wrap to last row")

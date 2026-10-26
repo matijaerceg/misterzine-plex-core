@@ -678,6 +678,18 @@ func (p *Playing) togglePause(now time.Time) {
 }
 
 func (p *Playing) Key(ev input.Event, now time.Time) bool {
+	// Information has no selectable rows. Consume arrows, including releases,
+	// before the timeline or generic list handlers can act on them.
+	if l := p.list; l != nil {
+		arrow := ev.Key == input.Left || ev.Key == input.Right
+		if l.kind == moreInfo && (arrow || ev.Key == input.Up || ev.Key == input.Down) {
+			return false
+		}
+		if arrow && l.kind == "More" && l.cur >= 0 && l.cur < len(l.items) && l.items[l.cur] == moreInfo {
+			return false
+		}
+	}
+
 	if pauseKey(ev) && (p.list == nil || ev.Key == input.Start) {
 		if ev.Release || ev.Repeat {
 			return false
@@ -1063,7 +1075,7 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 		// the cursor is the overlay's bar, beside its row
 		by := SafeY + l.top() + l.cur*l.rowH() - l.at
 		osd.Bar(p.menuX()-MenuBarGap-BarW, by+2, BarW, min(p.app.F.Body.Height()-4, l.rowH()-4), p.barColour(),
-			by >= SafeY && by+l.rowH() <= SafeY+OsdListH)
+			l.kind != moreInfo && by >= SafeY && by+l.rowH() <= SafeY+OsdListH)
 		return
 	}
 	if field {
