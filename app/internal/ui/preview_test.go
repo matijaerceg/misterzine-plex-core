@@ -139,7 +139,7 @@ func TestAPauseOfTheUsersOwnStays(t *testing.T) {
 	p.paused = true
 	now = tickFields(p, c, now, 1, nil)
 	hold(p, c, now, time.Second, nil)
-	if got := strings.Join(*sent, ","); got != "seek" || !p.paused {
+	if got := strings.Join(*sent, ","); got != "" || !p.paused || !p.pausedSeek {
 		t.Fatalf("sent %s, paused %v", got, p.paused)
 	}
 }
