@@ -100,18 +100,14 @@ func (d *Drawer) Back() bool {
 
 // Key handles one input event: Up/Down choose, OK enters, Left/Right close.
 func (d *Drawer) Key(ev input.Event, now time.Time) {
-	if ev.Release || !d.closeAt.IsZero() {
+	if ev.Release || !d.closeAt.IsZero() || len(d.items) == 0 {
 		return
 	}
 	switch ev.Key {
 	case input.Up:
-		if d.cur > 0 {
-			d.cur--
-		}
+		d.cur = (d.cur + len(d.items) - 1) % len(d.items)
 	case input.Down:
-		if d.cur < len(d.items)-1 {
-			d.cur++
-		}
+		d.cur = (d.cur + 1) % len(d.items)
 	case input.Left, input.Right:
 		if !ev.Repeat {
 			d.Close(nil)
