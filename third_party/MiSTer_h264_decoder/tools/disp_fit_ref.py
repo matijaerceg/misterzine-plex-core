@@ -161,7 +161,9 @@ def fit(w_mbs, hf_mbs, crop=(0, 0, 0, 0, 0), sar_w=1, sar_h=1, mode='letterbox',
     if at:
         # a line fetches two sliding boxes: 2 dv luma rows + dv of each chroma plane, each
         # ~ dv (12 W + 320) clk_mem cycles of the 480i line's 5,720 (docs/analog.md §9)
-        dv = pow2floor(sy, 2 if w_mbs > 40 else 4)
+        # Nearest supported source-line spacing; ties choose the wider filter.
+        choices = (1, 2) if w_mbs > 40 else (1, 2, 4)
+        dv = min(choices, key=lambda d: (abs((d << Q) - sy), -d))
     else:
         dv = pow2floor(sy, 4 if w_mbs > 80 else 8)
     # (§11b) the pre-filters on the decimated grid: from the residual steps; vertically anti-twitter's

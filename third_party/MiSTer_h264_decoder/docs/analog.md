@@ -736,3 +736,31 @@ measures levels exactly -- recommended for the analog capture chain; .236's 18-b
 user setup, so **a change to the analog output's bit depth (this dither, YC / composite levels) is checked
 on both before a merge**.
 
+
+## De-flicker on non-integer downscales
+
+De-flicker chooses the nearest supported vertical box spacing to the source-to-output
+line ratio, with ties selecting the wider box. Its existing width-dependent fetch caps
+remain two source rows above 640 pixels wide and four otherwise. Off retains floor
+selection. The native-size 1:2:1 response is unchanged.
+
+Previously the spacing was always rounded down: a 720-to-480 reduction used one-row
+boxes, although each displayed line spans 1.5 source rows. This left substantial
+alternating-line detail in the output. `tools/test_deflicker_strength.py` measures
+field-rate energy over sixteen source phases, requiring at least a halving on its
+480/592/720/736/832/960-line NTSC cases and corresponding PAL cases. The pixel bench includes paired 960x720 Off/On
+fixtures and a cropped 968x722 fixture. This is a correction to filter strength;
+it does not change raster timing, source-field bypass, or the OSD interface.
+
+DE10 validation (Jellyfin-branded core, 2026-10-25): a 960x720 progressive
+H.264 cosine pattern fitted to 720x480 interlaced output produced alternating-line
+contrast of 54.53 Off and 14.36 On (standard deviation of row means, interior
+150x420 region). The released core measured 54.53 Off and 32.76 On; Off captures
+were pixel-identical. Decoder, front-end and display-fetch error counters remained
+zero. This measures the native output raster. The maintainer separately confirmed a
+visible improvement when toggling De-flicker during Jellyfin video playback.
+
+The Plex-branded seed-7 build produced pixel-identical Off and On captures to
+that Jellyfin test, also with zero decoder, front-end and display-fetch errors.
+Both builds pass the 101.4 MHz decoder and 86 MHz video timing gates at both
+slow corners (Jellyfin seed 13; Plex seed 7).

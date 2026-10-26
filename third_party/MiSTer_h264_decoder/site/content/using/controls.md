@@ -8,7 +8,7 @@ working as usual: the menu button, or F12 on a keyboard, opens the core's OSD.
 
 ## Gamepads
 
-The core offers four controller roles in MiSTer's **Define H264 buttons** mapping:
+The core offers five controller roles in MiSTer's **Define H264 buttons** mapping:
 
 | Role | Default position |
 |---|---|
@@ -16,6 +16,7 @@ The core offers four controller roles in MiSTer's **Define H264 buttons** mappin
 | Back | Bottom face button |
 | Page Back | Left shoulder |
 | Page Forward | Right shoulder |
+| Pause/Play | Start |
 
 The D-pad always moves up, down, left or right. The two shoulder roles are optional shortcuts;
 the program can use them to move between pages. Up to six pads are supported, numbered by MiSTer

@@ -62,6 +62,7 @@ fail=0
 red=0; [ "${1:-}" = "--red" ] && red=1
 RTL=h264/disp_fit.sv; TB=bench/h264/disp_fit_tb.sv; VEC=.sim/disp_fit_vec.txt
 echo "== the model =="
+python3 tools/test_deflicker_strength.py || exit 1
 python3 tools/disp_fit_ref.py --selftest | sed 's/^/  /' || { echo "FAIL: model selftest"; exit 1; }
 if command -v ffprobe > /dev/null; then
   python3 tools/disp_fit_ref.py --check-ffmpeg > .sim/disp_fit_ffmpeg.log 2>&1 \
@@ -121,6 +122,9 @@ PYEOF
                     st <= S_IDLE;" seq
   mut F10 "r_clamp <= (dv_q > 40'd8191);" "r_clamp <= 1'b0;" flag
   mut F11 "if (k_at && k_w > 8'd40)" "if (k_at && k_w > 8'd127)" dec
+  # Floor-selected boxes lose de-flicker strength at 1.5:1 / 3:1.
+  mut F39 "(vstep_pub >= 29'd98304)" "(vstep_pub >= 29'd131072)" dec
+  mut F40 "(k_at ? 29'd196608 : 29'd262144)" "29'd262144" dec
   mut F12 "slide <= k_at;" "slide <= 1'b0;" slide
   mut F13 "else if (k_at || k_w > 8'd80)" "else if (k_w > 8'd80)" dec
   mut F14 "dv_n <= {1'b0, (k_pal ? b768 : b640), 1'b0}" "dv_n <= {1'b0, (k_pal ? b640 : b640), 1'b0}" size

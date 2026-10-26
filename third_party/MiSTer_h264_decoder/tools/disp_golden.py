@@ -719,6 +719,10 @@ FIT = [("s",    11, 30, 17,  (0, 0, 0, 0, 0), (1, 1),   'fill',      False, Fals
        ("at_tall", 53, 12, 128, (0, 0, 0, 0, 0), (1, 1), 'letterbox', True, True),     # 192x2048: dv 4, 8-row boxes
        ("at_wide", 59, 128, 12, (0, 0, 0, 0, 0), (1, 1), 'letterbox', True, True),     # 2048x192: dv 2 (the W > 40 cap), dh 2
        ("at_up",   61, 22, 15,  (0, 0, 0, 0, 0), (1, 1), 'letterbox', True, True),     # 352x240 scaled up
+       # Non-integer downsizing: de-flicker must follow output line spacing.
+       ("scaled_720_off", 211, 60, 45, (0, 0, 0, 0, 0), (1, 1), 'fill', True, False, False, 'area'),
+       ("scaled_720_on",  211, 60, 45, (0, 0, 0, 0, 0), (1, 1), 'fill', True, True,  False, 'area'),
+       ("scaled_722_on",  223, 61, 46, (0, 0, 4, 0, 7), (1, 1), 'fill', True, True, False, 'area'),
        # the 576-line raster (P6 step 6, docs/analog.md §10)
        ("pal_w",   67, 54, 30,  (0, 0, 5, 0, 0), (1, 1),   'letterbox', False, False, True),  # 854x480 on 576p: 720x432
        ("pal_n",   71, 45, 36,  (0, 0, 0, 0, 0), (12, 11), 'letterbox', True,  False, True),  # 720x576 12:11: the snap, 576i

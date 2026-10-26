@@ -407,10 +407,15 @@ module disp_fit (
                     r_sy <= dv_q[27:0];
                     r_dhl2 <= (r_sx[27:16] >= 12'd8) ? 2'd3 : (r_sx[27:16] >= 12'd4) ? 2'd2 :
                               ((r_sx[27:16] >= 12'd2) || (k_w > 8'd64 && !k_nat && !k_area)) ? 2'd1 : 2'd0;   // (native: a 2,048-sample line, hd_raster)
+                    // De-flicker follows the displayed line spacing: choose the nearest
+                    // supported box width, rather than rounding down. At 720 -> 480,
+                    // a one-source-line box leaves most field-rate detail intact.
+                    // Keep the existing two/four-row fetch caps; Off is unchanged.
                     if (k_at && k_w > 8'd40)
-                        r_dvl2 <= (vstep_pub[28:16] >= 13'd2) ? 2'd1 : 2'd0;
+                        r_dvl2 <= (vstep_pub >= 29'd98304) ? 2'd1 : 2'd0;
                     else if (k_at || k_w > 8'd80)
-                        r_dvl2 <= (vstep_pub[28:16] >= 13'd4) ? 2'd2 : (vstep_pub[28:16] >= 13'd2) ? 2'd1 : 2'd0;
+                        r_dvl2 <= (vstep_pub >= (k_at ? 29'd196608 : 29'd262144)) ? 2'd2 :
+                                  (vstep_pub >= (k_at ? 29'd98304 : 29'd131072)) ? 2'd1 : 2'd0;
                     else
                         r_dvl2 <= (vstep_pub[28:16] >= 13'd8) ? 2'd3 : (vstep_pub[28:16] >= 13'd4) ? 2'd2 :
                                   (vstep_pub[28:16] >= 13'd2) ? 2'd1 : 2'd0;
