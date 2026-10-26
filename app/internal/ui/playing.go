@@ -26,6 +26,10 @@ import (
 // With nothing else up, a text subtitle track shows along the bottom
 // (subtitles.go).
 type Playing struct {
+	infoSampleAt           time.Time
+	infoLate, infoErrors   int
+	infoRecent             string
+	sourceInfo             func() playbackSource
 	conversionReason       func() string
 	streamModes            func() (string, string)
 	app                    *App
@@ -204,19 +208,37 @@ const (
 )
 
 // height is the column's height in pixels.
-func (l *listMode) height() int { return OsdListTop + len(l.items)*OsdListRowH + OsdListPad }
+func (l *listMode) width() int {
+	if l.kind == moreInfo {
+		return DesignW - SafeX + OsdListPad
+	}
+	return OsdListW
+}
+func (l *listMode) rowH() int {
+	if l.kind == moreInfo {
+		return 22
+	}
+	return OsdListRowH
+}
+func (l *listMode) top() int {
+	if l.kind == moreInfo {
+		return 44
+	}
+	return OsdListTop
+}
+func (l *listMode) height() int { return l.top() + len(l.items)*l.rowH() + OsdListPad }
 
 // window aims the scroll so the cursor's row is inside it: scrolling up
 // to the first item brings the title back.
 func (l *listMode) window() {
-	top := l.cur * OsdListRowH // the title above item 0 stays until then
+	top := l.cur * l.rowH() // the title above item 0 stays until then
 	if l.cur == 0 {
 		top = 0
 	}
 	if top < l.to {
 		l.to = top
 	}
-	if bottom := OsdListTop + (l.cur+1)*OsdListRowH; bottom > l.to+OsdListH {
+	if bottom := l.top() + (l.cur+1)*l.rowH(); bottom > l.to+OsdListH {
 		l.to = bottom - OsdListH
 	}
 	l.to = max(0, min(l.to, l.height()-OsdListH))
@@ -1035,13 +1057,13 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 		if moved || p.last != "list" {
 			p.setJitter(osd, true)
 			p.last = "list"
-			off := (l.at - l.base) * OsdListW * 4
-			p.painter.do(func() { osd.ShowAt(0, SafeY, OsdListW, OsdListH, off) })
+			off := (l.at - l.base) * l.width() * 4
+			p.painter.do(func() { osd.ShowAt(0, SafeY, l.width(), OsdListH, off) })
 		}
 		// the cursor is the overlay's bar, beside its row
-		by := SafeY + OsdListTop + l.cur*OsdListRowH - l.at
-		osd.Bar(p.menuX()-MenuBarGap-BarW, by+2, BarW, p.app.F.Body.Height()-4, p.barColour(),
-			by >= SafeY && by+OsdListRowH <= SafeY+OsdListH)
+		by := SafeY + l.top() + l.cur*l.rowH() - l.at
+		osd.Bar(p.menuX()-MenuBarGap-BarW, by+2, BarW, min(p.app.F.Body.Height()-4, l.rowH()-4), p.barColour(),
+			by >= SafeY && by+l.rowH() <= SafeY+OsdListH)
 		return
 	}
 	if field {
@@ -1420,7 +1442,7 @@ func (p *Playing) composeSkip() {
 func (p *Playing) uploadList(osd OSD) {
 	l := p.list
 	f := p.app.F
-	maxRows := (ring.RegionSize / (OsdListW * 4)) &^ 1
+	maxRows := (ring.RegionSize / (l.width() * 4)) &^ 1
 	h := l.height()
 	base := 0
 	if h > maxRows {
@@ -1429,7 +1451,13 @@ func (p *Playing) uploadList(osd OSD) {
 	// at least the window's height: what the core shows below a short
 	// list must be this list's background, not what was there before
 	rows := max(min(h-base, maxRows), OsdListH)
-	c := gfx.NewCanvas(OsdListW, rows)
+	c := gfx.NewCanvas(l.width(), rows)
+	if l.kind == moreInfo {
+		p.drawInfo(c, base)
+		l.base, l.uploaded, l.loaded = base, rows, true
+		p.painter.do(func() { osd.Upload(0, c, 240) })
+		return
+	}
 	if p.app.vcr() {
 		p.drawListVCR(c, base)
 		l.base, l.uploaded, l.loaded = base, rows, true

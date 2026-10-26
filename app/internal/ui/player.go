@@ -49,6 +49,7 @@ type Player struct {
 }
 
 type Session struct {
+	sourceInfo                   playbackSource
 	conversionReason             string
 	videoDecision, audioDecision string // server decisions for the selected streams
 	videoCopy                    bool   // original video in a server-generated audio-conversion stream
@@ -355,6 +356,15 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 		s.videoCopy = info.VideoCopy
 		s.videoDecision, s.audioDecision = info.VideoDecision, info.AudioDecision
 		s.conversionReason = info.ConversionReason
+		s.sourceInfo = playbackSource{}
+		for _, st := range info.Part.Streams {
+			if st.Type == plex.StreamVideo {
+				s.sourceInfo.Video = videoDescription(st.Codec, st.Width, st.Height)
+			}
+			if st.Type == plex.StreamAudio && ((audio != "" && st.ID == audio) || (audio == "" && (st.Selected || st.Default))) {
+				s.sourceInfo.Audio = audioDescription(st.Codec, st.Channels)
+			}
+		}
 		s.mu.Unlock()
 		s.url = info.URL
 		duration := float64(s.item.Duration)

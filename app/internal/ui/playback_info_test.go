@@ -1,7 +1,7 @@
 package ui
 
 import (
- "plexcrt/internal/input"
+	"plexcrt/internal/input"
 	"testing"
 	"time"
 )
@@ -18,7 +18,7 @@ func TestPlaybackInfoSeparatesStreamsAndMeasuredRates(t *testing.T) {
 	for i, key := range p.list.items {
 		rows[key] = p.list.vals[i]
 	}
-	for key, want := range map[string]string{"Video": "H.264, Original", "Audio": "AC3 5.1, Transcoded", "Video Mbps": "3.2 now / 2.8 avg", "Core output": "720x480i", "Conversion reason": "Audio compatibility"} {
+	for key, want := range map[string]string{"Video": "Unchanged (no server conversion)", "Audio": "Converted by server", "Video bitrate": "Now 3.2 / Avg 2.8 Mbps", "MiSTer output": "720x480i", "Conversion reason": "Audio format or channels need conversion"} {
 		if rows[key] != want {
 			t.Errorf("%s=%q, want %q", key, rows[key], want)
 		}
@@ -49,19 +49,27 @@ func TestSessionStreamModes(t *testing.T) {
 }
 
 func TestPlaybackInfoScrollHint(t *testing.T) {
- l := &listMode{items: make([]string, 9)}
- l.infoScrollHint()
- if l.hint != "" { t.Fatal("short info should not suggest scrolling") }
- l.items = make([]string, 16)
- l.infoScrollHint()
- if l.hint != "Up/Down" { t.Fatal("overflow must explain scrolling") }
+	l := &listMode{items: make([]string, 9)}
+	l.infoScrollHint()
+	if l.hint != "" {
+		t.Fatal("short info should not suggest scrolling")
+	}
+	l.items = make([]string, 16)
+	l.infoScrollHint()
+	if l.hint != "Up/Down" {
+		t.Fatal("overflow must explain scrolling")
+	}
 }
 
 func TestPlaybackMenuWraps(t *testing.T) {
- _, p := infoFixture(t)
- p.openInfo(time.Now())
- p.Key(input.Event{Key: input.Up}, time.Now())
- if p.list.cur != len(p.list.items)-1 { t.Fatal("Up must wrap to last row") }
- p.Key(input.Event{Key: input.Down}, time.Now())
- if p.list.cur != 0 || p.list.to != 0 { t.Fatal("Down must wrap to first row and restore title") }
+	_, p := infoFixture(t)
+	p.openInfo(time.Now())
+	p.Key(input.Event{Key: input.Up}, time.Now())
+	if p.list.cur != len(p.list.items)-1 {
+		t.Fatal("Up must wrap to last row")
+	}
+	p.Key(input.Event{Key: input.Down}, time.Now())
+	if p.list.cur != 0 || p.list.to != 0 {
+		t.Fatal("Down must wrap to first row and restore title")
+	}
 }

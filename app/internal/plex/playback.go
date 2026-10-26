@@ -424,13 +424,13 @@ type PlaybackRequest struct {
 
 // PlaybackInfo is the answer: how the item plays.
 type PlaybackInfo struct {
-	ConversionReason string
+	ConversionReason             string
 	VideoDecision, AudioDecision string
-	Session   string
-	Part      MediaPart
-	Direct    bool   // the file as stored plays; else a server-generated stream
-	VideoCopy bool   // server copies video while converting audio; still needs worker precheck
-	URL       string // what jfplay opens; never carries the token (StreamHeaders does)
+	Session                      string
+	Part                         MediaPart
+	Direct                       bool   // the file as stored plays; else a server-generated stream
+	VideoCopy                    bool   // server copies video while converting audio; still needs worker precheck
+	URL                          string // what jfplay opens; never carries the token (StreamHeaders does)
 	// Decision is the server's transcodeDecisionText, and Width and Height
 	// the transcode's picture when the server says it.
 	Decision      string
@@ -496,12 +496,20 @@ func (c *Client) PlaybackInfo(ctx context.Context, r PlaybackRequest) (*Playback
 		}
 	}
 	copyVideo, videoReason := DirectEligible(*part, r.VideoKbps)
-    switch {
-    case burn != "0": info.ConversionReason = "Subtitle burn-in"
-    case r.ForceTranscode: info.ConversionReason = "Decoder compatibility"
-    case !copyVideo: info.ConversionReason = videoReason
-    default: info.ConversionReason = "Audio compatibility"
-    }
+	switch {
+	case burn != "0":
+		info.ConversionReason = "Subtitle burn-in"
+	case r.ForceTranscode:
+		info.ConversionReason = "Decoder compatibility"
+	case !copyVideo:
+		info.ConversionReason = videoReason
+	default:
+		_, why := DirectAudioEligible(*part, r.AudioStream)
+		info.ConversionReason = why
+		if why == "" {
+			info.ConversionReason = "Audio compatibility"
+		}
+	}
 	copyVideo = copyVideo && !r.ForceTranscode && burn == "0"
 	q := c.transcodeQuery(r, info.Session, *part)
 	if copyVideo {
@@ -536,8 +544,18 @@ func (c *Client) PlaybackInfo(ctx context.Context, r PlaybackRequest) (*Playback
 		}
 		if len(d.Media) > 0 {
 			for _, st := range d.Media[0].Streams {
-				if st.Type == StreamVideo { info.VideoDecision = st.Decision }
-				if st.Type == StreamAudio { info.AudioDecision = st.Decision }
+				if st.Type == StreamVideo {
+					info.VideoDecision = st.Decision
+				}
+				if st.Type == StreamAudio {
+					info.AudioDecision = st.Decision
+				}
+			}
+		}
+		if info.AudioDecision == "transcode" {
+			_, why := DirectAudioEligible(*part, r.AudioStream)
+			if why != "" && why != info.ConversionReason {
+				info.ConversionReason += "; " + why
 			}
 		}
 		info.Decision, info.VideoCopy = d.Text, copyVideo

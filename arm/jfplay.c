@@ -1417,6 +1417,7 @@ static void write_status(struct player *p, int force)
         fprintf(f, "output_width=%u\n", raster.w);
         fprintf(f, "output_height=%u\n", raster.h);
         fprintf(f, "output_interlaced=%d\n", raster.interlaced);
+        fprintf(f, "deflicker=%u\n", (unsigned)H264RING_ST(&st, ANTI_TWITTER));
     }
     fprintf(f, "film_speed=%d\n", p->film_speed.enabled && p->film_speed.scale_num < p->film_speed.scale_den);
     fprintf(f, "ntsc_slowdown=%d\n", p->film_speed.enabled && p->film_speed.scale_num > p->film_speed.scale_den);

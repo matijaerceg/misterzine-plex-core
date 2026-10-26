@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"strconv"
 	"strings"
 	"time"
 
@@ -216,6 +215,8 @@ const InfoRefresh = time.Second
 // openInfo puts up Playback info: read only, nothing to choose.
 func (p *Playing) openInfo(now time.Time) {
 	l := &listMode{kind: moreInfo, set: -1, step: -1}
+	p.infoSampleAt = time.Time{}
+	p.sampleInfoHealth(now)
 	l.items, l.vals = p.infoRows()
 	l.infoScrollHint()
 	l.infoAt = now
@@ -229,6 +230,7 @@ func (p *Playing) refreshInfo(now time.Time) {
 		return
 	}
 	l.infoAt = now
+	p.sampleInfoHealth(now)
 	items, vals := p.infoRows()
 	if strings.Join(items, "\n") == strings.Join(l.items, "\n") && strings.Join(vals, "\n") == strings.Join(l.vals, "\n") {
 		return
@@ -246,112 +248,6 @@ func (p *Playing) refreshInfo(now time.Time) {
 // worker's status file (jfplay.c writes its fields). A field the worker
 // has not reported is left out. No titles: only the track names the Audio
 // and Subs lists show anyway.
-func (p *Playing) infoRows() (items, vals []string) {
-	add := func(item, val string) {
-		if val != "" {
-			items, vals = append(items, item), append(vals, val)
-		}
-	}
-	st := p.statusVals
-	num := func(k string) int {
-		n, _ := strconv.Atoi(strings.TrimSpace(st[k]))
-		return n
-	}
-	videoMode, audioMode := "", ""
-	if p.streamModes != nil {
-		videoMode, audioMode = p.streamModes()
-	} else if p.direct != nil && p.isDirect() {
-		videoMode, audioMode = "Original", "Original"
-	}
-	withMode := func(value, mode string) string {
-		if value == "" || mode == "" {
-			return value
-		}
-		return value + ", " + mode
-	}
-	format := ""
-	if w, h := num("width"), num("height"); w > 0 && h > 0 {
-		add("Video", withMode("H.264", videoMode))
-		format = itoa(w) + "x" + itoa(h)
-	}
-	if fps, err := strconv.ParseFloat(st["fps"], 64); err == nil && fps > 0 {
-		format = strings.TrimSpace(format + " / " + strings.TrimRight(strings.TrimRight(strconv.FormatFloat(fps, 'f', 3, 64), "0"), ".") + " fps")
-	}
-	add("Format", strings.TrimPrefix(format, "/ "))
-	rate := func(key string) string {
-		bps, err := strconv.ParseInt(st[key], 10, 64)
-		if err != nil || bps <= 0 {
-			return ""
-		}
-		return strconv.FormatFloat(float64(bps)/1e6, 'f', 1, 64) + " Mbps"
-	}
-	nowRate, avgRate := rate("video_bitrate_recent"), rate("video_bitrate_average")
-	if nowRate != "" && avgRate != "" {
-		add("Video Mbps", strings.TrimSuffix(nowRate, " Mbps")+" now / "+strings.TrimSuffix(avgRate, " Mbps")+" avg")
-	} else {
-		add("Video now", nowRate)
-		add("Video avg", avgRate)
-	}
-	if rate("video_bitrate_average") == "" {
-		add("Video nominal", rate("video_bitrate"))
-	}
-	if videoMode == "Transcoded" {
-		add("Bitrate cap", strconv.FormatFloat(float64(p.app.Cfg.BitrateKbps())/1000, 'f', -1, 64)+" Mbps")
-	}
-	audio := strings.ToUpper(strings.TrimSpace(st["audio_codec"]))
-	if audio == "NONE" {
-		audio = ""
-	}
-	ch := num("audio_channels_in")
-	if ch <= 0 {
-		for _, a := range p.item.Audio {
-			if a.Selected {
-				ch = a.Channels
-			}
-		}
-	}
-	if layout := channelLayout(ch); layout != "" {
-		audio = strings.TrimSpace(audio + " " + layout)
-	}
-	add("Audio", withMode(audio, audioMode))
-	if ch > 2 {
-		// jfplay mixes surround down to the stereo output with the boost
-		add("Downmix", "Stereo")
-		if b := num("audio_boost"); b > 0 {
-			add("Boost", itoa(b)+"%")
-		}
-	}
-	sub := "Off"
-	for _, s := range p.item.Subs {
-		if s.Selected {
-			sub = s.Title
-		}
-	}
-	add("Subtitles", sub)
-	if w, h := num("output_width"), num("output_height"); w > 0 && h > 0 {
-		scan := "p"
-		if num("output_interlaced") != 0 {
-			scan = "i"
-		}
-		add("Core output", itoa(w)+"x"+itoa(h)+scan)
-	}
-	if p.conversionReason != nil {
-		add("Conversion reason", p.conversionReason())
-	}
-	if st != nil {
-		add("Late frames", itoa(num("late")))
-		add("Decode errors", itoa(num("errors")))
-		if r := strings.TrimSpace(st["refused"]); r != "" && !strings.HasPrefix(r, "0") {
-			add("Refused", r)
-		}
-		if ms, ok := st["buffered_ms"]; ok {
-			n, _ := strconv.Atoi(strings.TrimSpace(ms))
-			add("Sound buffer", strconv.FormatFloat(float64(n)/1000, 'f', 1, 64)+" s")
-		}
-	}
-	return items, vals
-}
-
 // channelLayout names a channel count the way players do.
 func channelLayout(ch int) string {
 	switch {

@@ -253,6 +253,7 @@ and fractional seconds use three decimal places.
 | `output_width` | Actual core raster width; not the HDMI scaler output. |
 | `output_height` | Actual core raster height from a valid hardware status read. |
 | `output_interlaced` | Actual core raster interlace flag (1 interlaced, 0 progressive). |
+| `deflicker` | Effective filter flag on the shown picture (1 on, 0 off), read from core status; omitted without a core snapshot. |
 | `audio_codec` | Decoder codec name, or empty when there is no audio. |
 | `audio_channels_in` | Channels reported by the first decoded input frame. |
 | `audio_boost` | Configured surround gain percentage. |

@@ -477,6 +477,7 @@ func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 		ctl.direct = sess.Direct
 		ctl.streamModes = sess.StreamModes
 		ctl.conversionReason = sess.ConversionReason
+		ctl.sourceInfo = sess.PlaybackSource
 		ctl.pos = float64(offset)
 		if offset < 0 {
 			ctl.pos = float64(it.ViewOffset)
