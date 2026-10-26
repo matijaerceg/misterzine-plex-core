@@ -171,8 +171,8 @@ func TestPlaybackInfoShowsWhatIsKnownAndRefreshes(t *testing.T) {
 	if l == nil || l.kind != moreInfo || l.set != -1 {
 		t.Fatalf("Playback info did not open: %+v", l)
 	}
-	want := map[string]string{"Video": "H.264 · Transcoded", "Resolution": "1280x720", "Frame rate": "23.976 fps",
-		"Video nominal": "4.2 Mbps", "Bitrate cap": "6 Mbps", "Audio": "AC3 5.1 · Transcoded", "Downmix": "Stereo", "Boost": "150%",
+	want := map[string]string{"Video": "H.264, Transcoded", "Format": "1280x720 / 23.976 fps",
+		"Video nominal": "4.2 Mbps", "Bitrate cap": "6 Mbps", "Audio": "AC3 5.1, Transcoded", "Downmix": "Stereo", "Boost": "150%",
 		"Subtitles": "English SRT", "Late frames": "3", "Decode errors": "0",
 		"Sound buffer": "1.5 s"}
 	if len(l.items) != len(want) || len(l.vals) != len(l.items) {
