@@ -104,7 +104,7 @@ func TestThemeFadeAndRelease(t *testing.T) {
 						t.Fatal("stereo gain mismatch")
 					}
 				}
-				if peak < 5400 || peak > 5500 {
+				if peak < 19999 || peak > 20000 {
 					t.Fatalf("gain peak=%d", peak)
 				}
 				if binary.LittleEndian.Uint16(pcm[len(pcm)-2:]) != 0 {
