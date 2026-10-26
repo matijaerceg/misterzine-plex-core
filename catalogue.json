@@ -24,23 +24,23 @@
   },
   "current": {
     "beta": {
-      "id": "beta-0.1.0-beta.30-20261025",
-      "version": "0.1.0-beta.30",
+      "id": "beta-0.1.0-beta.31",
+      "version": "0.1.0-beta.31",
       "channel": "beta",
-      "notes": "# MisterZine Plex Core 0.1.0-beta.30\n\nThis update improves gradients, controller playback controls, server-outage\nhandling, menu audio, and the choice between original video and server conversion.\n\n- **Gradient Dither** is on by default. It smooths colour gradients in the\n  final picture and can be switched off in the core OSD.\n- The controller **Start** button pauses and resumes playback.\n- Menus stay responsive while the server is unavailable. Requests can be\n  cancelled, and a connection error offers a retry instead of leaving the\n  screen apparently frozen.\n- Original H.264 video can play at unusual dimensions when it fits the\n  decoder's picture and frame-rate limits. This permits some pictures slightly\n  taller than 720 pixels; it does not add 1080p decoding.\n- Surround audio is converted to stereo by the server. Eligible video stays\n  unchanged during audio conversion; supported mono/stereo audio can still\n  play directly. The selected video bitrate remains a limit on original video.\n- Audio/video feeding is paced more carefully to avoid starving audio when\n  video packets arrive in bursts.\n\n- Navigation clicks play promptly while browsing. Navigation sounds retain\n  their Off, Quiet and Loud settings.\n- The navigation melody chooser includes Trolo, Sahur, Astro, Tetro and Cat.\n- Show theme music is available again when supplied by the server, with an\n  independent Theme music toggle. Themes mix with navigation clicks and stop\n  before video playback.\n\nExisting settings, calibration and saved access are preserved by updates.\nRollback restores the previous application and core. This remains a beta;\nplease include the title, playback position and symptoms when reporting an issue.\n\nCards on 0.1.0-beta.27 or earlier first update through 0.1.0-beta.27.1.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.30/MisterZine-Plex-Core-beta-0.1.0-beta.30-20261025.zip",
+      "notes": "# MisterZine Plex Core 0.1.0-beta.31\n\n- Stronger OSD de-flicker for downscaled video, including 720-line video on\n  interlaced 480-line output. Off and native-size filtering are unchanged.\n- Scrubbing while paused keeps the picture and play icon steady. Press OK on\n  the playhead, Start, or the play button to resume at the selected position.\n- Playback Info shows separate video/audio conversion status, current and\n  average video bitrate, core output, and a concise conversion reason.\n  The compact layout removes duplicate position information and indicates scrolling.\n- Main and playback menus wrap from the first entry to the last and back.\n- Show themes use buffered audio to prevent distortion from underruns and play\n  at source volume with smooth fades.\n\nExisting settings, calibration and saved access are preserved. Rollback restores\nthe previous application and core.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.31/MisterZine-Plex-Core-beta-0.1.0-beta.31.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 14133376,
-      "sha256": "7947dc203b0ac4886e33a114e633791cea6e1d5ed9cead91fd568e905ceb48b1",
+      "size": 14138743,
+      "sha256": "22af8ad40c5677b3abde129c9d29b4d4b00b6ac92751cb9db627b5b6d2ab006a",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
       },
       "source": {
-        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.30-20261025.zip",
-        "size": 140098289,
-        "sha256": "fba17747936a23ad5375602010384bfaf5cf151c15e9751835f88235cd512828",
-        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.30/MisterZine-Plex-Core-Source-beta-0.1.0-beta.30-20261025.zip"
+        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.31.zip",
+        "size": 140106282,
+        "sha256": "9711ddf44e7b6a9cad04d031756fe7f87c3116b6de75cbdafb4a96abee959ff3",
+        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.31/MisterZine-Plex-Core-Source-beta-0.1.0-beta.31.zip"
       }
     }
   },
