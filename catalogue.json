@@ -24,23 +24,23 @@
   },
   "current": {
     "beta": {
-      "id": "beta-0.1.0-beta.31",
-      "version": "0.1.0-beta.31",
+      "id": "beta-0.1.0-beta.32",
+      "version": "0.1.0-beta.32",
       "channel": "beta",
-      "notes": "# MisterZine Plex Core 0.1.0-beta.31\n\n- Stronger OSD de-flicker for downscaled video, including 720-line video on\n  interlaced 480-line output. Off and native-size filtering are unchanged.\n- Scrubbing while paused keeps the picture and play icon steady. Press OK on\n  the playhead, Start, or the play button to resume at the selected position.\n- Playback Info shows separate video/audio conversion status, current and\n  average video bitrate, core output, and a concise conversion reason.\n  The compact layout removes duplicate position information and indicates scrolling.\n- Main and playback menus wrap from the first entry to the last and back.\n- Show themes use buffered audio to prevent distortion from underruns and play\n  at source volume with smooth fades.\n\nExisting settings, calibration and saved access are preserved. Rollback restores\nthe previous application and core.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.31/MisterZine-Plex-Core-beta-0.1.0-beta.31.zip",
+      "notes": "# MisterZine Plex Core 0.1.0-beta.32\n\n- Playback Info fits in one wider, compact panel with no row selection.\n- Video and audio separately explain whether the server converted them.\n  Original and received formats are compared when the source details are known.\n- Plain-language conversion reasons explain format, channel, subtitle and\n  playback-limit requirements. Local stereo output is shown separately.\n- Measured current and average video bitrate, the applicable bitrate limit,\n  MiSTer output and effective de-flicker state are visible together.\n- Recent late frames and decoder errors are separated from playback totals;\n  the sound buffer is shown in seconds.\n- Arrow keys leave Playback Info open. Left/Right on its More-menu row has no\n  effect; OK and Back return from Info to More.\n- Original video whose file carries wrong or missing frame timing in its H.264\n  header no longer judders. The player corrects the timing to the file's real\n  frame rate before the core schedules pictures; a steady late-frame count on\n  an otherwise smooth title was this.\n- Reports include the H.264 stream headers as received, the demuxer's frame\n  rates and the core's output changes, for diagnosing wrong output rates.\n\nUses the same qualified FPGA core as the preceding release. Existing settings,\ncalibration and saved access are preserved. Rollback restores the previous release.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.32/MisterZine-Plex-Core-beta-0.1.0-beta.32.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 14138743,
-      "sha256": "22af8ad40c5677b3abde129c9d29b4d4b00b6ac92751cb9db627b5b6d2ab006a",
+      "size": 14151809,
+      "sha256": "2557f456c14a6d6cd3ff77132fe2f0026fc1cec1956da4fbdc30d6b3f97f50a7",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
       },
       "source": {
-        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.31.zip",
-        "size": 140106282,
-        "sha256": "9711ddf44e7b6a9cad04d031756fe7f87c3116b6de75cbdafb4a96abee959ff3",
-        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.31/MisterZine-Plex-Core-Source-beta-0.1.0-beta.31.zip"
+        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.32.zip",
+        "size": 140121370,
+        "sha256": "61e3f83ebe42926c8c36ebceb4c9a9f55260bf9305c4febf8ed6c273fccc2a3f",
+        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.32/MisterZine-Plex-Core-Source-beta-0.1.0-beta.32.zip"
       }
     }
   },
