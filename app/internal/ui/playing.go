@@ -289,7 +289,7 @@ const (
 	// next episode: long enough that a brushed shoulder button does not
 	// lose the place, short enough to feel direct. A pill shows the hold
 	// filling up meanwhile.
-	EpisodeHold = 700 * time.Millisecond
+	EpisodeHold = 2 * time.Second
 )
 
 var osdButtons = []string{"-10", "Pause", "+10", "Prev", "Next", "Audio", "Subs", "More"}
