@@ -8,11 +8,12 @@ import (
 )
 
 // The rows More adds after Crop, Downmix boost and Subtitle size (each
-// stepped in place with Left and Right, stepMore): two
+// stepped in place with Left and Right, stepMore): three
 // settings that are the app's own (Options shows them too) and a read-only
 // page of what is playing.
 const (
 	moreAutoplay = "Autoplay next"
+	moreDirect   = "Direct play"
 	moreBitrate  = "Video bitrate"
 	moreInfo     = "Playback info"
 )
@@ -53,9 +54,30 @@ func (p *Playing) moreRows(items, vals []string, step int) ([]string, []string) 
 	if step < 0 {
 		step = p.app.Cfg.bitrateIndex()
 	}
-	items = append(items, moreBitrate, moreInfo)
-	vals = append(vals, p.bitrateValue(step), "")
+	items = append(items, moreDirect, moreBitrate, moreInfo)
+	vals = append(vals, onOff(p.app.Cfg.DirectPlay()), p.bitrateValue(step), "")
 	return items, vals
+}
+
+// refreshMoreDirect remakes an open More's Video bitrate row once the
+// stream has changed between the file as stored and a transcode (a Direct
+// play restart decides off the UI thread): its ", direct" mark follows.
+func (p *Playing) refreshMoreDirect() {
+	l := p.list
+	if l == nil || l.kind != "More" || p.isDirect() == p.moreDirect {
+		return
+	}
+	p.moreDirect = !p.moreDirect
+	step := l.step
+	if step < 0 {
+		step = p.app.Cfg.bitrateIndex()
+	}
+	for i, item := range l.items {
+		if item == moreBitrate {
+			l.vals[i] = p.bitrateValue(step)
+		}
+	}
+	l.loaded = false
 }
 
 // reopenMore puts More up again with its cursor on the row named row.
@@ -96,6 +118,8 @@ func (p *Playing) moreRange(l *listMode, i int) (at, n int, ok bool) {
 		return cfg.subtitleSizeIndex(), len(SubtitleSizes), true
 	case moreAutoplay:
 		return btoi(!cfg.NoAutoplay), 2, true // Off, On
+	case moreDirect:
+		return btoi(cfg.DirectPlay()), 2, true
 	case moreBitrate:
 		if l.step >= 0 {
 			return l.step, len(Bitrates), true
@@ -110,8 +134,9 @@ func (p *Playing) moreRange(l *listMode, i int) (at, n int, ok bool) {
 // their ends, as Options' do, and take effect at once: Crop for this
 // playback, Downmix boost and Subtitle size saved (the boost sent to the
 // worker, the size used from the next subtitle painted), Autoplay next
-// saved. Video bitrate only picks a step: OK applies it, as it restarts
-// a transcode.
+// saved, Direct play saved and the stream started over where it changes
+// (setDirectPlay). Video bitrate only picks a step: OK applies it, as it
+// restarts a transcode.
 func (p *Playing) stepMore(l *listMode, right bool) bool {
 	at, n, ok := p.moreRange(l, l.cur)
 	if !ok {
@@ -148,6 +173,8 @@ func (p *Playing) stepMore(l *listMode, right bool) bool {
 	case moreAutoplay:
 		p.saveMore(l, func() { cfg.NoAutoplay = to == 0 })
 		l.vals[l.cur] = onOff(!cfg.NoAutoplay)
+	case moreDirect:
+		p.setDirectPlay(l, to == 1)
 	case moreBitrate:
 		l.step = to
 		l.vals[l.cur] = p.bitrateValue(l.step)
@@ -180,6 +207,38 @@ func (p *Playing) toggleAutoplay(l *listMode) {
 	l.vals[l.cur] = onOff(!cfg.NoAutoplay)
 }
 
+// setDirectPlay saves Direct play on or off (Left, Right or OK on its row)
+// and, where the stream would come out differently, starts it over at the
+// same position: a direct stream with it now off, a transcode with it now
+// on (the file may then play as stored). A transcode the server made for
+// another reason plays on with it off.
+func (p *Playing) setDirectPlay(l *listMode, on bool) {
+	cfg := p.app.Cfg
+	if on == cfg.DirectPlay() {
+		return
+	}
+	if !p.saveMore(l, func() { cfg.NoDirectPlay = !on }) {
+		return
+	}
+	l.vals[l.cur] = onOff(on)
+	if p.isDirect() == on {
+		return
+	}
+	p.restartStream("restart")
+}
+
+// restartStream has the session start the stream over at the current
+// position with a new decision: cmd is the session command, which takes
+// the position last.
+func (p *Playing) restartStream(cmd string) {
+	target := max(0, min(p.pos, p.dur-6))
+	now := time.Now()
+	p.seekAt, p.seekTo, p.pos = now, target, target
+	p.bufferStart, p.bufferEnd = 0, 0
+	p.send(cmd + " " + ftoa(target))
+	p.dirty = true
+}
+
 // applyBitrate saves the Video bitrate step Left and Right picked (it is
 // the app's setting, as in Options) and, for a transcode, restarts the
 // stream at the same position with the new cap. A direct stream does not
@@ -201,12 +260,7 @@ func (p *Playing) applyBitrate(l *listMode) {
 	if p.isDirect() {
 		return
 	}
-	target := max(0, min(p.pos, p.dur-6))
-	now := time.Now()
-	p.seekAt, p.seekTo, p.pos = now, target, target
-	p.bufferStart, p.bufferEnd = 0, 0
-	p.send("bitrate " + itoa(p.app.Cfg.BitrateKbps()) + " " + ftoa(target))
-	p.dirty = true
+	p.restartStream("bitrate " + itoa(p.app.Cfg.BitrateKbps()))
 }
 
 // InfoRefresh is how often an open Playback info takes the worker's status.

@@ -95,9 +95,13 @@ type Playing struct {
 	skipOff    bool // the skip button was dismissed for this marker
 	// epHold is the shoulder button held for the next (+1) or previous
 	// (-1) episode, since epHoldAt; 0 for none (episodeHold)
-	epHold   int
-	epHoldAt time.Time
-	skipAt   time.Time
+	epHold int
+	// moreDirect is whether the stream was the file as stored when More's
+	// rows were made: the Video bitrate row says so, and is remade when
+	// that changes under an open More (a Direct play restart).
+	moreDirect bool
+	epHoldAt   time.Time
+	skipAt     time.Time
 	// the wait dot (waitdot.go): it runs in the middle while the picture
 	// is held up, from the start until the first frame and on any stall
 	starting   bool        // no frame from the player (jfplay) yet
@@ -615,12 +619,13 @@ func (p *Playing) openMore() {
 	items = append(items, "Crop", "Downmix boost", "Subtitle size")
 	vals = append(vals, p.app.crop.Label(), p.boostLabel(), SubtitleSizes[p.app.Cfg.subtitleSizeIndex()].Label)
 	items, vals = p.moreRows(items, vals, -1)
+	p.moreDirect = p.isDirect()
 	p.showList(&listMode{kind: "More", items: items, vals: vals, set: -1, step: -1})
 }
 
 // choose acts on OK in a list: an audio or subtitle track is applied and
 // the stream restarted at the same position; in More, Autoplay next
-// toggles, Video bitrate applies its step and Playback info opens (the
+// and Direct play toggle, Video bitrate applies its step and Playback info opens (the
 // other rows change with Left and Right, so OK leaves them be).
 func (p *Playing) choose(l *listMode) {
 	switch l.kind {
@@ -628,6 +633,8 @@ func (p *Playing) choose(l *listMode) {
 		switch l.items[l.cur] {
 		case moreAutoplay:
 			p.toggleAutoplay(l)
+		case moreDirect:
+			p.setDirectPlay(l, !p.app.Cfg.DirectPlay())
 		case moreBitrate:
 			p.applyBitrate(l)
 		case moreInfo:
@@ -972,6 +979,7 @@ func (p *Playing) Key(ev input.Event, now time.Time) bool {
 // runs once per field (field true) and right after a key (field false).
 func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 	p.resizeCanvas(osd)
+	p.refreshMoreDirect()
 	if p.metadata != nil {
 		select {
 		case fresh := <-p.metadata:

@@ -85,6 +85,7 @@ func (o *Options) items() []option {
 			i := max(0, min(len(Bitrates)-1, cfg.bitrateIndex()+d))
 			cfg.Bitrate = Bitrates[i].Kbps
 		}, at: func() (int, int) { return cfg.bitrateIndex(), len(Bitrates) }},
+		{label: "Direct play", get: cfg.DirectPlay, set: func(v bool) { cfg.NoDirectPlay = !v }},
 	}
 	theme := option{label: "Playback UI theme", val: func() string { return PlaybackLooks[cfg.playbackLookIndex()].Label }, step: func(d int) {
 		cfg.PlaybackLook = PlaybackLooks[max(0, min(len(PlaybackLooks)-1, cfg.playbackLookIndex()+d))].Value

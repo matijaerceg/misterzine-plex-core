@@ -157,6 +157,11 @@ primary account. Automatic sign-in uses the saved server connection at startup.
   and after them:
   - **Autoplay next** (episodes): On or Off by Left, Right or OK; the Options
     setting, saved at once, and the end of this playback follows it.
+  - **Direct play**: On or Off by Left, Right or OK; the Options setting,
+    saved at once. A file playing as stored starts over at the same position
+    as a transcode when it goes Off; a transcode starts over when it goes On,
+    and plays as stored if the file qualifies. A transcode the server made for
+    another reason plays on.
   - **Video bitrate**: Left and Right choose a step of the Options ladder and
     OK saves it. A transcode starts over at the same position with the new
     cap; a direct play (so marked) plays on and uses it next time.
@@ -207,7 +212,7 @@ Options lists, in groups:
   covering it the row shows **Unlock forever** and OK opens the code entry.
   A look chosen earlier plays as Standard until a code covers it, and comes
   back once one does.
-- **Video bitrate** (see Sound and playback quality).
+- **Video bitrate** and **Direct play** (see Sound and playback quality).
 - **Show** and a library's name, one row per library: off leaves it out of
   Home, the menu and search. Shown once the libraries have loaded.
 - **Video calibration** and **Video crop** (see Display setup).
@@ -342,6 +347,14 @@ whose video is above the chosen bitrate is never streamed as stored; it is
 transcoded to that bitrate. Start low on Wi-Fi and raise it while playback
 stays smooth. The first run of a release with the decoder core sets it to the top value;
 change it afterwards and it stays.
+
+**Direct play** (on by default) is whether files the decoder can play are
+streamed as stored. Off has the server transcode everything, within the
+Video bitrate, for a file that stutters or looks wrong as stored: a transcode
+costs the server some work and the picture some detail, but is the same
+stream every other file gets. Playback info then gives "Direct play is off
+in the settings" as the reason. It is also in More during playback, where
+changing it restarts the stream at the same position.
 
 Sound is folded to stereo: on the MiSTer for a file streamed as stored, by the
 server in a transcode. A plain fold of a surround track comes out noticeably

@@ -82,6 +82,8 @@ func conversionExplanation(reason string) string {
 		return "File container is not supported directly"
 	case r == "decoder compatibility":
 		return "Original video failed the decoder check"
+	case r == "direct play off":
+		return "Direct play is off in the settings"
 	default:
 		return "Server required it; reason not supplied"
 	}

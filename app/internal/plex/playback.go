@@ -433,6 +433,9 @@ type PlaybackRequest struct {
 	// ForceTranscode asks for a server transcode even when the file could
 	// play as stored: the client decided the core cannot play it.
 	ForceTranscode bool
+	// ForceReason is the conversion reason Playback info gives for a forced
+	// transcode; "" is "Decoder compatibility" (the fallback's).
+	ForceReason string
 	// Part is the item's media part as just fetched (ItemAndPart), spared
 	// a second fetch; nil fetches it.
 	Part *MediaPart
@@ -518,6 +521,8 @@ func (c *Client) PlaybackInfo(ctx context.Context, r PlaybackRequest) (*Playback
 	switch {
 	case burn != "0":
 		info.ConversionReason = "Subtitle burn-in"
+	case r.ForceTranscode && r.ForceReason != "":
+		info.ConversionReason = r.ForceReason
 	case r.ForceTranscode:
 		info.ConversionReason = "Decoder compatibility"
 	case !copyVideo:

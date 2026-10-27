@@ -26,6 +26,10 @@ type Player struct {
 	// server.
 	Access      func() error
 	Kbps, Boost func() int
+	// DirectPlay reports whether a file the decoder can play is streamed as
+	// stored, read at each start (Config.DirectPlay); nil allows it. False
+	// has every stream transcoded, with "Direct play off" as the reason.
+	DirectPlay func() bool
 	// SubtitleSize is the size the server burns a subtitle into a
 	// transcode at (Plex's percentage), read at each start; nil is 100.
 	SubtitleSize func() int
@@ -400,7 +404,7 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 		if s.kbps > 0 {
 			kbps = s.kbps
 		}
-		force := s.forceTranscode
+		force := s.forceTranscode || !p.directPlay()
 		s.mu.Unlock()
 		burn := s.burnedSubtitle(subtitle)
 		info, err := s.playbackInfo(ctx, kbps, offset, audio, burn, force)
@@ -809,27 +813,23 @@ func (s *Session) Send(line string) {
 		// the position the UI had, the tracks as they are
 		kbps, e1 := strconv.Atoi(fields[1])
 		target, e2 := strconv.ParseFloat(fields[2], 64)
-		if e1 != nil || e2 != nil || kbps <= 0 || target < 0 || math.IsNaN(target) || math.IsInf(target, 0) {
+		if e1 != nil || e2 != nil || kbps <= 0 || !validPosition(target) {
 			return
 		}
-		s.updateLocked(false)
 		s.mu.Lock()
 		s.kbps = kbps
-		s.state.Position = target
-		ps := s.state
 		s.mu.Unlock()
-		s.reportProgress(ps)
-		if s.sessionContext().Err() != nil {
+		s.redecideLocked(target)
+		return
+	}
+	if len(fields) == 2 && fields[0] == "restart" {
+		// More > Direct play: a new PlaybackInfo under the settings as they
+		// are now, at the position the UI had
+		target, err := strconv.ParseFloat(fields[1], 64)
+		if err != nil || !validPosition(target) {
 			return
 		}
-		s.stopProcessLocked()
-		_ = os.Remove(s.p.Status)
-		s.mu.Lock()
-		s.started = false
-		s.mu.Unlock()
-		if err := s.startContext(int(target), false, s.sessionContext()); err != nil {
-			s.finishLocked(s.suppressStopCancellation(err))
-		}
+		s.redecideLocked(target)
 		return
 	}
 	if len(fields) == 4 && fields[0] == "tracks" {
@@ -1001,6 +1001,37 @@ func (s *Session) FinalPosition() (pos, dur float64, ok bool) {
 
 // Direct reports whether the stream plays the file as stored rather than a
 // transcode. A track change or the fallback to a transcode can change it.
+// directPlay is the DirectPlay setting; nil allows it.
+func (p *Player) directPlay() bool { return p.DirectPlay == nil || p.DirectPlay() }
+
+func validPosition(target float64) bool {
+	return target >= 0 && !math.IsNaN(target) && !math.IsInf(target, 0)
+}
+
+// redecideLocked restarts the stream at target with a new PlaybackInfo (the
+// cap, the Direct play setting and the tracks as they are now); opMu is
+// held. A session past its end is left alone.
+func (s *Session) redecideLocked(target float64) {
+	s.logf("restarting at %.0f s for a new decision (direct play %s)", target, map[bool]string{true: "on", false: "off"}[s.p.directPlay()])
+	s.updateLocked(false)
+	s.mu.Lock()
+	s.state.Position = target
+	ps := s.state
+	s.mu.Unlock()
+	s.reportProgress(ps)
+	if s.sessionContext().Err() != nil {
+		return
+	}
+	s.stopProcessLocked()
+	_ = os.Remove(s.p.Status)
+	s.mu.Lock()
+	s.started = false
+	s.mu.Unlock()
+	if err := s.startContext(int(target), false, s.sessionContext()); err != nil {
+		s.finishLocked(s.suppressStopCancellation(err))
+	}
+}
+
 func (s *Session) Direct() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

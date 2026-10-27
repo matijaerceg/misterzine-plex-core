@@ -22,19 +22,20 @@ type Config struct {
 	NoTaps             bool     `json:"no_taps"`
 	QuietTaps          bool     `json:"quiet_taps,omitempty"` // absent in older settings retains Loud
 	NoTheme            bool     `json:"no_theme"`
-	Progressive        bool     `json:"progressive"`             // legacy 480p choice; now only picks the calibration's line ends
-	FourThree          bool     `json:"only_4x3"`                // hide media wider than 4:3
-	NoAutoplay         bool     `json:"no_autoplay"`             // do not run on to the next episode
-	NoSkipButtons      bool     `json:"no_skip_buttons"`         // no Skip intro / Skip credits button over the markers
-	Bitrate            int      `json:"bitrate"`                 // transcode cap in kbit/s; 0 is the default
-	BitrateReset       int      `json:"bitrate_reset,omitempty"` // the BitrateResetGeneration last applied
-	AudioBoost         int      `json:"audio_boost,omitempty"`   // surround downmix gain; 0 is the default
-	SubtitleSize       int      `json:"subtitle_size,omitempty"` // drawn text subtitles, a percentage (SubtitleSizes); 0 is Normal
-	SubtitleBox        bool     `json:"subtitle_box,omitempty"`  // a translucent box behind drawn subtitles; off is an outline
-	PlaybackLook       string   `json:"playback_look,omitempty"` // the playback controls' look (PlaybackLooks); "" is Standard
-	Geometry           Geometry `json:"geometry"`                // where video goes on the raster (menus ignore it)
-	Crop               Crop     `json:"crop,omitempty"`          // what each playback starts cropping; nothing saved is off
-	ShowBeta           bool     `json:"show_beta_features"`      // show (and run) the features still in beta
+	Progressive        bool     `json:"progressive"`              // legacy 480p choice; now only picks the calibration's line ends
+	FourThree          bool     `json:"only_4x3"`                 // hide media wider than 4:3
+	NoAutoplay         bool     `json:"no_autoplay"`              // do not run on to the next episode
+	NoSkipButtons      bool     `json:"no_skip_buttons"`          // no Skip intro / Skip credits button over the markers
+	Bitrate            int      `json:"bitrate"`                  // transcode cap in kbit/s; 0 is the default
+	NoDirectPlay       bool     `json:"no_direct_play,omitempty"` // every stream is a server transcode, even a file the decoder could play as stored
+	BitrateReset       int      `json:"bitrate_reset,omitempty"`  // the BitrateResetGeneration last applied
+	AudioBoost         int      `json:"audio_boost,omitempty"`    // surround downmix gain; 0 is the default
+	SubtitleSize       int      `json:"subtitle_size,omitempty"`  // drawn text subtitles, a percentage (SubtitleSizes); 0 is Normal
+	SubtitleBox        bool     `json:"subtitle_box,omitempty"`   // a translucent box behind drawn subtitles; off is an outline
+	PlaybackLook       string   `json:"playback_look,omitempty"`  // the playback controls' look (PlaybackLooks); "" is Standard
+	Geometry           Geometry `json:"geometry"`                 // where video goes on the raster (menus ignore it)
+	Crop               Crop     `json:"crop,omitempty"`           // what each playback starts cropping; nothing saved is off
+	ShowBeta           bool     `json:"show_beta_features"`       // show (and run) the features still in beta
 	// HiddenLibraries are the keys of the chosen server's libraries left
 	// off Home, the menu and search (Options > Libraries).
 	HiddenLibraries []string `json:"hidden_libraries,omitempty"`
@@ -131,6 +132,11 @@ func LoadConfig(path string) *Config {
 	}
 	return c
 }
+
+// DirectPlay reports whether a file the decoder can play is streamed as
+// stored (the default): off, the server transcodes everything, for a file
+// that plays badly as stored. Options and More show it as Direct play.
+func (c *Config) DirectPlay() bool { return !c.NoDirectPlay }
 
 // BitrateResetGeneration moves every install to the top Video bitrate once.
 // Generation 1 is the move to the FPGA H.264 decoder core: the software

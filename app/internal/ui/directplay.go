@@ -56,6 +56,9 @@ func (s *Session) playbackInfo(ctx context.Context, kbps, offset int, audio, sub
 	req := plex.PlaybackRequest{RatingKey: s.item.RatingKey, Session: session, StartSeconds: float64(offset),
 		VideoKbps: kbps, AudioStream: audio, SubtitleStream: subtitle, SubtitleSize: size, AudioBoost: 100,
 		ForceTranscode: force, Part: s.part}
+	if force && !p.directPlay() {
+		req.ForceReason = "Direct play off"
+	}
 	s.part = nil // the start's read only: a restart reads the selection afresh
 	info, err := s.client.PlaybackInfo(ctx, req)
 	if err != nil {

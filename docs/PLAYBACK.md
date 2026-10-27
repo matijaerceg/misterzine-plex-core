@@ -12,7 +12,8 @@ When playback starts, the app reads the item's first media version and file
 the chosen audio track is not the part's selected one, the app selects it on
 the server first, because a transcode follows the part's selected streams.
 
-Unless a subtitle must be burned in, the app then checks the file's video
+Unless a subtitle must be burned in, or the **Direct play** setting is off
+(then everything is transcoded), the app then checks the file's video
 against the core's own limits: H.264 High or Main, level 4.1 or lower, 8-bit,
 CABAC entropy coding, at most 1280 pixels wide and 3,600 rounded-up 16x16
 blocks per picture, at most 30 frames per second above
