@@ -160,6 +160,13 @@ half a percent, has no timing or no VUI at all, the worker rewrites the timing
 to the output clock's rate (the container's, after any film-speed change) and
 logs the first few rewrites.
 
+For reports, the worker also logs `PAL-DIAG-1` lines (`pal_diagnostic.h`): the
+SPS and PPS as received, in hex, bounded to 512 bytes each and 16 changes
+(no slices, SEI or audio); the demuxer's guessed, average and raw frame rates
+with the time base; and the core's profile, refresh match, raster and display
+flags whenever they change, at most 80 lines a run. They show what the stream
+and the core actually did when a title picks a wrong output rate.
+
 With `--hold`, the session starts paused before any records are submitted.  The
 reader finds the first IDR (discarding earlier video), then the process fills as
 much of the ring as it can while the old display can remain visible outside
