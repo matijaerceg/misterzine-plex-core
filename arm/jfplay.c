@@ -5,6 +5,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <math.h>
 #include <pthread.h>
 #include <signal.h>
@@ -39,6 +40,7 @@
 #include "direct_check.h"
 #include "packet_pacing.h"
 #include "lag_watch.h"
+#include "vui_timing.h"
 
 #define Q_PACKETS 8192
 #define Q_BYTES (64u * 1024u * 1024u)
@@ -146,6 +148,7 @@ struct player {
     struct direct_check dcheck;   /* --direct: the SPS / PPS pre-check */
     int direct_ok;                /* --direct: the pre-check passed */
     struct lag_watch lag;         /* --direct: the keep-up watchdog */
+    unsigned vui_rewrites;        /* access units whose SPS VUI timing was rewritten */
     unsigned lag_reanchor;        /* last DISP_REANCHOR the watchdog saw */
     int lag_reanchor_seen;
 };
@@ -671,8 +674,32 @@ static int write_au(struct player *p, AVPacket *pkt, unsigned flags)
     int64_t source_pts = packet_pts90(p, pkt, p->rd.vi);
     int64_t clock_pts = source_pts == AV_NOPTS_VALUE ? source_pts :
                         film_speed_pts90(p->film_speed, source_pts);
-    int rc = h264ring_try_write_au(p->ring, pkt->data, (uint32_t)pkt->size,
+    /* An SPS travels with a key frame: its VUI timing is made to agree with
+     * the output clock's frame rate (vui_timing.h) before the core sees it. */
+    const uint8_t *au = pkt->data;
+    size_t au_len = (size_t)pkt->size;
+    uint8_t *fixed = NULL;
+    if (pkt->flags & AV_PKT_FLAG_KEY) {
+        AVRational out_rate = av_mul_q(p->nominal_video_rate,
+                                       (AVRational){p->film_speed.scale_num, p->film_speed.scale_den});
+        uint32_t nuit = 0, ts = 0;
+        size_t fixed_len = 0;
+        if (out_rate.num > 0 && out_rate.den > 0 &&
+            vui_timing_fix_au(pkt->data, (size_t)pkt->size, (unsigned)out_rate.num, (unsigned)out_rate.den,
+                              &fixed, &fixed_len, &nuit, &ts)) {
+            au = fixed; au_len = fixed_len;
+            if (p->vui_rewrites < 3)
+                logmsg("SPS VUI timing %s (%" PRIu32 " / %" PRIu32 "); rewritten to %d/%d frames/s",
+                       nuit && ts ? "disagrees with the container" : "absent", nuit, ts,
+                       out_rate.num, out_rate.den);
+            else if (p->vui_rewrites == 3)
+                logmsg("SPS VUI timing: further rewrites not logged");
+            p->vui_rewrites++;
+        }
+    }
+    int rc = h264ring_try_write_au(p->ring, au, (uint32_t)au_len,
                                    clock_pts == AV_NOPTS_VALUE ? -1 : clock_pts, flags);
+    free(fixed);
     if (!rc && source_pts != AV_NOPTS_VALUE) {
         p->newest_video90 = clock_pts;
         extend_buffer_interval(source_pts, video_duration90(p, pkt), 22500,

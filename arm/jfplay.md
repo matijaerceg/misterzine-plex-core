@@ -149,6 +149,17 @@ after each); four consecutive seconds with new late pickups and a picture that
 is behind and falling further behind (or more than 2 s behind) also exit with
 code 7. The `position` written at exit is where to resume a transcode.
 
+Whatever the source, the SPS that travels with a key frame is checked against
+the container's frame rate before it reaches the core (`vui_timing.h`). The
+core schedules pictures by the SPS VUI timing (`num_units_in_tick` /
+`time_scale`) and, with Refresh Rate on Auto, picks the raster's rate from it;
+an encoder that leaves the fields absent or wrong (a 23.976 frames/s file was
+found tagged 1 / 180000) made the core pick up every other picture late for
+the whole title. When the VUI rate differs from the container's by more than
+half a percent, has no timing or no VUI at all, the worker rewrites the timing
+to the output clock's rate (the container's, after any film-speed change) and
+logs the first few rewrites.
+
 With `--hold`, the session starts paused before any records are submitted.  The
 reader finds the first IDR (discarding earlier video), then the process fills as
 much of the ring as it can while the old display can remain visible outside
