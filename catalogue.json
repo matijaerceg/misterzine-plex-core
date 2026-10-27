@@ -24,23 +24,23 @@
   },
   "current": {
     "beta": {
-      "id": "beta-0.1.0-beta.32",
-      "version": "0.1.0-beta.32",
+      "id": "beta-0.1.0-beta.33",
+      "version": "0.1.0-beta.33",
       "channel": "beta",
-      "notes": "# MisterZine Plex Core 0.1.0-beta.32\n\n- Playback Info fits in one wider, compact panel with no row selection.\n- Video and audio separately explain whether the server converted them.\n  Original and received formats are compared when the source details are known.\n- Plain-language conversion reasons explain format, channel, subtitle and\n  playback-limit requirements. Local stereo output is shown separately.\n- Measured current and average video bitrate, the applicable bitrate limit,\n  MiSTer output and effective de-flicker state are visible together.\n- Recent late frames and decoder errors are separated from playback totals;\n  the sound buffer is shown in seconds.\n- Arrow keys leave Playback Info open. Left/Right on its More-menu row has no\n  effect; OK and Back return from Info to More.\n- Original video whose file carries wrong or missing frame timing in its H.264\n  header no longer judders. The player corrects the timing to the file's real\n  frame rate before the core schedules pictures; a steady late-frame count on\n  an otherwise smooth title was this.\n- Reports include the H.264 stream headers as received, the demuxer's frame\n  rates and the core's output changes, for diagnosing wrong output rates.\n\nUses the same qualified FPGA core as the preceding release. Existing settings,\ncalibration and saved access are preserved. Rollback restores the previous release.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.32/MisterZine-Plex-Core-beta-0.1.0-beta.32.zip",
+      "notes": "# MisterZine Plex Core 0.1.0-beta.33\n\n- Server connection checks no longer send your Plex token to every advertised\n  address. Direct HTTPS connections are tried first, and replies must identify\n  the expected server. Plain HTTP fallback is limited to connections advertised\n  as local. The new Plain HTTP connections setting can disable this fallback;\n  it is on by default, and sessions using it remain unencrypted on the local network.\n- A new Direct play setting lets you have the server transcode every file,\n  including files that could otherwise play directly. It is on by default.\n- Hold L or R for two seconds during playback to go to the previous or next\n  episode. The on-screen indicator shows the hold progress.\n- Playback Info fetches the item's track details before its first display,\n  so original video and audio information is available sooner.\n\nUses the same qualified FPGA core and playback worker as beta.32. Existing\nsettings, calibration and saved access are preserved. Rollback restores the\nprevious release.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.33/MisterZine-Plex-Core-beta-0.1.0-beta.33.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 14151809,
-      "sha256": "2557f456c14a6d6cd3ff77132fe2f0026fc1cec1956da4fbdc30d6b3f97f50a7",
+      "size": 14161551,
+      "sha256": "351de97b1eb9757cc754456b33b50fadb68931362f0c31cc68bb51e9f3862f67",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
       },
       "source": {
-        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.32.zip",
-        "size": 140121370,
-        "sha256": "61e3f83ebe42926c8c36ebceb4c9a9f55260bf9305c4febf8ed6c273fccc2a3f",
-        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.32/MisterZine-Plex-Core-Source-beta-0.1.0-beta.32.zip"
+        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.33.zip",
+        "size": 140131161,
+        "sha256": "8a5f64cce04b0472e81727028a772c81b05ff0799e2bee42b861c4b40580c9df",
+        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.33/MisterZine-Plex-Core-Source-beta-0.1.0-beta.33.zip"
       }
     }
   },
