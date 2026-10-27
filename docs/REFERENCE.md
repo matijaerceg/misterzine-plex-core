@@ -240,8 +240,8 @@ Options lists, in groups:
   nothing to do with codes: the supporter extras are unlocked by a MisterZine
   code, separately.
 - **Switch user** and **Sign in automatically** for a Plex Home (see
-  Household profiles), **Choose server again**, and **Sign out**, with the
-  account's name.
+  Household profiles), **Plain HTTP connections** (see Server connection),
+  **Choose server again**, and **Sign out**, with the account's name.
 - **Updates**, which says when an update is downloading, ready or available,
   or when one failed.
 - **Send a report**.
@@ -268,13 +268,26 @@ and tries again every 30 seconds; OK tries at once.
 
 ### Server connection
 
-On sign-in and when choosing a server, Plex tries every connection plex.tv
-lists for the server at once and keeps the best that answers: the home
-network first, then the internet, then Plex's relay. At each it uses a secure
-(HTTPS) connection when one works, and otherwise a plain HTTP connection where
-the server allows it. The relay is secure only. The server's **Secure
-connections** setting (Settings > Network) decides: **Required** refuses plain
-connections, **Preferred** accepts them.
+On sign-in and when choosing a server, Plex tries the connections plex.tv
+lists for the server and keeps the best that answers. Secure (HTTPS)
+connections go first, all at once, the home network ranked above the
+internet. Only when none of them answers (a certificate the MiSTer cannot
+verify, a router that refuses the server's plex.direct name) does it try a
+plain HTTP connection, and only to the server's home-network address: the
+sign-in token and everything after it travel unencrypted over a plain
+connection, so one is never made across the internet. Plex's relay, which
+is secure, comes last. Each probe asks the server's identity without the
+token, and a connection is kept only when the reply names the expected
+server, so a box that merely answers at the address gets nothing.
+
+The server's **Secure connections** setting (Settings > Network) decides
+whether it accepts plain connections at all: **Required** refuses them,
+**Preferred** accepts them. The app's **Plain HTTP connections** row in
+Options (on by default, as in Plex's own apps) turns the fallback off: then
+only secure connections are tried. The setting applies when a server is
+chosen, so after turning it off choose the server again if the app
+connected over plain HTTP; the log notes a plain connection when one is
+selected.
 
 ### Release notes on start
 

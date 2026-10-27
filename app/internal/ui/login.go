@@ -171,7 +171,7 @@ func (l *Login) connect(gen int, s plex.Server) {
 	l.stat = "Connecting to " + s.Name + "..."
 	l.mu.Unlock()
 	l.wake()
-	uri, err := plex.Reach(s, l.app.Log.Printf)
+	uri, err := plex.Reach(s, l.app.Cfg.PlainHTTP(), l.app.Log.Printf)
 	l.mu.Lock()
 	if l.gen != gen {
 		l.mu.Unlock()

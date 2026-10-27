@@ -164,7 +164,7 @@ func (h *HomeUsers) connectServer(server plex.Server) {
 	gen := h.gen
 	h.phase, h.status, h.busy, h.problem = "working", "Connecting to "+server.Name+"...", true, ""
 	go func() {
-		uri, err := plex.Reach(server, h.app.Log.Printf)
+		uri, err := plex.Reach(server, h.app.Cfg.PlainHTTP(), h.app.Log.Printf)
 		h.app.Later(func() {
 			if !h.live(gen) {
 				return

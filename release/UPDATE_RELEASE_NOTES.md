@@ -17,6 +17,12 @@
   an otherwise smooth title was this.
 - Reports include the H.264 stream headers as received, the demuxer's frame
   rates and the core's output changes, for diagnosing wrong output rates.
+- Connecting to a server no longer sends the sign-in token to every address
+  plex.tv lists. Secure (HTTPS) connections are tried first; a plain HTTP
+  connection is tried only to the server's home-network address, only when no
+  secure connection answers, and never across the internet. The probe carries
+  no token and a connection is kept only when the reply names the expected
+  server. A new Options row, Plain HTTP connections, turns the fallback off.
 
 Uses the same qualified FPGA core as the preceding release. Existing settings,
 calibration and saved access are preserved. Rollback restores the previous release.

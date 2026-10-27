@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"plexcrt/internal/input"
+	"plexcrt/internal/plex"
 )
 
 // Direct play off in the settings has an eligible file transcoded, with the
@@ -179,4 +180,25 @@ func TestOptionsDirectPlayToggle(t *testing.T) {
 		return
 	}
 	t.Fatal("Options has no Direct play row")
+}
+
+func TestOptionsPlainHTTPToggle(t *testing.T) {
+	a := cropApp(t)
+	a.Cfg.Token = "account-token"
+	a.Plex = &plex.Client{}
+	o := &Options{app: a}
+	for _, it := range o.items() {
+		if it.label != "Plain HTTP connections" {
+			continue
+		}
+		if !it.get() {
+			t.Fatal("plain HTTP is off by default")
+		}
+		it.set(false)
+		if a.Cfg.PlainHTTP() || !a.Cfg.NoPlainHTTP {
+			t.Fatal("set(false) left plain HTTP on")
+		}
+		return
+	}
+	t.Fatal("Options has no Plain HTTP connections row")
 }

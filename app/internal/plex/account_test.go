@@ -42,7 +42,7 @@ func TestAccountName(t *testing.T) {
 	}
 }
 
-func TestServersOfferThePlainAddressBesideHTTPS(t *testing.T) {
+func TestServersOfferThePlainAddressOnlyOnTheHomeNetwork(t *testing.T) {
 	old := tvClient
 	t.Cleanup(func() { tvClient = old })
 	const lan, wan = "10.0.0.2", "203.0.113.9"
@@ -66,8 +66,7 @@ func TestServersOfferThePlainAddressBesideHTTPS(t *testing.T) {
 	want := []Connection{
 		{URI: "https://10-0-0-2.hash.plex.direct:32400", Local: true},
 		{URI: "http://" + lan + ":32400", Local: true},
-		{URI: "https://203-0-113-9.hash.plex.direct:32400"},
-		{URI: "http://" + wan + ":32400"},
+		{URI: "https://203-0-113-9.hash.plex.direct:32400"}, // no plain form: the token must never cross the internet in clear
 		{URI: "https://203-0-113-9.hash.plex.direct:8443", Relay: true},
 	}
 	if !reflect.DeepEqual(servers[0].Connections, want) {

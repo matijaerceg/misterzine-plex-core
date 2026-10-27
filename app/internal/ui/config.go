@@ -28,6 +28,7 @@ type Config struct {
 	NoSkipButtons      bool     `json:"no_skip_buttons"`          // no Skip intro / Skip credits button over the markers
 	Bitrate            int      `json:"bitrate"`                  // transcode cap in kbit/s; 0 is the default
 	NoDirectPlay       bool     `json:"no_direct_play,omitempty"` // every stream is a server transcode, even a file the decoder could play as stored
+	NoPlainHTTP        bool     `json:"no_plain_http,omitempty"`  // never connect to the server over plain HTTP, even on the home network
 	BitrateReset       int      `json:"bitrate_reset,omitempty"`  // the BitrateResetGeneration last applied
 	AudioBoost         int      `json:"audio_boost,omitempty"`    // surround downmix gain; 0 is the default
 	SubtitleSize       int      `json:"subtitle_size,omitempty"`  // drawn text subtitles, a percentage (SubtitleSizes); 0 is Normal
@@ -137,6 +138,11 @@ func LoadConfig(path string) *Config {
 // stored (the default): off, the server transcodes everything, for a file
 // that plays badly as stored. Options and More show it as Direct play.
 func (c *Config) DirectPlay() bool { return !c.NoDirectPlay }
+
+// PlainHTTP reports whether a plain HTTP connection to the server on the
+// home network is acceptable once no secure one answers (the default, as
+// in Plex's own apps). Off, only secure connections are tried.
+func (c *Config) PlainHTTP() bool { return !c.NoPlainHTTP }
 
 // BitrateResetGeneration moves every install to the top Video bitrate once.
 // Generation 1 is the move to the FPGA H.264 decoder core: the software

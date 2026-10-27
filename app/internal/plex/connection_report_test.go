@@ -37,6 +37,7 @@ func TestConnectionReportErrorsHidePrivateDetails(t *testing.T) {
 		{syscall.ECONNRESET, "connection reset"},
 		{io.EOF, "connection closed"},
 		{errOtherServer, "answered by a different server"},
+		{errNoIdentity, "no server identity in reply"},
 		{errors.New("private.example secret-token"), "request failed"},
 	} {
 		wrapped := &url.Error{Op: "Get", URL: "https://private.example/?token=secret-token", Err: tc.err}
@@ -55,8 +56,8 @@ func TestFailedConnectionsAppearInReportLog(t *testing.T) {
 		{URI: "https://relay.example", Relay: true},
 	}}
 	client := &http.Client{Transport: accountTransport(func(r *http.Request) (*http.Response, error) {
-		if r.Header.Get("X-Plex-Token") != s.AccessToken || r.URL.Path != "/identity" {
-			t.Error("probe lost its token or identity path")
+		if r.Header.Get("X-Plex-Token") != "" || r.URL.Path != "/identity" {
+			t.Error("a probe must ask /identity without the token")
 		}
 		switch r.URL.Host {
 		case "local.example":
@@ -67,10 +68,10 @@ func TestFailedConnectionsAppearInReportLog(t *testing.T) {
 			return &http.Response{StatusCode: 401, Body: io.NopCloser(strings.NewReader(""))}, nil
 		}
 	})}
-	if uri, err := reach(s, client, logger.Printf); err == nil || uri != "" {
+	if uri, err := reach(s, true, client, logger.Printf); err == nil || uri != "" {
 		t.Fatal("all failed probes must fail selection")
 	}
-	for _, want := range []string{"probing 3 advertised connections", "candidate 1 local HTTPS: DNS name not found", "candidate 2 remote HTTP: connection refused", "candidate 3 relay HTTPS: HTTP 401", "no reachable advertised connection"} {
+	for _, want := range []string{"probing 3 advertised connections", "candidate 1 local HTTPS: DNS name not found", "candidate 2 remote HTTP: not tried", "candidate 3 relay HTTPS: HTTP 401", "no reachable advertised connection"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("missing %q from log: %s", want, buf.String())
 		}
@@ -98,7 +99,7 @@ func TestReachNamesTheRouterRefusingTheLocalName(t *testing.T) {
 		}
 		return nil, &net.OpError{Op: "dial", Err: syscall.ETIMEDOUT}
 	})}
-	_, err := reach(s, client, logger.Printf)
+	_, err := reach(s, true, client, logger.Printf)
 	if err == nil || !LocalNameBlocked(err) {
 		t.Fatalf("the refused local name was not reported as the cause: %v", err)
 	}
@@ -126,14 +127,14 @@ func TestConnectionReportSelectionAndEmptyList(t *testing.T) {
 	var buf syncBuffer
 	logger := log.New(&buf, "", 0)
 	client := &http.Client{Transport: accountTransport(func(r *http.Request) (*http.Response, error) {
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(""))}, nil
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(identityBody("some-id")))}, nil
 	})}
-	uri, err := reach(Server{Connections: []Connection{{URI: "http://local.example", Local: true}}}, client, logger.Printf)
+	uri, err := reach(Server{Connections: []Connection{{URI: "http://local.example", Local: true}}}, true, client, logger.Printf)
 	if uri != "http://local.example" || err != nil || !strings.Contains(buf.String(), "selected candidate 1") {
 		t.Fatalf("successful local selection: %q %v %s", uri, err, buf.String())
 	}
 	buf.Reset()
-	if _, err := reach(Server{}, client, logger.Printf); err == nil || !strings.Contains(buf.String(), "probing 0 advertised connections") {
+	if _, err := reach(Server{}, true, client, logger.Printf); err == nil || !strings.Contains(buf.String(), "probing 0 advertised connections") {
 		t.Fatalf("missing empty discovery evidence: %v %s", err, buf.String())
 	}
 }
@@ -149,17 +150,16 @@ func TestReachRejectsADifferentServersIdentity(t *testing.T) {
 	client := &http.Client{Transport: accountTransport(func(r *http.Request) (*http.Response, error) {
 		id := "wanted-id"
 		switch r.URL.Scheme + "://" + r.URL.Host {
-		case "https://local.example:32400":
+		case "https://local.example:32400", "https://remote.example:32400":
 			return nil, &tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}}
 		case "http://local.example:32400":
 			id = "other-id"
 		}
-		body := `<?xml version="1.0" encoding="UTF-8"?><MediaContainer size="0" claimed="1" machineIdentifier="` + id + `" version="1.0"></MediaContainer>`
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(identityBody(id)))}, nil
 	})}
-	uri, err := reach(s, client, log.New(&buf, "", 0).Printf)
-	if err != nil || uri != "https://remote.example:32400" {
-		t.Fatalf("got %q %v, want the remote connection", uri, err)
+	uri, err := reach(s, true, client, log.New(&buf, "", 0).Printf)
+	if err == nil || uri != "" {
+		t.Fatalf("got %q %v, want no connection", uri, err)
 	}
 	if !strings.Contains(buf.String(), "candidate 2 local HTTP: answered by a different server") {
 		t.Errorf("missing the rejection from log: %s", buf.String())
@@ -171,42 +171,63 @@ func TestReachRejectsADifferentServersIdentity(t *testing.T) {
 	}
 }
 
-// The plex.direct certificate can fail where the plain address answers, as
+// identityBody is what /identity answers for a server with that identifier.
+func identityBody(id string) string {
+	return `<?xml version="1.0" encoding="UTF-8"?><MediaContainer size="0" claimed="1" machineIdentifier="` + id + `" version="1.0"></MediaContainer>`
+}
+
+// Secure connections are tried first, and a plain one only when none
+// answers: on the home network, and only while the setting allows it. The
+// plex.direct certificate can fail where the plain address answers, as
 // Plex's own apps find; the server's Secure connections setting decides.
-func TestReachPrefersHTTPSThenFallsBackToHTTP(t *testing.T) {
+func TestReachTriesSecureConnectionsBeforePlain(t *testing.T) {
 	conns := []Connection{
 		{URI: "https://local.example:32400", Local: true},
 		{URI: "http://local.example:32400", Local: true},
 		{URI: "https://remote.example:32400"},
-		{URI: "http://remote.example:32400"},
+		{URI: "http://remote.example:32400"}, // Servers() no longer makes one; it must stay untried if a list has it
 		{URI: "https://relay.example:8443", Relay: true},
 	}
 	for _, tc := range []struct {
-		name    string
-		answers []string // the connections that answer
-		slow    string   // answers after the others
-		want    string
-		logged  string
+		name      string
+		answers   []string // the connections that answer
+		slow      string   // answers after the others
+		plainHTTP bool
+		want      string
+		logged    []string
+		untried   []string // connections no probe may ask
 	}{
-		{"untrusted local certificate", []string{"http://local.example:32400", "https://remote.example:32400", "https://relay.example:8443"}, "",
-			"http://local.example:32400", "candidate 2 local HTTP: HTTP 200"},
-		{"secure local wins over plain", []string{"https://local.example:32400", "http://local.example:32400"}, "https://local.example:32400",
-			"https://local.example:32400", "candidate 1 local HTTPS: HTTP 200"},
-		{"plain remote", []string{"http://remote.example:32400", "https://relay.example:8443"}, "http://remote.example:32400",
-			"http://remote.example:32400", "candidate 4 remote HTTP: HTTP 200"},
-		{"relay last", []string{"https://relay.example:8443"}, "",
-			"https://relay.example:8443", "candidate 5 relay HTTPS: HTTP 200"},
+		{"untrusted local certificate, remote secure answers", []string{"http://local.example:32400", "https://remote.example:32400", "https://relay.example:8443"}, "", true,
+			"https://remote.example:32400", []string{"candidate 3 remote HTTPS: HTTP 200"}, []string{"http://local.example:32400", "https://relay.example:8443"}},
+		{"a slow secure local still beats an instant plain one", []string{"https://local.example:32400", "http://local.example:32400"}, "https://local.example:32400", true,
+			"https://local.example:32400", []string{"candidate 1 local HTTPS: HTTP 200"}, []string{"http://local.example:32400"}},
+		{"plain local once every secure path failed", []string{"http://local.example:32400", "https://relay.example:8443"}, "", true,
+			"http://local.example:32400", []string{"candidate 2 local HTTP: HTTP 200", "plain HTTP selected"}, []string{"https://relay.example:8443"}},
+		{"plain remote is never tried", []string{"http://remote.example:32400", "https://relay.example:8443"}, "", true,
+			"https://relay.example:8443", []string{"candidate 4 remote HTTP: not tried", "candidate 5 relay HTTPS: HTTP 200"}, []string{"http://remote.example:32400"}},
+		{"plain forbidden by the setting", []string{"http://local.example:32400", "https://relay.example:8443"}, "", false,
+			"https://relay.example:8443", []string{"candidate 2 local HTTP: not tried", "candidate 5 relay HTTPS: HTTP 200"}, []string{"http://local.example:32400"}},
+		{"relay last", []string{"https://relay.example:8443"}, "", true,
+			"https://relay.example:8443", []string{"candidate 5 relay HTTPS: HTTP 200"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf syncBuffer
 			client := &http.Client{Transport: accountTransport(func(r *http.Request) (*http.Response, error) {
 				uri := r.URL.Scheme + "://" + r.URL.Host
+				for _, u := range tc.untried {
+					if u == uri {
+						t.Errorf("%s was probed", uri)
+					}
+				}
+				if r.Header.Get("X-Plex-Token") != "" {
+					t.Errorf("%s was sent the token", uri)
+				}
 				if uri == tc.slow {
 					time.Sleep(100 * time.Millisecond)
 				}
 				for _, a := range tc.answers {
 					if a == uri {
-						return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(""))}, nil
+						return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(identityBody("id")))}, nil
 					}
 				}
 				if r.URL.Scheme == "https" {
@@ -214,17 +235,42 @@ func TestReachPrefersHTTPSThenFallsBackToHTTP(t *testing.T) {
 				}
 				return nil, syscall.ECONNREFUSED
 			})}
-			uri, err := reach(Server{AccessToken: "secret-token", Connections: conns}, client, log.New(&buf, "", 0).Printf)
+			uri, err := reach(Server{ID: "id", AccessToken: "secret-token", Connections: conns}, tc.plainHTTP, client, log.New(&buf, "", 0).Printf)
 			if err != nil || uri != tc.want {
 				t.Fatalf("got %q %v, want %q", uri, err, tc.want)
 			}
-			if !strings.Contains(buf.String(), tc.logged) {
-				t.Errorf("missing %q from log: %s", tc.logged, buf.String())
+			for _, want := range tc.logged {
+				if !strings.Contains(buf.String(), want) {
+					t.Errorf("missing %q from log: %s", want, buf.String())
+				}
 			}
-			if strings.Contains(buf.String(), ".example") {
-				t.Errorf("log leaked a host: %s", buf.String())
+			if strings.Contains(buf.String(), ".example") || strings.Contains(buf.String(), "secret-token") {
+				t.Errorf("log leaked a host or the token: %s", buf.String())
 			}
 		})
+	}
+}
+
+// A 200 that names no server is not Plex: a captive portal, a proxy. It is
+// not chosen, so it never sees the token.
+func TestReachRejectsAnAnswerWithoutIdentity(t *testing.T) {
+	var buf syncBuffer
+	s := Server{ID: "wanted-id", AccessToken: "secret-token", Connections: []Connection{
+		{URI: "https://local.example:32400", Local: true},
+		{URI: "http://local.example:32400", Local: true},
+	}}
+	for _, body := range []string{"", "<html>sign in to the network</html>", `<MediaContainer size="0"></MediaContainer>`} {
+		buf.Reset()
+		client := &http.Client{Transport: accountTransport(func(r *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+		})}
+		uri, err := reach(s, true, client, log.New(&buf, "", 0).Printf)
+		if err == nil || uri != "" {
+			t.Fatalf("body %q: got %q %v, want no connection", body, uri, err)
+		}
+		if !strings.Contains(buf.String(), "candidate 1 local HTTPS: no server identity in reply") || !strings.Contains(buf.String(), "candidate 2 local HTTP: no server identity in reply") {
+			t.Errorf("body %q: missing the rejection from log: %s", body, buf.String())
+		}
 	}
 }
 
@@ -260,15 +306,15 @@ func TestReachLosersGoQuietOnceItReturns(t *testing.T) {
 	slow := make(chan struct{})
 	finished := make(chan struct{})
 	client := &http.Client{Transport: accountTransport(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Host == "relay.example:8443" {
+		if r.URL.Host == "remote.example:32400" {
 			<-slow
 			defer close(finished)
 			return nil, syscall.ECONNREFUSED
 		}
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(""))}, nil
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(identityBody("id")))}, nil
 	})}
-	conns := []Connection{{URI: "https://local.example:32400", Local: true}, {URI: "https://relay.example:8443", Relay: true}}
-	uri, err := reach(Server{Connections: conns}, client, log.New(&buf, "", 0).Printf)
+	conns := []Connection{{URI: "https://local.example:32400", Local: true}, {URI: "https://remote.example:32400"}}
+	uri, err := reach(Server{Connections: conns}, true, client, log.New(&buf, "", 0).Printf)
 	if err != nil || uri != conns[0].URI {
 		t.Fatalf("got %q %v, want the local connection", uri, err)
 	}

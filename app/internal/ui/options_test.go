@@ -66,8 +66,8 @@ func TestOptionsGroups(t *testing.T) {
 		"Video bitrate": "Playback", "Direct play": "Playback",
 		"Video calibration (preview only)": "Picture", "Video crop": "Picture", "HDMI sound": "Picture",
 		"Surround downmix boost": "Sound", "Subtitle size": "Sound", "Theme music": "Sound",
-		"Show beta features":  "Extras",
-		"Choose server again": "Account", "Sign out": "Account",
+		"Show beta features":     "Extras",
+		"Plain HTTP connections": "Account", "Choose server again": "Account", "Sign out": "Account",
 		"Updates": "App", "Send a report": "App", "Version": "App",
 	} {
 		if got, ok := under[label]; !ok || got != want {

@@ -212,8 +212,8 @@ func TestHomeFlowSelectedChildUsesItsTokenAndSetsPlaybackEnvironment(t *testing.
 	if f.count("/api/v2/resources token=child-token") != 1 {
 		t.Fatal("server resources were not requested with the selected child's token")
 	}
-	if f.count("/identity token=server-token") != 1 {
-		t.Fatal("server was not probed with its server-specific token")
+	if f.count("/identity token=") != 1 || f.count("/identity token=server-token") != 0 {
+		t.Fatal("server was not probed exactly once, or the probe carried a token")
 	}
 	if cfg.HomeUserID != "2" || cfg.HomeUserTitle != "Child" || cfg.HomeToken != "child-token" || !cfg.HomeRestricted || cfg.AutoSignIn {
 		t.Fatalf("selected child identity not saved safely: %#v", cfg)

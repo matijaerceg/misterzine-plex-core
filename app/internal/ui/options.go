@@ -144,7 +144,9 @@ func (o *Options) items() []option {
 			}
 			items = append(items, automatic)
 		}
-		items = append(items, option{label: "Choose server again", do: func() { o.app.Push(NewServerPicker(o.app)) }})
+		items = append(items,
+			option{label: "Plain HTTP connections", get: cfg.PlainHTTP, set: func(v bool) { cfg.NoPlainHTTP = !v }},
+			option{label: "Choose server again", do: func() { o.app.Push(NewServerPicker(o.app)) }})
 	}
 	label := "Sign out"
 	if cfg.Token != "" && cfg.AccountName != "" && !o.app.Showcase {

@@ -201,8 +201,10 @@ func Servers(clientID, token string) ([]Server, error) {
 		}
 		for _, c := range r.Connections {
 			add(Connection{URI: c.URI, Local: c.Local, Relay: c.Relay})
-			if !c.Relay && c.Protocol != "http" && c.Address != "" && c.Port > 0 {
-				add(Connection{URI: "http://" + net.JoinHostPort(c.Address, strconv.Itoa(c.Port)), Local: c.Local})
+			// only on the home network: a plain connection carries the token and
+			// everything after it in clear, which the internet must never see
+			if c.Local && !c.Relay && c.Protocol != "http" && c.Address != "" && c.Port > 0 {
+				add(Connection{URI: "http://" + net.JoinHostPort(c.Address, strconv.Itoa(c.Port)), Local: true})
 			}
 		}
 		if r.Owned {
@@ -217,14 +219,28 @@ func Servers(clientID, token string) ([]Server, error) {
 // errOtherServer is a connection that answered with another server's identity.
 var errOtherServer = errors.New("answered by a different server")
 
-// Reach probes a server's connections at once and returns the best that
-// answers: local first, then direct, then relay, and HTTPS before plain
-// HTTP at each. Once one answers, a better one gets a moment longer, no more.
-func Reach(s Server, logf func(string, ...any)) (string, error) {
-	return reach(s, &http.Client{Timeout: 6 * time.Second}, logf)
+// errNoIdentity is a connection that answered 200 without naming a server:
+// a captive portal, a proxy, anything but Plex. It gets no token.
+var errNoIdentity = errors.New("no server identity in reply")
+
+// Reach finds the best connection to a server and returns it. Secure
+// connections go first: every direct HTTPS connection is probed at once,
+// local ranked above remote. Only when none answers are the plain HTTP
+// connections tried (home network ones only, and only when plainHTTP
+// allows them), and only after those the relay. Within a round, once one
+// answers, a better one gets a moment longer, no more.
+//
+// The probe asks /identity without the token: that endpoint needs none,
+// and a candidate earns the token only by answering with the expected
+// machine identifier over the connection then chosen.
+func Reach(s Server, plainHTTP bool, logf func(string, ...any)) (string, error) {
+	return reach(s, plainHTTP, &http.Client{Timeout: 6 * time.Second}, logf)
 }
 
-func reach(s Server, probe *http.Client, logf func(string, ...any)) (string, error) {
+// isPlain reports whether a connection is unencrypted.
+func isPlain(c Connection) bool { return strings.HasPrefix(c.URI, "http://") }
+
+func reach(s Server, plainHTTP bool, probe *http.Client, logf func(string, ...any)) (string, error) {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
@@ -246,6 +262,58 @@ func reach(s Server, probe *http.Client, logf func(string, ...any)) (string, err
 		logMu.Unlock()
 	}()
 	logf("server connection: probing %d advertised connections", len(s.Connections))
+	var secure, plain, relay []int
+	for i, c := range s.Connections {
+		logf("server connection: candidate %d %s", i+1, connectionKind(c))
+		switch {
+		case c.Relay:
+			relay = append(relay, i)
+		case isPlain(c):
+			if c.Local && plainHTTP {
+				plain = append(plain, i)
+			} else {
+				logf("server connection: candidate %d %s: not tried", i+1, connectionKind(c))
+			}
+		default:
+			secure = append(secure, i)
+		}
+	}
+	var last, blocked error
+	for _, round := range [][]int{secure, plain, relay} {
+		if len(round) == 0 {
+			continue
+		}
+		best, roundLast, roundBlocked := probeRound(s, round, probe, logf)
+		if roundLast != nil {
+			last = roundLast
+		}
+		if roundBlocked != nil {
+			blocked = roundBlocked
+		}
+		if best >= 0 {
+			logf("server connection: selected candidate %d", best+1)
+			if isPlain(s.Connections[best]) {
+				logf("server connection: plain HTTP selected; the token and all traffic are unencrypted on the home network")
+			}
+			return s.Connections[best].URI, nil
+		}
+	}
+	if blocked != nil {
+		// the one failure the user can name a cause for, so it is the one reported
+		logf("server connection: DNS refused a plex.direct name; routers with rebind protection do that")
+		last = blocked
+	}
+	if last == nil {
+		last = fmt.Errorf("no connections")
+	}
+	logf("server connection: no reachable advertised connection")
+	return "", last
+}
+
+// probeRound probes the connections at idx at once and returns the index
+// of the best that answers, or -1, with the last failure and any failure
+// that was a blocked plex.direct name.
+func probeRound(s Server, idx []int, probe *http.Client, logf func(string, ...any)) (best int, last, blocked error) {
 	rank := func(c Connection) int {
 		r := 2
 		switch {
@@ -254,7 +322,7 @@ func reach(s Server, probe *http.Client, logf func(string, ...any)) (string, err
 		case c.Local:
 			r = 0
 		}
-		if strings.HasPrefix(c.URI, "http://") {
+		if isPlain(c) {
 			r++
 		}
 		return r
@@ -263,9 +331,8 @@ func reach(s Server, probe *http.Client, logf func(string, ...any)) (string, err
 		i   int
 		err error
 	}
-	ch := make(chan result, len(s.Connections))
-	for i, c := range s.Connections {
-		logf("server connection: candidate %d %s", i+1, connectionKind(c))
+	ch := make(chan result, len(idx))
+	for _, i := range idx {
 		go func(i int, c Connection) {
 			started := time.Now()
 			finish := func(err error, status int) {
@@ -277,7 +344,6 @@ func reach(s Server, probe *http.Client, logf func(string, ...any)) (string, err
 				finish(err, 0)
 				return
 			}
-			r.Header.Set("X-Plex-Token", s.AccessToken)
 			resp, err := probe.Do(r)
 			if err != nil {
 				finish(err, 0)
@@ -287,35 +353,38 @@ func reach(s Server, probe *http.Client, logf func(string, ...any)) (string, err
 				MachineIdentifier string `xml:"machineIdentifier,attr"`
 			}
 			if resp.StatusCode == 200 {
-				// a body that is missing or does not parse names no server, so it passes
 				xml.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&id)
 			}
 			resp.Body.Close()
-			if resp.StatusCode != 200 {
+			switch {
+			case resp.StatusCode != 200:
 				err = fmt.Errorf("%s: HTTP %d", c.URI, resp.StatusCode)
-			} else if s.ID != "" && id.MachineIdentifier != "" && id.MachineIdentifier != s.ID {
+			case id.MachineIdentifier == "":
+				// a body that is missing or does not parse names no server
+				finish(errNoIdentity, 0)
+				return
+			case s.ID != "" && id.MachineIdentifier != s.ID:
 				// a plain address proves nothing about who answers there, and a
 				// LAN address can belong to another machine on another network
 				finish(errOtherServer, 0)
 				return
 			}
 			finish(err, resp.StatusCode)
-		}(i, c)
+		}(i, s.Connections[i])
 	}
-	best := -1
-	done := make([]bool, len(s.Connections))
+	best = -1
+	done := map[int]bool{}
 	// beatable reports whether a probe still running could rank above best
 	beatable := func() bool {
-		for i, c := range s.Connections {
-			if !done[i] && rank(c) < rank(s.Connections[best]) {
+		for _, i := range idx {
+			if !done[i] && rank(s.Connections[i]) < rank(s.Connections[best]) {
 				return true
 			}
 		}
 		return false
 	}
-	var last, blocked error
 	var grace <-chan time.Time
-	for n := 0; n < len(s.Connections); n++ {
+	for n := 0; n < len(idx); n++ {
 		select {
 		case r := <-ch:
 			done[r.i] = true
@@ -331,31 +400,16 @@ func reach(s Server, probe *http.Client, logf func(string, ...any)) (string, err
 				continue
 			}
 			if !beatable() {
-				logf("server connection: selected candidate %d", best+1)
-				return s.Connections[best].URI, nil
+				return best, last, blocked
 			}
 			if grace == nil {
 				grace = time.After(1500 * time.Millisecond)
 			}
 		case <-grace:
-			logf("server connection: selected candidate %d", best+1)
-			return s.Connections[best].URI, nil
+			return best, last, blocked
 		}
 	}
-	if best >= 0 {
-		logf("server connection: selected candidate %d", best+1)
-		return s.Connections[best].URI, nil
-	}
-	if blocked != nil {
-		// the one failure the user can name a cause for, so it is the one reported
-		logf("server connection: DNS refused a plex.direct name; routers with rebind protection do that")
-		last = blocked
-	}
-	if last == nil {
-		last = fmt.Errorf("no connections")
-	}
-	logf("server connection: no reachable advertised connection")
-	return "", last
+	return best, last, blocked
 }
 
 // LocalNameBlocked reports whether err is DNS answering that a plex.direct

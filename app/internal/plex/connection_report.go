@@ -49,6 +49,8 @@ func connectionOutcome(err error, status int) string {
 	switch {
 	case errors.Is(err, errOtherServer):
 		return "answered by a different server"
+	case errors.Is(err, errNoIdentity):
+		return "no server identity in reply"
 	case errors.As(err, &dns):
 		if dns.IsTimeout {
 			return "DNS timeout"
