@@ -201,6 +201,9 @@ func New(c *plex.Client, out Presenter, player *Player, lg *log.Logger) *App {
 	if player != nil && player.DrawsSubtitle == nil {
 		player.DrawsSubtitle = a.drawsSubtitle
 	}
+	if player != nil && player.SavedStreams == nil {
+		player.SavedStreams = a.savedStreams
+	}
 	// more Ps than cores so a decoding worker can never hold the drawing
 	// loop off the scheduler; the OS then arbitrates by thread priority
 	runtime.GOMAXPROCS(4)
@@ -478,6 +481,7 @@ func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 		ctl.streamModes = sess.StreamModes
 		ctl.conversionReason = sess.ConversionReason
 		ctl.sourceInfo = sess.PlaybackSource
+		ctl.streams = sess.Streams
 		ctl.pos = float64(offset)
 		if offset < 0 {
 			ctl.pos = float64(it.ViewOffset)
@@ -1078,23 +1082,37 @@ func (a *App) applyStreams(it *plex.Item) {
 	if !ok {
 		return
 	}
-	mark := func(streams []plex.Stream, id string) {
-		if id == "" {
-			return
-		}
-		found := false
-		for _, s := range streams {
-			found = found || s.ID == id
-		}
-		if !found && id != "-1" {
-			return // another file's track: keep the server's default
-		}
-		for k := range streams {
-			streams[k].Selected = streams[k].ID == id
-		}
+	markStream(it.Audio, ch.Audio)
+	markStream(it.Subs, ch.Subtitle)
+}
+
+// savedStreams is the user's choice of tracks for an item's movie or show
+// (Player.SavedStreams): "" for none saved, "-1" for no subtitles.
+func (a *App) savedStreams(it *plex.Item) (audio, subtitle string) {
+	if a.Cfg == nil || it == nil {
+		return "", ""
 	}
-	mark(it.Audio, ch.Audio)
-	mark(it.Subs, ch.Subtitle)
+	ch := a.Cfg.Streams[streamChoiceKey(it)]
+	return ch.Audio, ch.Subtitle
+}
+
+// markStream makes the track with ID the chosen one of streams ("-1": none
+// of them). "" leaves them be, as does an ID none of them has: that is
+// another file's track, and the server's default stands.
+func markStream(streams []plex.Stream, id string) {
+	if id == "" {
+		return
+	}
+	found := false
+	for _, s := range streams {
+		found = found || s.ID == id
+	}
+	if !found && id != "-1" {
+		return
+	}
+	for k := range streams {
+		streams[k].Selected = streams[k].ID == id
+	}
 }
 
 // takeFresh replaces an item with its fresh record, which marks the

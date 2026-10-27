@@ -36,9 +36,14 @@ type Player struct {
 	// then asked for without subtitles. nil, or false, has the server burn
 	// the track into a transcode.
 	DrawsSubtitle func(ratingKey string, s plex.Stream) bool
-	Hide          func()
-	exec          func(string, ...string) *exec.Cmd
-	stopGrace     time.Duration // how long a worker asked to stop has before it is killed; 0 is 3 s
+	// SavedStreams names the audio and subtitle tracks the user chose for
+	// an item's movie or show ("" for no choice, "-1" for no subtitles),
+	// read on the caller's thread at each start. A listing's item comes
+	// without its tracks; the session fetches them and marks these.
+	SavedStreams func(item *plex.Item) (audio, subtitle string)
+	Hide         func()
+	exec         func(string, ...string) *exec.Cmd
+	stopGrace    time.Duration // how long a worker asked to stop has before it is killed; 0 is 3 s
 	// reportWait bounds StartAsync's wait for the last session's stopped
 	// report; 0 is 3 s
 	reportWait time.Duration
@@ -58,6 +63,14 @@ type Session struct {
 	// that server and account even after the app signs in elsewhere.
 	client *plex.Client
 	item   *plex.Item
+	// wantAudio and wantSub are the user's saved choices (Player.SavedStreams)
+	// for the tracks a start fetches when the item came without them;
+	// streamsFetched marks that fetch done, or found unneeded.
+	wantAudio, wantSub string
+	streamsFetched     bool
+	// part is the media part fetchStreams read, for the start's
+	// PlaybackInfo (then nil: every later decision reads it afresh).
+	part *plex.MediaPart
 	// opMu serializes player lifecycle changes and status reports. mu only
 	// protects fields shared with readers such as UI state.
 	opMu                     sync.Mutex
@@ -160,6 +173,7 @@ func (p *Player) Start(item *plex.Item, offset int) (*Session, error) {
 		return nil, fmt.Errorf("cannot open playback log: %w", err)
 	}
 	s := &Session{p: p, client: client, item: copyPlaybackItem(item), lf: lf, Done: make(chan error, 1), reported: make(chan struct{}), ctx: context.Background()}
+	s.wantAudio, s.wantSub = p.savedStreams(item)
 	if err := s.startContext(offset, false, s.ctx); err != nil {
 		lf.Close()
 		return nil, err
@@ -190,6 +204,7 @@ func (p *Player) StartAsync(item *plex.Item, offset int) (*Session, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Session{p: p, client: client, item: copyPlaybackItem(item), lf: lf, Done: make(chan error, 1), reported: make(chan struct{}), async: true, ctx: ctx, cancel: cancel, uiWake: make(chan struct{}, 1)}
+	s.wantAudio, s.wantSub = p.savedStreams(item)
 	_ = os.Remove(p.Status) // never let a canceled start consume an old session's position.
 	p.startReporter()
 	// Reserve the lifecycle before publishing the session to command callers.
@@ -246,6 +261,57 @@ func samePart(a, b *plex.Item) bool {
 		return a.PartID == b.PartID
 	}
 	return a.RatingKey == b.RatingKey
+}
+
+// savedStreams is SavedStreams when set.
+func (p *Player) savedStreams(item *plex.Item) (audio, subtitle string) {
+	if p.SavedStreams == nil {
+		return "", ""
+	}
+	return p.SavedStreams(item)
+}
+
+// fetchStreams brings the item's audio and subtitle tracks when it came
+// without them (a listing's item: the next episode of a queue, say) and
+// marks the user's saved choices on them, once per session. Without this
+// the start would ask for no subtitle, and PlaybackInfo would deselect
+// the track the server had selected: the stream plays without the
+// subtitles the user sees chosen. The record read is handed on to the
+// start's PlaybackInfo (one fetch, as before). A fetch that fails leaves
+// the old behaviour; a later track change carries explicit IDs anyway.
+func (s *Session) fetchStreams(ctx context.Context) {
+	if s.streamsFetched {
+		return
+	}
+	s.streamsFetched = true
+	if len(s.item.Audio) > 0 || len(s.item.Subs) > 0 || s.client == nil {
+		return
+	}
+	fresh, part, err := s.client.ItemAndPart(ctx, s.item.RatingKey)
+	if err != nil {
+		s.logf("tracks: %v", err)
+		return
+	}
+	s.part = part
+	audio := append([]plex.Stream(nil), fresh.Audio...)
+	subs := append([]plex.Stream(nil), fresh.Subs...)
+	markStream(audio, s.wantAudio)
+	markStream(subs, s.wantSub)
+	s.mu.Lock()
+	s.item.Audio, s.item.Subs = audio, subs
+	if s.item.PartID == "" {
+		s.item.PartID = fresh.PartID
+	}
+	s.mu.Unlock()
+}
+
+// Streams is the session's audio and subtitle tracks with the chosen ones
+// marked: those it started with, or fetched (fetchStreams), as changed by
+// track commands since. Copies, safe to keep.
+func (s *Session) Streams() (audio, subs []plex.Stream) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]plex.Stream(nil), s.item.Audio...), append([]plex.Stream(nil), s.item.Subs...)
 }
 
 func copyPlaybackItem(item *plex.Item) *plex.Item {
@@ -320,6 +386,9 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 	s.mu.Lock()
 	paused := s.state.Paused
 	s.mu.Unlock()
+	if !reuseDirect {
+		s.fetchStreams(ctx)
+	}
 	audio, subtitle := selectedStreams(s.item)
 	base, inFile := offset, 0
 	if !reuseDirect {
@@ -769,8 +838,10 @@ func (s *Session) Send(line string) {
 			return
 		}
 		s.updateLocked(false)
+		s.mu.Lock()
 		s.item.Audio = setStreamID(s.item.Audio, fields[1])
 		s.item.Subs = setStreamID(s.item.Subs, fields[2])
+		s.mu.Unlock()
 		audio := fields[1]
 		if audio == "-1" {
 			audio = ""

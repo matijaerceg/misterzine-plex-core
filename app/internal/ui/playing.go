@@ -32,6 +32,7 @@ type Playing struct {
 	sourceInfo             func() playbackSource
 	conversionReason       func() string
 	streamModes            func() (string, string)
+	streams                func() (audio, subs []plex.Stream) // the session's tracks as chosen (Session.Streams); nil for none
 	app                    *App
 	item                   *plex.Item
 	metadata               chan *plex.Item // fetched off-thread, applied by Tick on the UI thread
@@ -310,6 +311,21 @@ func NewPlaying(app *App, it *plex.Item, queue []*plex.Item, idx int, send func(
 		}()
 	}
 	return p
+}
+
+// takeSessionStreams marks the tracks as the session chose them. The
+// server's record may say otherwise: a start deselects a text track the
+// app draws (plex.PlaybackInfo), and a fresh record read after that would
+// show it off while its cues draw.
+func (p *Playing) takeSessionStreams() {
+	if p.streams == nil {
+		return
+	}
+	audio, subs := p.streams()
+	if len(audio) == 0 && len(subs) == 0 {
+		return
+	}
+	p.item.Audio, p.item.Subs = audio, subs
 }
 
 func (p *Playing) canvasWidth() int {
@@ -946,6 +962,7 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 			p.item.Markers, p.item.PartID, p.item.Indexes = fresh.Markers, fresh.PartID, fresh.Indexes
 			p.item.Audio, p.item.Subs = fresh.Audio, fresh.Subs
 			p.app.applyStreams(p.item)
+			p.takeSessionStreams()
 			p.pvTried = p.preview != nil // the part may have previews after all
 			p.dirty = true
 		default:

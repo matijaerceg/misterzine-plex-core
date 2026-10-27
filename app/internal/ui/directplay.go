@@ -55,7 +55,8 @@ func (s *Session) playbackInfo(ctx context.Context, kbps, offset int, audio, sub
 	// the gain stays live (Send "boost") and is never applied twice.
 	req := plex.PlaybackRequest{RatingKey: s.item.RatingKey, Session: session, StartSeconds: float64(offset),
 		VideoKbps: kbps, AudioStream: audio, SubtitleStream: subtitle, SubtitleSize: size, AudioBoost: 100,
-		ForceTranscode: force}
+		ForceTranscode: force, Part: s.part}
+	s.part = nil // the start's read only: a restart reads the selection afresh
 	info, err := s.client.PlaybackInfo(ctx, req)
 	if err != nil {
 		return nil, err

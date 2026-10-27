@@ -52,6 +52,7 @@ type playServer struct {
 	reqs     []playRequest
 	video    string // the video stream's attributes
 	channels int
+	pgs      string // extra attributes of the picture subtitle track (selected="1", say)
 	decision string
 	// onMetadata and onTimeline run inside those calls (the timeline's with
 	// its state), before the answer.
@@ -82,7 +83,9 @@ func newPlayServer(t *testing.T, video string) *playServer {
 			if onMetadata != nil {
 				onMetadata(n)
 			}
-			_, _ = fmt.Fprintf(w, strings.Replace(playMetadata, `channels="6"`, fmt.Sprintf(`channels="%d"`, f.channels), 1), f.video, 4500)
+			page := strings.Replace(playMetadata, `channels="6"`, fmt.Sprintf(`channels="%d"`, f.channels), 1)
+			page = strings.Replace(page, `codec="pgs" index="3"`, `codec="pgs" index="3" `+f.pgs, 1)
+			_, _ = fmt.Fprintf(w, page, f.video, 4500)
 		case "/video/:/transcode/universal/decision":
 			if f.decision != "" && r.URL.Query().Get("directStream") == "1" {
 				_, _ = w.Write([]byte(f.decision))
@@ -375,8 +378,10 @@ func TestPlayerTrackChangeRequestsNewDirectStreamAndSelectsAudioIndex(t *testing
 	}
 	s.Stop()
 
+	// the start's one read serves the tracks and its PlaybackInfo; the
+	// track change reads again
 	if got := len(f.requests("/library/metadata/item")); got != 2 {
-		t.Fatalf("PlaybackInfo calls = %d, want 2", got)
+		t.Fatalf("metadata calls = %d, want 2", got)
 	}
 	// the stereo track is made the part's selection; nothing is decided
 	var selects []string
@@ -413,6 +418,87 @@ func containsArgPair(args []string, name, value string) bool {
 		}
 	}
 	return false
+}
+
+// A listing's item comes without its tracks. The session fetches them
+// before its first PlaybackInfo, so the start asks for the subtitle the
+// server has selected (burned in here) instead of none, which would have
+// had PlaybackInfo deselect it: the next episode of a queue played without
+// the subtitles the user saw chosen until a track change.
+func TestPlayerStartFetchesTheTracksOfAListingItem(t *testing.T) {
+	f := newPlayServer(t, playVideoDirect)
+	f.pgs = `selected="1"`
+	p := f.player(t)
+	p.exec = func(_ string, _ ...string) *exec.Cmd {
+		return exec.Command("sh", "-c", "printf 'state=playing\nposition=1\nduration=300\n' > '"+p.Status+"'; sleep 1")
+	}
+	s, err := p.Start(playItem(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Stop()
+	for _, e := range f.events() {
+		if e == "timeline stopped" {
+			break // the stopped report selects the burned track again
+		}
+		if strings.HasPrefix(e, "select subtitle") {
+			t.Fatalf("the start changed the part's subtitle: %v", f.events())
+		}
+	}
+	if got := len(f.requests("/library/metadata/item")); got != 1 {
+		t.Fatalf("metadata reads = %d, want 1: the tracks and the decision share one", got)
+	}
+	decisions := f.requests("/video/:/transcode/universal/decision")
+	if len(decisions) == 0 || decisions[0].q.Get("subtitles") != "burn" {
+		t.Fatalf("no transcode burning the subtitle in: %v", f.events())
+	}
+	_, subs := s.Streams()
+	if len(subs) != 2 || subs[0].Selected || !subs[1].Selected {
+		t.Fatalf("session subtitle tracks = %+v, want the picture track selected", subs)
+	}
+	if s.state.SubtitleStream != "14" {
+		t.Fatalf("reported subtitle = %q, want 14", s.state.SubtitleStream)
+	}
+}
+
+// The user's saved choice for the show (Player.SavedStreams) is marked on
+// the fetched tracks: here the stereo track and no subtitles, so the start
+// selects that track and, with nothing to burn in, plays the file as
+// stored (the server's subtitle selection is left for direct play).
+func TestPlayerStartMarksTheSavedChoiceOnFetchedTracks(t *testing.T) {
+	f := newPlayServer(t, playVideoDirect)
+	f.pgs = `selected="1"`
+	p := f.player(t)
+	p.SavedStreams = func(it *plex.Item) (string, string) {
+		if it.RatingKey != "item" {
+			t.Errorf("saved choice asked for item %q", it.RatingKey)
+		}
+		return "12", "-1"
+	}
+	p.exec = func(_ string, _ ...string) *exec.Cmd {
+		return exec.Command("sh", "-c", "printf 'state=playing\nposition=1\nduration=300\n' > '"+p.Status+"'; sleep 1")
+	}
+	s, err := p.Start(playItem(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Stop()
+	var selects []string
+	for _, e := range f.events() {
+		if e == "decision" {
+			t.Fatalf("a direct stream without subtitles asked for a transcode: %v", f.events())
+		}
+		if strings.HasPrefix(e, "select ") {
+			selects = append(selects, e)
+		}
+	}
+	if got := strings.Join(selects, ","); got != "select audioStreamID=12" {
+		t.Fatalf("track selections %q", got)
+	}
+	audio, subs := s.Streams()
+	if len(audio) != 2 || audio[0].Selected || !audio[1].Selected || subs[0].Selected || subs[1].Selected {
+		t.Fatalf("session tracks audio %+v subs %+v", audio, subs)
+	}
 }
 
 func hasArg(args []string, want string) bool {

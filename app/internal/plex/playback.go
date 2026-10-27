@@ -183,24 +183,37 @@ func (x *xmlItem) part() (*MediaPart, error) {
 // MediaPart fetches the first part of an item's first media version with
 // its streams (GET /library/metadata/<rk>).
 func (c *Client) MediaPart(ctx context.Context, ratingKey string) (*MediaPart, error) {
-	r, err := c.req("/library/metadata/"+ratingKey, nil)
+	_, part, err := c.ItemAndPart(ctx, ratingKey)
+	return part, err
+}
+
+// ItemAndPart fetches an item's record once and returns both the item
+// (its tracks with their titles and Text) and its first media part: what
+// a start of a listing's item needs to choose its tracks and then decide
+// the stream, without reading the record twice.
+func (c *Client) ItemAndPart(ctx context.Context, ratingKey string) (*Item, *MediaPart, error) {
+	r, err := c.req("/library/metadata/"+ratingKey, url.Values{"includeMarkers": {"1"}})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	data, err := c.fetchCtx(ctx, c.http, r)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var mc xmlContainer
 	if err := xml.Unmarshal(data, &mc); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for i := range mc.Items {
 		if mc.Items[i].XMLName.Local == "Video" {
-			return mc.Items[i].part()
+			part, err := mc.Items[i].part()
+			if err != nil {
+				return nil, nil, err
+			}
+			return mc.Items[i].item(), part, nil
 		}
 	}
-	return nil, fmt.Errorf("item %s not found", ratingKey)
+	return nil, nil, fmt.Errorf("item %s not found", ratingKey)
 }
 
 // fetchCtx sends a request bound to ctx and returns the body of a 200.
@@ -420,6 +433,9 @@ type PlaybackRequest struct {
 	// ForceTranscode asks for a server transcode even when the file could
 	// play as stored: the client decided the core cannot play it.
 	ForceTranscode bool
+	// Part is the item's media part as just fetched (ItemAndPart), spared
+	// a second fetch; nil fetches it.
+	Part *MediaPart
 }
 
 // PlaybackInfo is the answer: how the item plays.
@@ -455,9 +471,12 @@ func (r PlaybackRequest) burnedSubtitle() string {
 // transcode's start URL is returned. A decision the server refuses is an
 // error carrying its text.
 func (c *Client) PlaybackInfo(ctx context.Context, r PlaybackRequest) (*PlaybackInfo, error) {
-	part, err := c.MediaPart(ctx, r.RatingKey)
-	if err != nil {
-		return nil, err
+	part := r.Part
+	if part == nil {
+		var err error
+		if part, err = c.MediaPart(ctx, r.RatingKey); err != nil {
+			return nil, err
+		}
 	}
 	info := &PlaybackInfo{Session: r.Session, Part: *part}
 	if info.Session == "" {
