@@ -161,6 +161,11 @@ func TestVersionLabels(t *testing.T) {
 	if got[0] != "1080p H.264, 7.8 Mbps, server converts - version 1" || got[1] != "1080p H.264, 7.8 Mbps, server converts - version 2" {
 		t.Fatalf("identical files %q", got)
 	}
+	for in, want := range map[string]string{" - (Director's Cut)": "Director's Cut", "Film (2001)": "Film (2001)", "[Remux] ": "Remux", "(": "("} {
+		if got := ownPart(in); got != want {
+			t.Errorf("ownPart(%q) = %q, want %q", in, got, want)
+		}
+	}
 }
 
 func TestPickVersion(t *testing.T) {

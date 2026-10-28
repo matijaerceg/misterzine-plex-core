@@ -134,11 +134,16 @@ func (a *App) notePlayed(it *plex.Item, sess *Session, finished bool) {
 		a.forgetVersion(it)
 	} else {
 		it.ViewOffset = int(pos)
-		if id := sess.Version(); id != "" && id != it.VersionID {
+		if id := sess.Version(); id != "" {
 			// a version the start picked (quietVersion): the item and its
-			// record take it
-			a.useVersion(it, id)
-			a.noteVersion(it, id)
+			// record take it (the overlay may have put it on the item
+			// already: Playing.versionSettled)
+			if id != it.VersionID {
+				a.useVersion(it, id)
+			}
+			if a.rememberedVersion(it) != id {
+				a.noteVersion(it, id)
+			}
 		}
 	}
 	a.forEachItem(it.RatingKey, func(c *plex.Item) {

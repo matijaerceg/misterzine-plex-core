@@ -239,7 +239,7 @@ func apart(vs []Version, out []string) []string {
 		if len(own) >= pre+suf {
 			own = own[pre : len(own)-suf]
 		}
-		own = strings.Trim(Fold(own), " -_.()[]")
+		own = ownPart(Fold(own))
 		if own == "" {
 			own = fmt.Sprintf("version %d", i+1)
 		}
@@ -250,6 +250,16 @@ func apart(vs []Version, out []string) []string {
 		}
 	}
 	return out
+}
+
+// ownPart is a name's own part without the separators around it and the
+// brackets that enclose it: " - (Director's Cut)" is "Director's Cut".
+func ownPart(s string) string {
+	s = strings.Trim(s, " -_.")
+	for len(s) >= 2 && (s[0] == '(' && s[len(s)-1] == ')' || s[0] == '[' && s[len(s)-1] == ']') {
+		s = strings.Trim(s[1:len(s)-1], " -_.")
+	}
+	return s
 }
 
 func extension(name string) string {
