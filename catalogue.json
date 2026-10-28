@@ -24,23 +24,23 @@
   },
   "current": {
     "beta": {
-      "id": "beta-0.1.0-beta.33",
-      "version": "0.1.0-beta.33",
+      "id": "beta-0.1.0-beta.34",
+      "version": "0.1.0-beta.34",
       "channel": "beta",
-      "notes": "# MisterZine Plex Core 0.1.0-beta.33\n\n- Server connection checks no longer send your Plex token to every advertised\n  address. Direct HTTPS connections are tried first, and replies must identify\n  the expected server. Plain HTTP fallback is limited to connections advertised\n  as local. The new Plain HTTP connections setting can disable this fallback;\n  it is on by default, and sessions using it remain unencrypted on the local network.\n- A new Direct play setting lets you have the server transcode every file,\n  including files that could otherwise play directly. It is on by default.\n- Hold L or R for two seconds during playback to go to the previous or next\n  episode. The on-screen indicator shows the hold progress.\n- Playback Info fetches the item's track details before its first display,\n  so original video and audio information is available sooner.\n\nUses the same qualified FPGA core and playback worker as beta.32. Existing\nsettings, calibration and saved access are preserved. Rollback restores the\nprevious release.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.33/MisterZine-Plex-Core-beta-0.1.0-beta.33.zip",
+      "notes": "# MisterZine Plex Core 0.1.0-beta.34\n\n- Failure reports now show which playback startup stage stalled and how long\n  it took. The most recent failed playback log survives playing another video\n  before sending a report. This improves diagnosis; it is not a confirmed fix\n  for server stream-opening timeouts.\n\n- Movies and episodes stored as several files now ask which version to play\n  when you start from the beginning. The version best suited to the MiSTer is\n  selected: the largest that plays directly, otherwise the smallest of at\n  least 720p. Resuming plays the version last played on this MiSTer without\n  asking; a resume point set on another device asks.\n- The next episode, the L/R episode hold and Shuffle never ask: they play the\n  version the show last played, or the one best suited to the MiSTer.\n- A Version row beside Audio and Subtitles changes the version for the next\n  play, and Playback Info names the version playing.\n\nUses the same qualified FPGA core as beta.33, with an updated playback worker. Existing\nsettings, calibration and saved access are preserved. Rollback restores the\nprevious release.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.34/MisterZine-Plex-Core-beta-0.1.0-beta.34.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 14161551,
-      "sha256": "351de97b1eb9757cc754456b33b50fadb68931362f0c31cc68bb51e9f3862f67",
+      "size": 14185985,
+      "sha256": "0bcf142094d8feea0448ea39c26f7a5275bc59f075c836cc93516e6247f8d501",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
       },
       "source": {
-        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.33.zip",
-        "size": 140131161,
-        "sha256": "8a5f64cce04b0472e81727028a772c81b05ff0799e2bee42b861c4b40580c9df",
-        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.33/MisterZine-Plex-Core-Source-beta-0.1.0-beta.33.zip"
+        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.34.zip",
+        "size": 140149602,
+        "sha256": "2e8c8435fa970d5c8e7a536c1bef9f3c0c7a3d747633e001b5ee6faea5941e33",
+        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.34/MisterZine-Plex-Core-Source-beta-0.1.0-beta.34.zip"
       }
     }
   },
