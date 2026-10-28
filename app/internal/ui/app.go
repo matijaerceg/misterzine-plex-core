@@ -126,6 +126,7 @@ type App struct {
 	// show it as a spinner); zero otherwise.
 	Starting  time.Time
 	shuffling *shuffleWait // a shuffle's episodes are being listed
+	reading   *versionRead // a start is reading its item's versions
 	// Mark is the app's wordmark, rendered once.
 	Mark  *Wordmark
 	marks map[string]*gfx.Image // the BETA and UPDATE marks, by text
@@ -320,8 +321,9 @@ func (a *App) PlayAt(it *plex.Item, offset int) { a.PlayQueue(it, offset, nil, 0
 // drives the overlay until playback ends. Then after, if given, learns
 // the item the queue stopped on (it, when nothing played) and whether
 // that one finished (Playing.finished), so a season page can move on to
-// the episode after it. A playback held for the beta code calls after
-// once the code is in and it has run; never, if the code entry is left.
+// the episode after it. A playback held for the beta code or the version
+// chooser (firstVersion) calls after once the code is in or the version
+// picked and it has run; never, if the code entry or the chooser is left.
 func (a *App) PlayQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, after func(last *plex.Item, finished bool)) {
 	a.playQueue(it, offset, queue, idx, after, false)
 }
@@ -387,6 +389,13 @@ func startOf(it *plex.Item, shuffled bool) int {
 }
 
 func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, after func(last *plex.Item, finished bool), shuffled bool) {
+	a.playSettled(it, offset, queue, idx, after, shuffled, "")
+}
+
+// playSettled is playQueue once the first item's version is settled, why
+// saying how; "" settles it first (firstVersion), which may hold the play
+// for the version chooser as the beta code entry holds it.
+func (a *App) playSettled(it *plex.Item, offset int, queue []*plex.Item, idx int, after func(last *plex.Item, finished bool), shuffled bool, why string) {
 	last, finished, held := it, false, false
 	if after != nil {
 		// deferred first, so it runs last: after the theme and Home
@@ -405,7 +414,7 @@ func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 		if err := a.Player.Access(); err != nil {
 			if err == beta.ErrLocked {
 				held = true // the code entry plays it, then calls after
-				a.Push(NewBetaAccess(a, func() { a.playQueue(it, offset, queue, idx, after, shuffled) }))
+				a.Push(NewBetaAccess(a, func() { a.playSettled(it, offset, queue, idx, after, shuffled, why) }))
 			} else {
 				a.Notice, a.NoticeAt = err.Error(), time.Now()
 				a.dirty = true
@@ -413,9 +422,20 @@ func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 			return
 		}
 	}
+	if why == "" {
+		// a pick plays it, then calls after; Back plays nothing
+		if why, held = a.firstVersion(it, offset, shuffled, func(why string) {
+			a.playSettled(it, offset, queue, idx, after, shuffled, why)
+		}); held {
+			return
+		}
+	}
 	if os.Getenv("PLEXCRT_NOPLAY") != "" {
 		// scripted walks: show the starting state for a moment, play nothing
 		a.Log.Printf("would play %s (%s) at %d", it.Title, it.RatingKey, offset)
+		if len(it.Versions) > 1 {
+			a.Log.Print(versionLog(it, why))
+		}
 		a.Starting = time.Now()
 		for time.Since(a.Starting) < 1500*time.Millisecond {
 			a.redraw()
@@ -446,7 +466,8 @@ func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 			a.osd = r.Overlay()
 		}
 	}
-	a.flushSettings() // a track just chosen, say: on the card before the play
+	a.startingVersion(it, why)
+	a.flushSettings() // a track or version just chosen, say: on the card before the play
 	a.theme.Stop()    // Finish the theme before handing audio to playback.
 	defer a.syncTheme()
 	a.menuAudioHeld = true
@@ -482,6 +503,7 @@ func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 		ctl.conversionReason = sess.ConversionReason
 		ctl.sourceInfo = sess.PlaybackSource
 		ctl.streams = sess.Streams
+		ctl.version = sess.Version
 		ctl.pos = float64(offset)
 		if offset < 0 {
 			ctl.pos = float64(it.ViewOffset)
@@ -508,6 +530,7 @@ func (a *App) playQueue(it *plex.Item, offset int, queue []*plex.Item, idx int, 
 		idx += next
 		it = queue[idx]
 		offset = startOf(it, shuffled)
+		a.startingVersion(it, a.quietVersion(it)) // never asks along a queue
 	}
 	a.Starting = time.Time{}
 	a.dirty = true
@@ -1116,10 +1139,13 @@ func markStream(streams []plex.Stream, id string) {
 }
 
 // takeFresh replaces an item with its fresh record, which marks the
-// server's default tracks, and marks the chosen ones again. Every other
+// server's default tracks and has its first version in force, and puts in
+// force again the version it had and marks the chosen tracks. Every other
 // copy of the item (forEachItem) takes its watch state.
 func (a *App) takeFresh(it, fresh *plex.Item) {
+	keep := it.VersionID
 	*it = *fresh
+	a.applyVersion(it, keep)
 	a.applyStreams(it)
 	a.forEachItem(it.RatingKey, func(c *plex.Item) {
 		if c != it {
@@ -1435,10 +1461,11 @@ func (a *App) key(ev input.Event, now time.Time) {
 	if a.wake(ev, now) {
 		return
 	}
-	if a.shuffling != nil {
-		// a shuffle is listing its episodes: Back gives up, nothing else acts
+	if a.shuffling != nil || a.reading != nil {
+		// a shuffle is listing its episodes, or a start reading its item's
+		// versions: Back gives up, nothing else acts
 		if ev.Key == input.Back && !ev.Repeat && !ev.Release {
-			a.shuffling, a.Starting = nil, time.Time{}
+			a.shuffling, a.reading, a.Starting = nil, nil, time.Time{}
 			a.dirty = true
 		}
 		return

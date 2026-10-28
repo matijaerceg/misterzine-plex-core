@@ -89,7 +89,8 @@ func conversionExplanation(reason string) string {
 	}
 }
 
-// infoRows is bounded to fifteen rows, including up to two explanations. Keep
+// infoRows is bounded to fifteen rows, including up to two explanations,
+// and the version first for an item with several (the list scrolls). Keep
 // source, server conversion and local output distinct, with diagnostics last.
 func (p *Playing) infoRows() (items, vals []string) {
 	add := func(label, value string) {
@@ -109,6 +110,13 @@ func (p *Playing) infoRows() (items, vals []string) {
 	source := playbackSource{}
 	if p.sourceInfo != nil {
 		source = p.sourceInfo()
+	}
+	if len(p.item.Versions) > 1 {
+		id := p.item.VersionID
+		if p.version != nil {
+			id = p.version()
+		}
+		add("Version", versionInfo(p.item.Versions, id))
 	}
 	mode := func(v string) string {
 		switch v {

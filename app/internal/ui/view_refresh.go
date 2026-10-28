@@ -91,7 +91,7 @@ func actionKind(actions []string, at int) string {
 		return ""
 	}
 	a := actions[at]
-	for _, kind := range []string{"Resume", "Mark", "Audio", "Subtitles", RemoveContinue, GoToShow, ShuffleShow} {
+	for _, kind := range []string{"Resume", "Mark", "Audio", "Subtitles", "Version", RemoveContinue, GoToShow, ShuffleShow} {
 		if strings.HasPrefix(a, kind) {
 			return kind
 		}

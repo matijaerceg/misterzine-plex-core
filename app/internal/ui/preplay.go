@@ -73,6 +73,7 @@ const (
 // summary and genres; openItem fetches missing metadata before constructing it.
 func NewPreplay(app *App, it *plex.Item) *Preplay {
 	p := &Preplay{app: app, item: it}
+	app.applyVersion(it, it.VersionID)
 	app.applyStreams(it)
 	p.rebuild()
 	p.cw.refetch(app)
@@ -97,6 +98,9 @@ func (p *Preplay) rebuild() {
 	}
 	if len(it.Subs) > 0 {
 		p.actions = append(p.actions, streamLabel("Subtitles", it.Subs))
+	}
+	if row := versionRow(it); row != "" {
+		p.actions = append(p.actions, row)
 	}
 	if p.cw.has(it.RatingKey) {
 		p.actions = append(p.actions, RemoveContinue)
@@ -137,6 +141,12 @@ func (p *Preplay) Key(ev input.Event, now time.Time) {
 		case strings.HasPrefix(a, "Subtitles"):
 			p.periodic.reset()
 			p.app.chooseStream(p.item, "Subtitles", p.rebuild)
+		case strings.HasPrefix(a, "Version"):
+			p.periodic.reset()
+			p.app.chooseVersion(p.item, func() {
+				p.rebuild() // the version's own tracks: Audio may come or go
+				p.cur = restoreAction(p.actions, "Version")
+			})
 		case strings.HasPrefix(a, "Resume"):
 			p.play(p.item.ViewOffset)
 		case strings.HasPrefix(a, "Play"):
@@ -157,13 +167,15 @@ func (p *Preplay) Key(ev input.Event, now time.Time) {
 }
 
 func (p *Preplay) play(offset int) {
-	p.app.PlayAt(p.item, offset)
-	// The item already holds where the playback stopped (notePlayed), and
-	// the server's record follows its stopped report (refreshPlayedItem): a
-	// fetch now could still have the old resume point.
-	p.periodic.reset()
-	p.rebuild()
-	p.app.afterReports(func() { p.cw.refetch(p.app) })
+	// After the playback, which may follow the beta code entry or the
+	// version chooser: the item already holds where the playback stopped
+	// (notePlayed), and the server's record follows its stopped report
+	// (refreshPlayedItem): a fetch now could still have the old resume point.
+	p.app.PlayQueue(p.item, offset, nil, 0, func(*plex.Item, bool) {
+		p.periodic.reset()
+		p.rebuild()
+		p.app.afterReports(func() { p.cw.refetch(p.app) })
+	})
 }
 
 func (p *Preplay) refresh() { p.periodic.soon(); p.rebuild(); p.cw.refetch(p.app) }

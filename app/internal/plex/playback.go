@@ -69,8 +69,8 @@ func TranscodeSize(videoKbps int) (w, h int) {
 	return 1280, 720
 }
 
-// MediaPart is one file of an item's first media version, with its probed
-// streams.
+// MediaPart is the first file of one of an item's media versions, with its
+// probed streams.
 type MediaPart struct {
 	ID        string
 	Key       string // "/library/parts/<id>/<mtime>/file.<ext>": the file as stored
@@ -80,6 +80,10 @@ type MediaPart struct {
 	// FrameRateTag is the version's videoFrameRate: 24p, NTSC, PAL, 50p, 60p.
 	FrameRateTag string
 	Streams      []MediaStream
+	// MediaID is its version's ID and MediaIndex that version's place in
+	// the item's record: the transcoder's mediaIndex.
+	MediaID    string
+	MediaIndex int
 }
 
 // MediaStream is a stream of a part with the details Plex probed; zero
@@ -165,33 +169,47 @@ func (p MediaPart) fps() float64 {
 	return map[string]float64{"24p": 23.976, "NTSC": 29.97, "PAL": 25, "25p": 25, "30p": 29.97, "50p": 50, "60p": 59.94}[p.FrameRateTag]
 }
 
-func (x *xmlItem) part() (*MediaPart, error) {
+// part is the first part of the version with an ID: the first version for
+// "", and for an ID the record no longer has (a file removed since).
+func (x *xmlItem) part(mediaID string) (*MediaPart, error) {
+	for i, m := range x.Medias {
+		if m.ID == mediaID && len(m.Parts) > 0 {
+			return x.mediaPart(i), nil
+		}
+	}
 	if len(x.Medias) == 0 || len(x.Medias[0].Parts) == 0 {
 		return nil, fmt.Errorf("item %s has no media part", x.RatingKey)
 	}
-	m, xp := x.Medias[0], x.Medias[0].Parts[0]
-	p := &MediaPart{ID: xp.ID, Key: xp.Key, Container: xp.Container, Duration: float64(xp.Duration) / 1000, Bitrate: m.Bitrate, FrameRateTag: m.FrameRate}
+	return x.mediaPart(0), nil
+}
+
+// mediaPart is the first part of version i, which has one.
+func (x *xmlItem) mediaPart(i int) *MediaPart {
+	m, xp := x.Medias[i], x.Medias[i].Parts[0]
+	p := &MediaPart{ID: xp.ID, Key: xp.Key, Container: xp.Container, Duration: float64(xp.Duration) / 1000, Bitrate: m.Bitrate,
+		FrameRateTag: m.FrameRate, MediaID: m.ID, MediaIndex: i}
 	for _, st := range xp.Streams {
 		p.Streams = append(p.Streams, MediaStream{ID: st.ID, Type: st.Type, Index: st.Index, Codec: st.Codec,
 			Selected: st.Selected == 1, Default: st.Default == 1, Channels: st.Channels, Key: st.Key, Title: st.Title,
 			Language: st.Lang, Tag: st.Tag, Profile: st.Profile, Level: st.Level, BitDepth: st.BitDepth, Bitrate: st.Bitrate,
 			Width: st.Width, Height: st.Height, FrameRate: st.FrameRate, ScanType: st.ScanType, CABAC: st.CABAC})
 	}
-	return p, nil
+	return p
 }
 
-// MediaPart fetches the first part of an item's first media version with
-// its streams (GET /library/metadata/<rk>).
-func (c *Client) MediaPart(ctx context.Context, ratingKey string) (*MediaPart, error) {
-	_, part, err := c.ItemAndPart(ctx, ratingKey)
+// MediaPart fetches the first part of an item's version with its streams
+// (GET /library/metadata/<rk>): mediaID's, the first for "".
+func (c *Client) MediaPart(ctx context.Context, ratingKey, mediaID string) (*MediaPart, error) {
+	_, part, err := c.ItemAndPart(ctx, ratingKey, mediaID)
 	return part, err
 }
 
 // ItemAndPart fetches an item's record once and returns both the item
-// (its tracks with their titles and Text) and its first media part: what
-// a start of a listing's item needs to choose its tracks and then decide
-// the stream, without reading the record twice.
-func (c *Client) ItemAndPart(ctx context.Context, ratingKey string) (*Item, *MediaPart, error) {
+// (its tracks with their titles and Text, for the version with mediaID
+// when it has it) and that version's first part: what a start of a
+// listing's item needs to choose its tracks and then decide the stream,
+// without reading the record twice.
+func (c *Client) ItemAndPart(ctx context.Context, ratingKey, mediaID string) (*Item, *MediaPart, error) {
 	r, err := c.req("/library/metadata/"+ratingKey, url.Values{"includeMarkers": {"1"}})
 	if err != nil {
 		return nil, nil, err
@@ -206,11 +224,13 @@ func (c *Client) ItemAndPart(ctx context.Context, ratingKey string) (*Item, *Med
 	}
 	for i := range mc.Items {
 		if mc.Items[i].XMLName.Local == "Video" {
-			part, err := mc.Items[i].part()
+			part, err := mc.Items[i].part(mediaID)
 			if err != nil {
 				return nil, nil, err
 			}
-			return mc.Items[i].item(), part, nil
+			it := mc.Items[i].item()
+			it.UseVersion(part.MediaID)
+			return it, part, nil
 		}
 	}
 	return nil, nil, fmt.Errorf("item %s not found", ratingKey)
@@ -436,8 +456,10 @@ type PlaybackRequest struct {
 	// ForceReason is the conversion reason Playback info gives for a forced
 	// transcode; "" is "Decoder compatibility" (the fallback's).
 	ForceReason string
-	// Part is the item's media part as just fetched (ItemAndPart), spared
-	// a second fetch; nil fetches it.
+	// MediaID is the version to play (Version.ID), "" for the first.
+	MediaID string
+	// Part is that version's media part as just fetched (ItemAndPart),
+	// spared a second fetch; nil fetches it.
 	Part *MediaPart
 }
 
@@ -475,9 +497,9 @@ func (r PlaybackRequest) burnedSubtitle() string {
 // error carrying its text.
 func (c *Client) PlaybackInfo(ctx context.Context, r PlaybackRequest) (*PlaybackInfo, error) {
 	part := r.Part
-	if part == nil {
+	if part == nil || r.MediaID != "" && part.MediaID != r.MediaID {
 		var err error
-		if part, err = c.MediaPart(ctx, r.RatingKey); err != nil {
+		if part, err = c.MediaPart(ctx, r.RatingKey, r.MediaID); err != nil {
 			return nil, err
 		}
 	}
@@ -659,7 +681,7 @@ func (c *Client) transcodeQuery(r PlaybackRequest, session string, part MediaPar
 		offset = 0
 	}
 	q := url.Values{
-		"path": {"/library/metadata/" + r.RatingKey}, "mediaIndex": {"0"}, "partIndex": {"0"},
+		"path": {"/library/metadata/" + r.RatingKey}, "mediaIndex": {strconv.Itoa(part.MediaIndex)}, "partIndex": {"0"},
 		"protocol": {"http"}, "directPlay": {"0"}, "directStream": {"0"},
 		"videoResolution": {fmt.Sprintf("%dx%d", w, h)}, "maxVideoBitrate": {strconv.Itoa(cap)}, "videoQuality": {"100"},
 		"audioBoost": {strconv.Itoa(boost)}, "subtitles": {"burn"}, "subtitleSize": {strconv.Itoa(size)},

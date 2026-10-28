@@ -33,6 +33,7 @@ type Playing struct {
 	conversionReason       func() string
 	streamModes            func() (string, string)
 	streams                func() (audio, subs []plex.Stream) // the session's tracks as chosen (Session.Streams); nil for none
+	version                func() string                      // the session's version (Session.Version); nil for none
 	app                    *App
 	item                   *plex.Item
 	metadata               chan *plex.Item // fetched off-thread, applied by Tick on the UI thread
@@ -324,6 +325,17 @@ func NewPlaying(app *App, it *plex.Item, queue []*plex.Item, idx int, send func(
 		}()
 	}
 	return p
+}
+
+// versionSettled reports whether the version the item plays is known: for
+// a listing's item the start picks the version for (quietVersion), once
+// the session has (Session.Version), which the item then takes.
+func (p *Playing) versionSettled() bool {
+	if p.item.VersionID != "" || len(p.item.Versions) < 2 || p.version == nil {
+		return true
+	}
+	p.item.VersionID = p.version()
+	return p.item.VersionID != ""
 }
 
 // takeSessionStreams marks the tracks as the session chose them. The
@@ -980,9 +992,14 @@ func (p *Playing) Key(ev input.Event, now time.Time) bool {
 func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 	p.resizeCanvas(osd)
 	p.refreshMoreDirect()
-	if p.metadata != nil {
+	if p.metadata != nil && p.versionSettled() {
 		select {
 		case fresh := <-p.metadata:
+			// the record has its first version in force: the part, previews
+			// and tracks must be the playing version's
+			if len(fresh.Versions) > 1 && fresh.UseVersion(p.item.VersionID) {
+				p.item.Versions = fresh.Versions
+			}
 			p.item.Markers, p.item.PartID, p.item.Indexes = fresh.Markers, fresh.PartID, fresh.Indexes
 			p.item.Audio, p.item.Subs = fresh.Audio, fresh.Subs
 			p.app.applyStreams(p.item)

@@ -75,6 +75,9 @@ type Session struct {
 	// part is the media part fetchStreams read, for the start's
 	// PlaybackInfo (then nil: every later decision reads it afresh).
 	part *plex.MediaPart
+	// versionWhy is how the start settled the version, when it did
+	// (fetchStreams): "" when the app had.
+	versionWhy string
 	// opMu serializes player lifecycle changes and status reports. mu only
 	// protects fields shared with readers such as UI state.
 	opMu                     sync.Mutex
@@ -283,18 +286,38 @@ func (p *Player) savedStreams(item *plex.Item) (audio, subtitle string) {
 // subtitles the user sees chosen. The record read is handed on to the
 // start's PlaybackInfo (one fetch, as before). A fetch that fails leaves
 // the old behaviour; a later track change carries explicit IDs anyway.
+//
+// An item with versions but none in force (a listing's, which the app
+// could not judge: quietVersion) gets the one that suits the cores from
+// the record, or its first when the record cannot be read.
 func (s *Session) fetchStreams(ctx context.Context) {
 	if s.streamsFetched {
 		return
 	}
 	s.streamsFetched = true
-	if len(s.item.Audio) > 0 || len(s.item.Subs) > 0 || s.client == nil {
+	undecided := len(s.item.Versions) > 1 && s.item.VersionID == ""
+	defer func() {
+		s.mu.Lock()
+		if undecided && s.item.VersionID == "" {
+			s.item.VersionID = s.item.Versions[0].ID
+		}
+		s.mu.Unlock()
+		s.logVersion()
+	}()
+	if !undecided && (len(s.item.Audio) > 0 || len(s.item.Subs) > 0) || s.client == nil {
 		return
 	}
-	fresh, part, err := s.client.ItemAndPart(ctx, s.item.RatingKey)
+	fresh, part, err := s.client.ItemAndPart(ctx, s.item.RatingKey, s.item.VersionID)
 	if err != nil {
 		s.logf("tracks: %v", err)
 		return
+	}
+	pick := undecided && len(fresh.Versions) > 1
+	if pick {
+		v := fresh.Versions[plex.PickVersion(fresh.Versions, s.capKbps(), s.p.directPlay())]
+		fresh.UseVersion(v.ID)
+		part = &v.Part
+		s.versionWhy = "our pick"
 	}
 	s.part = part
 	audio := append([]plex.Stream(nil), fresh.Audio...)
@@ -303,10 +326,53 @@ func (s *Session) fetchStreams(ctx context.Context) {
 	markStream(subs, s.wantSub)
 	s.mu.Lock()
 	s.item.Audio, s.item.Subs = audio, subs
-	if s.item.PartID == "" {
+	if s.item.PartID == "" || pick {
 		s.item.PartID = fresh.PartID
 	}
+	if pick {
+		s.item.Versions, s.item.VersionID, s.item.Indexes = fresh.Versions, fresh.VersionID, fresh.Indexes
+	}
 	s.mu.Unlock()
+}
+
+// logVersion names the version the session plays when its item has
+// several, and how the start chose it when it did.
+func (s *Session) logVersion() {
+	s.mu.Lock()
+	vs, id, why := s.item.Versions, s.item.VersionID, s.versionWhy
+	s.mu.Unlock()
+	if len(vs) < 2 {
+		return
+	}
+	line := versionLine(vs, id)
+	if why != "" {
+		line += ", chosen: " + why
+	}
+	s.logf("%s", line)
+}
+
+// Version is the version the session plays (plex.Version.ID): "" for an
+// item with one, and until the start settles it for an item it picks for
+// (fetchStreams).
+func (s *Session) Version() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.item.VersionID
+}
+
+// capKbps is the video cap a start asks for: More's choice for this
+// session, else the setting.
+func (s *Session) capKbps() int {
+	kbps := 0
+	if s.p.Kbps != nil {
+		kbps = s.p.Kbps()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.kbps > 0 {
+		kbps = s.kbps
+	}
+	return kbps
 }
 
 // Streams is the session's audio and subtitle tracks with the chosen ones
@@ -396,14 +462,8 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 	audio, subtitle := selectedStreams(s.item)
 	base, inFile := offset, 0
 	if !reuseDirect {
-		kbps := 0
-		if p.Kbps != nil {
-			kbps = p.Kbps()
-		}
+		kbps := s.capKbps()
 		s.mu.Lock()
-		if s.kbps > 0 {
-			kbps = s.kbps
-		}
 		force := s.forceTranscode || !p.directPlay()
 		s.mu.Unlock()
 		burn := s.burnedSubtitle(subtitle)

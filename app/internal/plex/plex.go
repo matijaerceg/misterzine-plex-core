@@ -143,7 +143,7 @@ type Item struct {
 	Viewed     int     // of which watched
 	Still      string  // an episode's own picture (Thumb is the show's poster)
 	Logo       string  // clear logo, when the metadata was fetched in full
-	Aspect     float64 // picture aspect of the first media part (1.33, 1.78, 2.35), 0 unknown
+	Aspect     float64 // picture aspect of the chosen version (1.33, 1.78, 2.35), 0 unknown
 	Index      int     // episode number
 	Parent     int     // season number
 	Rating     float64
@@ -151,11 +151,16 @@ type Item struct {
 	Genres     []string
 	Colors     [4]uint32 // the server's poster palette (top-left, top-right, bottom-right, bottom-left), 0 if none
 	Markers    []Marker  // intro and credits, when the server has found them
-	PartID     string    // the first media part, whose streams can be chosen
+	PartID     string    // the chosen version's first part, whose streams can be chosen
 	Indexes    string    // the part's preview indexes: "sd" when the server has made them (PartIndex)
 	Audio      []Stream  // its audio streams
 	Subs       []Stream  // its subtitle streams
 	Library    string    // the key of its library, when the server says (search results do)
+	// Versions are the item's versions when it has two or more (nil for
+	// one), and VersionID the chosen one's ID ("" for the first). PartID,
+	// Indexes, Aspect, Audio and Subs are the chosen version's (UseVersion).
+	Versions  []Version
+	VersionID string
 }
 
 // Marker is a span the server has found: "intro" or "credits", in seconds.
@@ -322,15 +327,21 @@ type xmlItem struct {
 // xmlMedia is one version of an item's file(s), xmlPart one file of it and
 // xmlStream a stream of the part, with the details the server probed.
 type xmlMedia struct {
-	Aspect    float64   `xml:"aspectRatio,attr"`
-	Bitrate   int       `xml:"bitrate,attr"` // kbit/s
-	FrameRate string    `xml:"videoFrameRate,attr"`
-	Parts     []xmlPart `xml:"Part"`
+	ID         string    `xml:"id,attr"`
+	Aspect     float64   `xml:"aspectRatio,attr"`
+	Bitrate    int       `xml:"bitrate,attr"` // kbit/s
+	FrameRate  string    `xml:"videoFrameRate,attr"`
+	Resolution string    `xml:"videoResolution,attr"` // 1080, 720, 480, sd, 4k
+	VideoCodec string    `xml:"videoCodec,attr"`
+	Width      int       `xml:"width,attr"`
+	Height     int       `xml:"height,attr"`
+	Parts      []xmlPart `xml:"Part"`
 }
 
 type xmlPart struct {
 	ID        string      `xml:"id,attr"`
 	Key       string      `xml:"key,attr"`
+	File      string      `xml:"file,attr"`
 	Container string      `xml:"container,attr"`
 	Duration  int64       `xml:"duration,attr"` // ms
 	Indexes   string      `xml:"indexes,attr"`
@@ -371,6 +382,35 @@ func textSubtitle(st xmlStream) bool {
 	return st.Type == StreamSubtitle && st.Key != "" && textCodecs[strings.ToLower(st.Codec)]
 }
 
+// tracks is a part's audio and subtitle streams as the app lists them.
+func tracks(part xmlPart) (audio, subs []Stream) {
+	for _, st := range part.Streams {
+		title := st.Ext // "Commentary (English AC3 Stereo)"; the plain title lacks the name
+		if title == "" {
+			title = st.Title
+		}
+		title = Fold(title)
+		if strings.TrimSpace(strings.NewReplacer("(", "", ")", "", "SRT", "", "ASS", "").Replace(title)) == "" ||
+			strings.HasPrefix(strings.TrimSpace(title), "(") {
+			// a name in a script the atlases lack: the language in English
+			// (from its tag), then the codec
+			lang := Fold(st.Lang)
+			if strings.TrimSpace(lang) == "" {
+				lang = LangName(st.Tag)
+			}
+			title = strings.TrimSpace(lang + " " + strings.ToUpper(st.Codec))
+		}
+		s := Stream{ID: st.ID, Title: title, Selected: st.Selected == 1, Channels: st.Channels, Text: textSubtitle(st)}
+		switch st.Type {
+		case StreamAudio:
+			audio = append(audio, s)
+		case StreamSubtitle:
+			subs = append(subs, s)
+		}
+	}
+	return audio, subs
+}
+
 func (x *xmlItem) item() *Item {
 	it := &Item{RatingKey: x.RatingKey, Key: x.Key, Type: x.Type, Subtype: x.Subtype, Title: Fold(x.Title), SortTitle: Fold(x.SortTitle), Year: x.Year,
 		Duration: int(x.Duration / 1000), ViewOffset: int(x.ViewOffset / 1000), ViewCount: x.ViewCount,
@@ -391,32 +431,10 @@ func (x *xmlItem) item() *Item {
 		if len(x.Medias[0].Parts) > 0 {
 			part := x.Medias[0].Parts[0]
 			it.PartID, it.Indexes = part.ID, part.Indexes
-			for _, st := range part.Streams {
-				title := st.Ext // "Commentary (English AC3 Stereo)"; the plain title lacks the name
-				if title == "" {
-					title = st.Title
-				}
-				title = Fold(title)
-				if strings.TrimSpace(strings.NewReplacer("(", "", ")", "", "SRT", "", "ASS", "").Replace(title)) == "" ||
-					strings.HasPrefix(strings.TrimSpace(title), "(") {
-					// a name in a script the atlases lack: the language in English
-					// (from its tag), then the codec
-					lang := Fold(st.Lang)
-					if strings.TrimSpace(lang) == "" {
-						lang = LangName(st.Tag)
-					}
-					title = strings.TrimSpace(lang + " " + strings.ToUpper(st.Codec))
-				}
-				s := Stream{ID: st.ID, Title: title, Selected: st.Selected == 1, Channels: st.Channels, Text: textSubtitle(st)}
-				switch st.Type {
-				case StreamAudio:
-					it.Audio = append(it.Audio, s)
-				case StreamSubtitle:
-					it.Subs = append(it.Subs, s)
-				}
-			}
+			it.Audio, it.Subs = tracks(part)
 		}
 	}
+	it.Versions = x.versions()
 	for _, g := range x.Genres {
 		it.Genres = append(it.Genres, g.Tag)
 	}

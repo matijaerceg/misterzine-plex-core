@@ -99,7 +99,7 @@ func (f *playbackServer) last(path string) *http.Request {
 
 func TestMediaPartAndItemStreams(t *testing.T) {
 	f := newPlaybackServer(t)
-	part, err := f.c.MediaPart(context.Background(), "101")
+	part, err := f.c.MediaPart(context.Background(), "101", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestMediaPartAndItemStreams(t *testing.T) {
 func TestMediaPartMissing(t *testing.T) {
 	f := newPlaybackServer(t)
 	f.metadata = `<MediaContainer size="1"><Video ratingKey="101" type="movie" title="Film"/></MediaContainer>`
-	if _, err := f.c.MediaPart(context.Background(), "101"); err == nil {
+	if _, err := f.c.MediaPart(context.Background(), "101", ""); err == nil {
 		t.Fatal("an item without media gave a part")
 	}
 }

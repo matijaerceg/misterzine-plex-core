@@ -131,8 +131,15 @@ func (a *App) notePlayed(it *plex.Item, sess *Session, finished bool) {
 	if done {
 		it.ViewOffset = 0
 		it.ViewCount++ // as the scrobble counts a play
+		a.forgetVersion(it)
 	} else {
 		it.ViewOffset = int(pos)
+		if id := sess.Version(); id != "" && id != it.VersionID {
+			// a version the start picked (quietVersion): the item and its
+			// record take it
+			a.useVersion(it, id)
+			a.noteVersion(it, id)
+		}
 	}
 	a.forEachItem(it.RatingKey, func(c *plex.Item) {
 		if c != it {

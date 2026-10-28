@@ -62,9 +62,15 @@ type Config struct {
 	// Streams are the audio and subtitle tracks chosen, by movie or show
 	// rating key: the app keeps the choice and passes it with each play
 	// (streamChoiceKey), so every episode of a show starts on it.
-	Streams     map[string]StreamChoice `json:"streams,omitempty"`
-	LoadWarning string                  `json:"-"`
-	LoadError   error                   `json:"-"`
+	Streams map[string]StreamChoice `json:"streams,omitempty"`
+	// Versions are the versions that last started or were chosen, by
+	// movie or episode rating key (the newest VersionsKept): the server
+	// keeps one resume point for all of an item's versions and no word of
+	// which played, so a resume plays this one unasked. Finishing the item
+	// or marking it watched forgets it.
+	Versions    map[string]VersionChoice `json:"versions,omitempty"`
+	LoadWarning string                   `json:"-"`
+	LoadError   error                    `json:"-"`
 	path        string
 	saver       *settingsWriter // shared by the copies (snapshot): one writer for the file
 }
@@ -74,7 +80,20 @@ type Config struct {
 type StreamChoice struct {
 	Audio    string `json:"audio,omitempty"`
 	Subtitle string `json:"subtitle,omitempty"`
+	// VersionKind is the kind (plex.Version.Kind) of the version a show's
+	// episode last started with: the next episodes play the same kind.
+	VersionKind string `json:"version_kind,omitempty"`
 }
+
+// VersionChoice is an item's version (plex.Version.ID) and when it was
+// started or chosen (Unix seconds), for keeping the newest.
+type VersionChoice struct {
+	Media string `json:"media"`
+	At    int64  `json:"at"`
+}
+
+// VersionsKept is how many items' versions the settings keep.
+const VersionsKept = 300
 
 // snapshot is a copy to put back when a save fails. The extras' settings
 // map is copied too, so a failed save leaves them as they were as well.
@@ -82,6 +101,7 @@ func (c *Config) snapshot() Config {
 	s := *c
 	s.Premium = maps.Clone(c.Premium)
 	s.Streams = maps.Clone(c.Streams)
+	s.Versions = maps.Clone(c.Versions)
 	return s
 }
 

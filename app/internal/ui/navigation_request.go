@@ -82,6 +82,12 @@ func (a *App) markItem(it *plex.Item, watched bool, done func()) {
 		if err != nil {
 			return nil, err
 		}
-		return func() { a.takeFresh(it, fresh); done() }, nil
+		return func() {
+			a.takeFresh(it, fresh)
+			if watched {
+				a.forgetVersion(it) // its next play is from the start
+			}
+			done()
+		}, nil
 	})
 }

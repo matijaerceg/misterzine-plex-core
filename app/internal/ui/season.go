@@ -253,6 +253,9 @@ func (s *Season) rebuild() {
 	if len(it.Subs) > 0 {
 		s.actions = append(s.actions, streamLabel("Subtitles", it.Subs))
 	}
+	if row := versionRow(it); row != "" {
+		s.actions = append(s.actions, row)
+	}
 	if s.view != nil && s.view.direct {
 		// opened without the season picker (one season, Continue Watching,
 		// search): Back leaves the show, so the picker gets an action
@@ -298,11 +301,16 @@ func (s *Season) wantTracks(now time.Time) {
 	}(it)
 }
 
-// streamsArrived fills in an episode's tracks from its full record. Audio and
-// Subtitles go in before Remove from Continue Watching, so the cursor keeps
-// its action rather than its place in the row.
+// streamsArrived fills in an episode's tracks, and its versions with the
+// one it plays in force, from its full record. Audio, Subtitles and Version
+// go in before Remove from Continue Watching, so the cursor keeps its
+// action rather than its place in the row.
 func (s *Season) streamsArrived(it, fresh *plex.Item) {
+	s.app.applyVersion(fresh, it.VersionID)
 	it.PartID, it.Audio, it.Subs = fresh.PartID, fresh.Audio, fresh.Subs
+	if len(fresh.Versions) > 1 {
+		it.Versions, it.VersionID, it.Indexes, it.Aspect = fresh.Versions, fresh.VersionID, fresh.Indexes, fresh.Aspect
+	}
 	s.app.applyStreams(it)
 	if s.focused() == it {
 		kind := actionKind(s.actions, s.act)
@@ -502,6 +510,13 @@ func (s *Season) do(a string) {
 		return
 	case strings.HasPrefix(a, "Subtitles"):
 		s.app.chooseStream(it, "Subtitles", s.rebuild)
+		return
+	case strings.HasPrefix(a, "Version"):
+		s.app.chooseVersion(it, func() {
+			s.rebuild() // the version's own tracks: Audio may come or go
+			s.act = restoreAction(s.actions, "Version")
+			s.keepActVisible(time.Now())
+		})
 		return
 	case strings.HasPrefix(a, "Resume"):
 		s.app.PlayQueue(it, it.ViewOffset, s.eps, s.cur, played)
