@@ -1525,6 +1525,7 @@ static int open_media(struct player *p)
 {
     AVDictionary *opts = NULL;
     int rc;
+    uint64_t stage_start;
     p->fmt = avformat_alloc_context();
     if (!p->fmt) return AVERROR(ENOMEM);
     p->fmt->opaque = &p->cfg; p->fmt->io_open = io_open;
@@ -1532,17 +1533,30 @@ static int open_media(struct player *p)
     av_dict_set(&opts, "probesize", "16777216", 0);
     av_dict_set(&opts, "analyzeduration", "5000000", 0);
     net_options(&p->cfg, &opts);
+    stage_start = mono_ms();
+    logmsg("startup stage=open-input begin");
     rc = avformat_open_input(&p->fmt, p->cfg.url, NULL, &opts);
+    logmsg("startup stage=open-input elapsed_ms=%llu result=%d",
+           (unsigned long long)(mono_ms() - stage_start), rc);
     av_dict_free(&opts);
     if (rc < 0) return rc;
-    if ((rc = avformat_find_stream_info(p->fmt, NULL)) < 0) return rc;
+    stage_start = mono_ms();
+    logmsg("startup stage=stream-info begin");
+    rc = avformat_find_stream_info(p->fmt, NULL);
+    logmsg("startup stage=stream-info elapsed_ms=%llu result=%d",
+           (unsigned long long)(mono_ms() - stage_start), rc);
+    if (rc < 0) return rc;
     if (p->cfg.start_in_file > 0) {
         int64_t target = (int64_t)(p->cfg.start_in_file * AV_TIME_BASE);
         /* The UI offset is relative to the movie, whereas demuxer seeks use
          * container timestamps. HLS transport streams may start above zero. */
         if (p->fmt->start_time != AV_NOPTS_VALUE)
             target += p->fmt->start_time;
+        stage_start = mono_ms();
+        logmsg("startup stage=file-seek begin target_seconds=%.3f", p->cfg.start_in_file);
         rc = avformat_seek_file(p->fmt, -1, INT64_MIN, target, target, AVSEEK_FLAG_BACKWARD);
+        logmsg("startup stage=file-seek elapsed_ms=%llu result=%d",
+               (unsigned long long)(mono_ms() - stage_start), rc);
         if (rc < 0) return rc;
     }
     p->rd.vi = av_find_best_stream(p->fmt, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);

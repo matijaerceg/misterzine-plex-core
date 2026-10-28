@@ -175,7 +175,7 @@ func (p *Player) Start(item *plex.Item, offset int) (*Session, error) {
 	if offset < 0 {
 		offset = item.ViewOffset
 	}
-	lf, err := os.OpenFile(p.LogTo, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	lf, err := os.OpenFile(p.LogTo, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open playback log: %w", err)
 	}
@@ -205,7 +205,7 @@ func (p *Player) StartAsync(item *plex.Item, offset int) (*Session, error) {
 	if offset < 0 {
 		offset = item.ViewOffset
 	}
-	lf, err := os.OpenFile(p.LogTo, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	lf, err := os.OpenFile(p.LogTo, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open playback log: %w", err)
 	}
@@ -1252,8 +1252,38 @@ func (s *Session) finishLocked(err error) {
 		_ = s.client.ReportStopped(context.Background(), ps)
 		close(s.reported)
 	}
+	s.mu.Lock()
+	stopped := s.stopRequested
+	s.mu.Unlock()
+	if err != nil && !stopped {
+		s.preserveFailureLog()
+	}
 	_ = s.lf.Close()
 	s.doneOnce.Do(func() { s.Done <- err })
+}
+
+// Keep a bounded snapshot before the next playback truncates the live log.
+// Read through the session's descriptor so another start cannot substitute a
+// different file. The worker has exited and flushed its output at this point.
+func (s *Session) preserveFailureLog() {
+	if s.lf == nil {
+		return
+	}
+	const limit = 64 * 1024
+	info, err := s.lf.Stat()
+	if err != nil {
+		return
+	}
+	start := info.Size() - limit
+	if start < 0 {
+		start = 0
+	}
+	data := make([]byte, info.Size()-start)
+	n, err := s.lf.ReadAt(data, start)
+	if err != nil && err != io.EOF {
+		return
+	}
+	_ = os.WriteFile(s.p.LogTo+".failed", data[:n], 0o600)
 }
 
 func (s *Session) Stop() {

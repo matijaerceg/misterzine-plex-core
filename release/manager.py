@@ -51,7 +51,7 @@ REPORT_MAGIC = 'MisterZine report v1'
 REPORT_MAX_BYTES = 256 * 1024
 REPORT_LOGS = ('misterzine-plex-menu-run.log', 'misterzine-plex-menu-run.log.1', 'misterzine-plex-update-run.log',
                'misterzine-plex-update-run.log.1', 'misterzine-plex.log', 'misterzine-plex.log.1',
-               'misterzine-plex-menu.log', 'misterzine-plex-maintain.log', 'jfplay.log')
+               'misterzine-plex-menu.log', 'misterzine-plex-maintain.log', 'jfplay.log', 'jfplay.log.failed')
 
 # The code running now. Entry checks stand down once the installed manager
 # differs from it (a recovery or rollback put another release's in place).

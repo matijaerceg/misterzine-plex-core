@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"time"
 
 	"plexcrt/internal/plex"
 )
@@ -60,7 +61,10 @@ func (s *Session) playbackInfo(ctx context.Context, kbps, offset int, audio, sub
 		req.ForceReason = "Direct play off"
 	}
 	s.part = nil // the start's read only: a restart reads the selection afresh
+	s.logf("playback request: offset=%d s cap=%d kbit/s force_transcode=%t fast_seek=1", offset, kbps, force)
+	decisionStart := time.Now()
 	info, err := s.client.PlaybackInfo(ctx, req)
+	s.logf("playback decision: elapsed_ms=%d success=%t", time.Since(decisionStart).Milliseconds(), err == nil)
 	if err != nil {
 		return nil, err
 	}

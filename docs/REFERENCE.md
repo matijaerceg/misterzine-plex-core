@@ -488,6 +488,12 @@ asked for help; the report is deleted after 30 days. If it cannot be sent, a
 copy saved on the card is named instead, which you can send.
 **MisterZine-Plex-Diagnostics** writes the same report.
 
+Player startup logs distinguish opening the stream, reading its track information,
+and seeking within a directly played file, with elapsed times for each stage.
+The last 64 KiB of the most recent failed playback log is kept separately until
+another playback fails or the device restarts, so playing another video does not
+erase that evidence. Reports include this saved failure alongside the current log.
+
 ### Showcase captures
 
 Options ends with the app version and build information. Select **Version**
