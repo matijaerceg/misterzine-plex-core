@@ -24,23 +24,23 @@
   },
   "current": {
     "beta": {
-      "id": "beta-0.1.0-beta.34",
-      "version": "0.1.0-beta.34",
+      "id": "beta-0.1.0-beta.35",
+      "version": "0.1.0-beta.35",
       "channel": "beta",
-      "notes": "# MisterZine Plex Core 0.1.0-beta.34\n\n- Failure reports now show which playback startup stage stalled and how long\n  it took. The most recent failed playback log survives playing another video\n  before sending a report. This improves diagnosis; it is not a confirmed fix\n  for server stream-opening timeouts.\n\n- Movies and episodes stored as several files now ask which version to play\n  when you start from the beginning. The version best suited to the MiSTer is\n  selected: the largest that plays directly, otherwise the smallest of at\n  least 720p. Resuming plays the version last played on this MiSTer without\n  asking; a resume point set on another device asks.\n- The next episode, the L/R episode hold and Shuffle never ask: they play the\n  version the show last played, or the one best suited to the MiSTer.\n- A Version row beside Audio and Subtitles changes the version for the next\n  play, and Playback Info names the version playing.\n\nUses the same qualified FPGA core as beta.33, with an updated playback worker. Existing\nsettings, calibration and saved access are preserved. Rollback restores the\nprevious release.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.34/MisterZine-Plex-Core-beta-0.1.0-beta.34.zip",
+      "notes": "# MisterZine Plex Core 0.1.0-beta.35\n\n- A resume, a seek or Skip intro that the server never answers now fails\n  after 20 seconds instead of a minute, and says what happened: the server\n  accepted the request but sent no video. The playback log carries the same\n  line for Send a report. Playing from the start is unaffected. (Seen with a\n  server whose hardware-accelerated conversion stalls on a seek into 10-bit\n  HEVC; turning off the server's hardware acceleration avoids it.)\n\nUses the same qualified FPGA core as beta.33, with an updated playback worker. Existing\nsettings, calibration and saved access are preserved. Rollback restores the\nprevious release.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.35/MisterZine-Plex-Core-beta-0.1.0-beta.35.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 14185985,
-      "sha256": "0bcf142094d8feea0448ea39c26f7a5275bc59f075c836cc93516e6247f8d501",
+      "size": 14186908,
+      "sha256": "64c7e73f86b06f6a73c17da70082c65bcc7dcecc26f976a5639b62b194815215",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
       },
       "source": {
-        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.34.zip",
-        "size": 140149602,
-        "sha256": "2e8c8435fa970d5c8e7a536c1bef9f3c0c7a3d747633e001b5ee6faea5941e33",
-        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.34/MisterZine-Plex-Core-Source-beta-0.1.0-beta.34.zip"
+        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.35.zip",
+        "size": 140150869,
+        "sha256": "8c0b7eafafcddecd9dc5a9c2910b7ca03aed417e6980a7fe5ac3a5d9215319da",
+        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.35/MisterZine-Plex-Core-Source-beta-0.1.0-beta.35.zip"
       }
     }
   },
