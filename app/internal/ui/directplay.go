@@ -180,7 +180,7 @@ func (s *Session) resumeLadderLocked(err error) bool {
 		s.slowSeek = true
 	} else {
 		target = 0
-		s.notice = "Resume failed on this server; starting from the beginning"
+		s.notice = "Resume failed: from the start" // fits the panel's subtitle room
 	}
 	s.started = false
 	s.cmd, s.cmdDone = nil, nil
