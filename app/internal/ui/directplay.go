@@ -169,12 +169,12 @@ func (s *Session) resumeLadderLocked(err error) bool {
 		return false
 	}
 	s.mu.Lock()
-	if s.direct || s.videoCopy || s.lastOffset <= 0 || s.resumeRetries >= 2 || s.closing || s.stopRequested {
+	if s.direct || s.videoCopy || s.lastBase <= 0 || s.resumeRetries >= 2 || s.closing || s.stopRequested {
 		s.mu.Unlock()
 		return false
 	}
 	s.resumeRetries++
-	rung, offset := s.resumeRetries, s.lastOffset
+	rung, offset := s.resumeRetries, s.lastBase
 	target := offset
 	if rung == 1 {
 		s.slowSeek = true
