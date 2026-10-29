@@ -255,6 +255,7 @@ video_calc video_calc
 	.f1(HPS_BUS[45]),
 	.new_vmode(new_vmode),
 	.video_rotated(video_rotated),
+	.direct_video(direct_video),   // H264-FORK (dv27)
 
 	.par_num(byte_cnt[4:0]),
 	.dout(vc_dout)
@@ -903,6 +904,7 @@ module video_calc
 	input f1,
 	input new_vmode,
 	input video_rotated,
+	input direct_video,      // H264-FORK (dv27): cfg[10], quasi-static; the transmitter's pixel repetition below
 
 	input       [4:0] par_num,
 	output reg [15:0] dout
