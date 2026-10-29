@@ -301,7 +301,14 @@ as they were put:
   at any fixed phase, and the DAC sees 1,716 x 525i / 858 x 525 at 27 MHz. `outclk_1` is shifted
   half a clk_vid period (6,173 ps) so no 27 MHz edge coincides with an 81 MHz one; the tightest
   clk_vid -> clk_vid_dv pair is 6.2 ns and TimeQuest times it (same PLL, same group in
-  sys_top.sdc).
+  sys_top.sdc). **Not enough on its own (2026-10-29, the same patron, build plex-dv27-test1):**
+  still black. The second difference from the 54 MHz core is the sync: with `composite_sync=1`
+  the composite sync rides on the transmitter's HSYNC line (`dv_hs1`), and since the SMPTE 170M
+  block (§11's csync_smpte, `VGA_CS`) the 15 kHz raster's is the standards one, with equalizing
+  pulses at twice the line rate and serrated broad pulses. An adapter's HDMI receiver takes HSYNC
+  as its line clock and drops lock on those; the stock `csync` (HSync XOR VSync, every other
+  core's) is what it expects. So (dv27b) `dv_cs_src` hands `direct_video` the stock waveform and
+  the analog board keeps SMPTE.
 
 ## 12. Stage A, as built (2026-10-03, in progress)
 

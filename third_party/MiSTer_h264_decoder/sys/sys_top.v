@@ -1254,10 +1254,19 @@ always @(posedge clk_vid) begin
 	dv_vs  <= dv_vs2;
 end
 
+// H264-FORK (dv27b, 2026-10-29): on direct_video with composite_sync=1 the composite sync goes
+// out on the HDMI transmitter's HSYNC line (dv_hs1 below), where an HDMI-to-VGA adapter's
+// receiver uses it as its line clock. The core's SMPTE 170M composite sync (vga_cs_osd when the
+// 15 kHz raster is up: equalizing pulses at twice the line rate and broad serrated vertical
+// pulses, built for televisions on the analog board) made such adapters drop lock, while the
+// stock csync (plain HSync XOR VSync, what every other core and the previous decoder core send)
+// is what they expect. So direct_video gets the stock waveform; the analog board keeps SMPTE.
+wire vga_cs_stock;   // driven by csync_vga below
+wire dv_cs_src = direct_video ? vga_cs_stock : vga_cs_osd;
 `ifndef MISTER_DISABLE_YC
-	assign {dv_data_osd, dv_hs_osd, dv_vs_osd, dv_cs_osd } = ~yc_en ? {vga_data_osd, vga_hs_osd, vga_vs_osd, vga_cs_osd } : {yc_o, yc_hs, yc_vs, yc_cs };
+	assign {dv_data_osd, dv_hs_osd, dv_vs_osd, dv_cs_osd } = ~yc_en ? {vga_data_osd, vga_hs_osd, vga_vs_osd, dv_cs_src } : {yc_o, yc_hs, yc_vs, yc_cs };
 `else
-	assign {dv_data_osd, dv_hs_osd, dv_vs_osd, dv_cs_osd } = {vga_data_osd, vga_hs_osd, vga_vs_osd, vga_cs_osd };
+	assign {dv_data_osd, dv_hs_osd, dv_vs_osd, dv_cs_osd } = {vga_data_osd, vga_hs_osd, vga_vs_osd, dv_cs_src };
 `endif
 
 wire hdmi_tx_clk;
@@ -1460,7 +1469,7 @@ osd vga_osd
 // half-line from VGA_F1 — and both were reverted; see the note above the module.
 localparam integer CS_PIPE = 8;   // VGA_HS -> vga_cs_osd, in clk_vid cycles
 
-wire vga_cs_stock;
+// vga_cs_stock is declared above the direct_video mux (dv_cs_src), which also uses it.
 csync csync_vga(clk_vid, vga_hs_osd, vga_vs_osd, vga_cs_stock);
 
 reg [CS_PIPE-1:0] cs_pipe = 0, csen_pipe = 0;
