@@ -504,7 +504,6 @@ func (a *App) playSettled(it *plex.Item, offset int, queue []*plex.Item, idx int
 		ctl.sourceInfo = sess.PlaybackSource
 		ctl.streams = sess.Streams
 		ctl.version = sess.Version
-		ctl.notice = sess.TakeNotice
 		ctl.pos = float64(offset)
 		if offset < 0 {
 			ctl.pos = float64(it.ViewOffset)

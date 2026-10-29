@@ -302,7 +302,7 @@ and fractional seconds use three decimal places.
 | 5 | The core refused the stream (unsupported profile, size, or similar). |
 | 6 | A network/demux/decode failure occurred after playback opened. A socket read that sees no data for 15 s (direct) or 60 s (transcode) fails and FFmpeg reconnects at the same offset, backing off for about two minutes; only then does the worker exit 6. |
 | 7 | `--direct` only: the stream needs a server transcode (pre-check failed, or the core could not keep up). |
-| 8 | The stream gave no data while the media was being opened: `--open-timeout` ran out before the open and the stream probe finished, or the socket's read timeout did. The app retries a transcode's start differently (a slow seek, then from the beginning). |
+| 8 | The stream gave no data while the media was being opened: `--open-timeout` ran out before the open and the stream probe finished, or the socket's read timeout did. The app ends playback with a line saying the server accepted the request but sent no video. |
 
 On natural EOF the final held video access unit carries
 `H264RING_F_END_OF_STREAM` after queued audio. On stop, a session reset discards

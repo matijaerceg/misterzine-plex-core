@@ -106,15 +106,6 @@ type Session struct {
 	// forceTranscode makes every later PlaybackInfo of this session ask for a
 	// transcode; fellBack records that the one automatic fallback was used.
 	forceTranscode, fellBack bool
-	// The resume ladder (resumeLadderLocked): lastBase is where the last
-	// start's stream begins (0 for a file seeked in place); resumeRetries counts its rungs since
-	// a start last played; slowSeek, once a rung set it, makes every later
-	// transcode of the session seek slowly; notice is a line for the
-	// playback screen, taken once (TakeNotice).
-	lastBase      int
-	resumeRetries int
-	slowSeek      bool
-	notice        string
 	// session is the playback's transcode session id (plex.NewSession),
 	// made at the first start: seeks, track changes and the fallback reuse
 	// it, and the stopped report ends it.
@@ -526,9 +517,6 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 	if s.direct {
 		base, inFile = 0, offset
 	}
-	s.mu.Lock()
-	s.lastBase = base // where the stream begins: the resume ladder's offset
-	s.mu.Unlock()
 	args := []string{"--base", strconv.Itoa(base)}
 	if inFile > 0 {
 		args = append(args, "--start-in-file", strconv.Itoa(inFile))
@@ -543,9 +531,9 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 		// jfplay checks the stream before the first picture and watches that
 		// the core keeps up; it exits 7 when a transcode is needed.
 		args = append(args, "--direct")
-	} else if base > 0 && s.resumeRetries < 2 {
+	} else if base > 0 {
 		// a transcode started at an offset: jfplay exits 8 when the server
-		// sends nothing in time, and the resume ladder asks differently
+		// sends nothing in time (openTimeoutError)
 		args = append(args, "--open-timeout", strconv.Itoa(int(openTimeout/time.Second)))
 	}
 	args = append(args, "--fifo", p.Fifo, "--status", p.Status)
@@ -604,10 +592,10 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 		current, closing := s.cmd == cmd, s.closing
 		s.mu.Unlock()
 		if current && !closing {
-			if s.fallbackLocked(err) || s.resumeLadderLocked(err) {
+			if s.fallbackLocked(err) {
 				return
 			}
-			s.finishLocked(err)
+			s.finishLocked(s.openTimeoutError(err))
 		}
 	}()
 	return nil
@@ -780,7 +768,6 @@ func (s *Session) updateLocked(report bool) {
 	state, started, ps := st["state"], s.started, s.state
 	if state == "playing" && !s.started {
 		s.started = true
-		s.resumeRetries = 0 // the ladder starts afresh for the next seek
 	}
 	s.mu.Unlock()
 	if state == "playing" && !started {
@@ -1065,16 +1052,6 @@ func (s *Session) suppressStopCancellation(err error) error {
 // ReportsDone closes after this session's stopped report has been sent.
 // UI refreshes can wait in the background before reading resume metadata.
 func (s *Session) ReportsDone() <-chan struct{} { return s.reported }
-
-// TakeNotice returns a line the session has for the playback screen (a
-// resume that fell back to the beginning), once; "" when there is none.
-func (s *Session) TakeNotice() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	n := s.notice
-	s.notice = ""
-	return n
-}
 
 // FinalPosition is where the playback stood when it was last read and the
 // length its reports carry, in seconds: once Done has fired, what its
