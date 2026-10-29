@@ -292,9 +292,16 @@ as they were put:
   transmitter with `CLK_VIDEO` itself (`sys_top.v`'s `hdmi_clk_sw`). On 81 MHz the transmitter
   sends each 27 MHz dot three times (480p: 2,574 x 525 at 81 MHz; 480i: 5,148 x 525i). The
   timing in microseconds is the same and the DAC's analog output identical in principle, but the
-  pixel clock it is handed is not CEA's. **To confirm on the rig with a DAC** (stage A): if a DAC
-  refuses it, the fallback is a `direct_video`-only 27 MHz `CLK_VIDEO` (a clock mux), designed
-  then.
+  pixel clock it is handed is not CEA's. **Confirmed refused (2026-10-29):** a Ugreen DAC showed
+  black and a GE DAC a scrambled frame at 480i (a patron's report; the 54 MHz core before hd_raster
+  worked on the same adapter). The fix (dv27): `vid_pll` gains a 27 MHz `outclk_1`, `clk_vid_dv`,
+  out of `emu` as `CLK_VIDEO_DV`, and sys_top's `hdmi_clk_sw` takes it for the transmitter on
+  `direct_video` in place of `clk_vid`. The raster side is untouched: sys_top's `dv_*` registers
+  (clk_vid) hold each dot for its three clocks, so the transmitter's register takes every dot once
+  at any fixed phase, and the DAC sees 1,716 x 525i / 858 x 525 at 27 MHz. `outclk_1` is shifted
+  half a clk_vid period (6,173 ps) so no 27 MHz edge coincides with an 81 MHz one; the tightest
+  clk_vid -> clk_vid_dv pair is 6.2 ns and TimeQuest times it (same PLL, same group in
+  sys_top.sdc).
 
 ## 12. Stage A, as built (2026-10-03, in progress)
 

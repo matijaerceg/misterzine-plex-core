@@ -972,7 +972,14 @@ always @(posedge clk_vid) begin
 		if(~vs & ~old_de & de) vcnt <= vcnt + 1;
 		if(calch & de) hcnt <= hcnt + 1;
 		if(old_de & ~de) calch <= 0;
-		if(~old_de1 & old_de) vid_pixrep <= pcnt;
+		// H264-FORK (dv27, 2026-10-29): on direct_video the HDMI transmitter runs on the core's
+		// 27 MHz clk_vid_dv (sys_top's hdmi_clk_sw), one clock a dot, while this counter runs on
+		// clk_vid (81 MHz, three a dot). Main puts this value in the DV1 SPD packet as the pixel
+		// repetition of the HDMI stream (a RetroTINK 4K decimates by it), so report the
+		// transmitter's: 2 at 480i / 576i, 1 at 480p / 576p. The clock count (ccnt, ctime)
+		// stays clk_vid's: main's Y/C subcarrier increment is computed from it and yc_out
+		// still runs on clk_vid.
+		if(~old_de1 & old_de) vid_pixrep <= direct_video ? (pcnt / 8'd3) : pcnt;
 		if(old_hs & ~hs) de_v <= de_v + 1'd1;
 		if(calch & ~old_de & de) vid_de_v <= de_v;
 
