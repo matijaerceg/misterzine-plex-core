@@ -362,7 +362,7 @@ def main():
         bad('CORE_VERSION', '%r breaks the CONF_STR rules (<= 18 chars, no , ; ")' % vers[0])
 
     # ---- clocks and reset ----
-    for wire, want in (('CLK_VIDEO', {'clk_vid'}), ('CLK_SYS', {'clk_sys'}), ('CLK_MEM', {'clk_mem'}),
+    for wire, want in (('CLK_VIDEO', {'clk_vid'}), ('CLK_VIDEO_DV', {'clk_vid_dv'}), ('CLK_SYS', {'clk_sys'}), ('CLK_MEM', {'clk_mem'}),
                        ('DDRAM_CLK', {'clk_mem'}), ('DDRAM2_CLK', {'clk_mem'}), ('LOCKED', {'locked', 'vid_locked'})):
         rhs = assign_of(src, wire)
         if rhs is None:
@@ -386,8 +386,10 @@ def main():
         bad('sys_pll', 'outclk_3 must be clk_dec (general[3] is what fmax_check gates)')
     # (hd_raster) the raster's clock: its own PLL, named for fmax_check and sys_top.sdc's group
     name, conn = inst('vid_pll')
-    if name != 'vid_pll' or terms(conn.get('outclk_0', '')) != {'clk_vid'} or terms(conn.get('locked', '')) != {'vid_locked'}:
-        bad('vid_pll', 'the instance must be NAMED vid_pll (fmax_check, sys_top.sdc) with outclk_0 clk_vid, locked vid_locked')
+    if name != 'vid_pll' or terms(conn.get('outclk_0', '')) != {'clk_vid'} or terms(conn.get('locked', '')) != {'vid_locked'} \
+            or terms(conn.get('outclk_1', '')) != {'clk_vid_dv'}:
+        bad('vid_pll', 'the instance must be NAMED vid_pll (fmax_check, sys_top.sdc) with outclk_0 clk_vid, '
+                       'outclk_1 clk_vid_dv (dv27: the direct_video HDMI transmitter clock), locked vid_locked')
     # the dot: one clk_vid cycle in three (27 MHz) -- the SD rasters' pins as on clk_sys
     if not re.search(r'always\s*@\s*\(\s*posedge\s+clk_vid\b[^)]*\)\s*if\s*\(\s*!\s*vid_lock_n\s*\)\s*ce_ph\s*<=\s*2\'d0\s*;\s*'
                      r'else\s+ce_ph\s*<=\s*\(\s*ce_ph\s*==\s*2\'d2\s*\)\s*\?\s*2\'d0\s*:\s*ce_ph\s*\+\s*2\'d1\s*;', src) \

@@ -1262,10 +1262,15 @@ end
 
 wire hdmi_tx_clk;
 `ifndef MISTER_DEBUG_NOHDMI
+	// H264-FORK (dv27, 2026-10-29): on direct_video the transmitter ran on clk_vid (81 MHz, stock: the
+	// core's CLK_VIDEO) and sent each 27 MHz dot three times -- 5,148-pixel 480i lines, which
+	// HDMI-to-VGA DACs refuse. It runs on the core's 27 MHz clk_vid_dv instead (same PLL as clk_vid,
+	// h264/vid_pll.sv): dv_* below hold each dot for three clk_vid clocks, so hdmi_dv_* take every dot
+	// once. ascal's path (hdmi_clk_out) is untouched.
 	cyclonev_clkselect hdmi_clk_sw
 	( 
 		.clkselect({1'b1, ~vga_fb & direct_video}),
-		.inclk({clk_vid, hdmi_clk_out, 2'b00}),
+		.inclk({clk_vid_dv, hdmi_clk_out, 2'b00}),
 		.outclk(hdmi_tx_clk)
 	);
 `else
@@ -1743,6 +1748,7 @@ wire        vs_fix, hs_fix, de_emu, vs_emu, hs_emu, f1;
 wire        cs_emu, cs_emu_en;   // UMD-FORK (inherited from MiSTer_DVD): analog composite sync from umd/csync_smpte.sv (harvested in roadmap P5)
 wire        hvs_fix, hhs_fix, hde_emu;
 wire        clk_vid, ce_pix, clk_ihdmi, ce_hpix;
+wire        clk_vid_dv;   // H264-FORK (dv27)
 wire        vga_force_scaler;
 
 wire        ram_clk;
@@ -1854,6 +1860,7 @@ emu emu
 
 	.CLK_VIDEO(clk_vid),
 	.CE_PIXEL(ce_pix),
+	.CLK_VIDEO_DV(clk_vid_dv),   // H264-FORK (dv27): the transmitter's clock on direct_video, see hdmi_clk_sw
 	.VGA_SL(scanlines),
 	.VIDEO_ARX(ARX),
 	.VIDEO_ARY(ARY),

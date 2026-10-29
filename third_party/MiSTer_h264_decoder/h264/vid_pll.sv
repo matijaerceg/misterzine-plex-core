@@ -18,12 +18,24 @@
 // The instance MUST be named vid_pll: tools/fmax_check.sh gates clk_vid by the hierarchical name
 // emu|vid_pll|altera_pll_i|general[0]..., and sys_top.sdc's group pattern names it.
 // `ifdef QUARTUS as sys_pll; simulation passes refclk through (benches make their own clocks).
+//
+// outclk_1, 27 MHz, clk_vid_dv (dv27, 2026-10-29): with MiSTer.ini direct_video=1, sys_top clocks the
+// HDMI transmitter from the core's clock (its hdmi_clk_sw), and on clk_vid that sent every 27 MHz
+// dot three times: a 480i line of 5,148 pixels at 81 MHz, which HDMI-to-VGA DACs refuse (black on a
+// Ugreen, scrambled on a GE; docs/hd_raster.md S11 had left it to confirm). The H264-FORK line in
+// sys_top takes this clock for the transmitter instead, so the DAC sees the plain 27 MHz 480i / 480p
+// (576i / 576p) raster: one dot per clock, 480i's pixel repetition as two clocks a pixel. The raster
+// side stays on clk_vid; sys_top's dv_* registers (clk_vid) hold each dot for its three clocks, so
+// the transmitter's 27 MHz register takes every dot exactly once at any fixed phase. The phase is
+// shifted half a clk_vid period (6,173 ps) so no 27 MHz edge coincides with an 81 MHz one: the
+// tightest clk_vid -> clk_vid_dv pair is then 6.2 ns, which TimeQuest times (same PLL, same group).
 
 `timescale 1ns/10ps
 module vid_pll (
 	input  wire refclk,
 	input  wire rst,
 	output wire outclk_0, // 81 MHz -- clk_vid
+	output wire outclk_1, // 27 MHz -- clk_vid_dv: the HDMI transmitter's clock on direct_video (below)
 	output wire locked
 );
 
@@ -33,12 +45,12 @@ module vid_pll (
 		.fractional_vco_multiplier("false"),
 		.reference_clock_frequency("50.0 MHz"),
 		.operation_mode("direct"),
-		.number_of_clocks(1),
+		.number_of_clocks(2),
 		.output_clock_frequency0("81.000000 MHz"),
 		.phase_shift0("0 ps"),
 		.duty_cycle0(50),
-		.output_clock_frequency1("0 MHz"),
-		.phase_shift1("0 ps"),
+		.output_clock_frequency1("27.000000 MHz"),
+		.phase_shift1("6173 ps"),
 		.duty_cycle1(50),
 		.output_clock_frequency2("0 MHz"),
 		.phase_shift2("0 ps"),
@@ -92,7 +104,7 @@ module vid_pll (
 		.pll_subtype("General")
 	) altera_pll_i (
 		.rst      (rst),
-		.outclk   (outclk_0),
+		.outclk   ({outclk_1, outclk_0}),
 		.locked   (locked),
 		.fboutclk ( ),
 		.fbclk    (1'b0),
@@ -101,6 +113,7 @@ module vid_pll (
 
 `else
 	assign outclk_0 = refclk;
+	assign outclk_1 = refclk;
 	assign locked   = 1'b1;
 `endif
 
