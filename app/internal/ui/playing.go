@@ -34,6 +34,9 @@ type Playing struct {
 	streamModes            func() (string, string)
 	streams                func() (audio, subs []plex.Stream) // the session's tracks as chosen (Session.Streams); nil for none
 	version                func() string                      // the session's version (Session.Version); nil for none
+	notice                 func() string                      // a line from the session for the panel (Session.TakeNotice); nil for none
+	noticeText             string                             // the last notice, shown in the subtitle's place for NoticeFor
+	noticeAt               time.Time
 	app                    *App
 	item                   *plex.Item
 	metadata               chan *plex.Item // fetched off-thread, applied by Tick on the UI thread
@@ -287,6 +290,7 @@ const (
 	OsdHide     = 4 * time.Second
 	BackGrace   = 500 * time.Millisecond  // after a Back clears the screen, Back does not stop the playback
 	OsdFlash    = 2 * time.Second         // how long a closed-overlay seek shows the bar
+	NoticeFor   = 6 * time.Second         // how long a session's notice peeks on the panel
 	OsdLinger   = 3500 * time.Millisecond // how long the start strip stays over the picture
 	OsdBtnGap   = 30
 	SkipHold    = 20 * time.Second // the skip button stays this long once playback is in the marker
@@ -992,6 +996,13 @@ func (p *Playing) Key(ev input.Event, now time.Time) bool {
 func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 	p.resizeCanvas(osd)
 	p.refreshMoreDirect()
+	if p.notice != nil {
+		if n := p.notice(); n != "" {
+			// the panel peeks with the line where the subtitle goes
+			p.noticeText, p.noticeAt = n, now
+			p.peekAt, p.peekFor = now, NoticeFor
+		}
+	}
 	if p.metadata != nil && p.versionSettled() {
 		select {
 		case fresh := <-p.metadata:
@@ -1452,7 +1463,15 @@ func (p *Playing) compose(peek bool) {
 func (p *Playing) staticKey(peek, timed bool) string {
 	it := p.item
 	return it.Title + it.GrandTitle + "|" + itoa(int(p.pos)) + "|" + itoa(p.focus) + "|" + itoa(btoi(p.paused)) +
-		"|" + itoa(btoi(p.scrub)) + "|" + itoa(btoi(peek)) + "|" + itoa(btoi(timed)) + p.bufferKey()
+		"|" + itoa(btoi(p.scrub)) + "|" + itoa(btoi(peek)) + "|" + itoa(btoi(timed)) + p.bufferKey() + "|" + p.liveNotice()
+}
+
+// liveNotice is the session's notice while it shows (NoticeFor), else "".
+func (p *Playing) liveNotice() string {
+	if p.noticeText == "" || time.Since(p.noticeAt) >= NoticeFor {
+		return ""
+	}
+	return p.noticeText
 }
 
 // composeStatic paints the panel into c: the title, the pill, the times
@@ -1462,11 +1481,15 @@ func (p *Playing) composeStatic(c *gfx.Canvas, peek, timed bool) {
 	c.Fill(0, 0, c.W, c.H, gfx.Bg)
 	it := p.item
 	title, sub := heading(it)
+	subColour := gfx.GreyLo
+	if n := p.liveNotice(); n != "" {
+		sub, subColour = n, gfx.Amber
+	}
 	y := 14
 	{
 		p.app.text(c, p.safeX(), y, f.Body, gfx.GreyHi, f.Body.Fit(title, p.safeW()-320))
 		if sub != "" {
-			p.app.textRight(c, p.safeX()+p.safeW(), y+3, f.SmallBold, gfx.GreyLo, f.SmallBold.Fit(sub, 300))
+			p.app.textRight(c, p.safeX()+p.safeW(), y+3, f.SmallBold, subColour, f.SmallBold.Fit(sub, 300))
 		}
 		y += f.Body.Height() + 14
 	}

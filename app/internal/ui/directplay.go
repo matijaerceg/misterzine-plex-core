@@ -31,7 +31,13 @@ func workerNeedsTranscode(code int) bool {
 const (
 	workerExitRefused        = 5 // the core refused the stream
 	workerExitNeedsTranscode = 7 // the pre-check or the watchdog said transcode
+	workerExitOpenTimeout    = 8 // the stream sent nothing while it was being opened
 )
+
+// A transcode started at an offset is given openTimeout to send its first
+// bytes before the resume ladder asks differently. A healthy transcoder
+// answers in seconds; the socket's own limit (60 s) stays for the rest.
+const openTimeout = 20 * time.Second
 
 // playbackInfo asks the server how to play the session's item. The request
 // lets internal/plex offer the file as stored unless a transcode is already
@@ -49,19 +55,19 @@ func (s *Session) playbackInfo(ctx context.Context, kbps, offset int, audio, sub
 	if s.session == "" {
 		s.session = plex.NewSession()
 	}
-	session := s.session
+	session, slow := s.session, s.slowSeek
 	s.mu.Unlock()
 	// jfplay applies the surround gain itself (--audio-boost with
 	// --surround-source), so the server's downmix is asked for at 100 %:
 	// the gain stays live (Send "boost") and is never applied twice.
 	req := plex.PlaybackRequest{RatingKey: s.item.RatingKey, Session: session, StartSeconds: float64(offset),
 		VideoKbps: kbps, AudioStream: audio, SubtitleStream: subtitle, SubtitleSize: size, AudioBoost: 100,
-		ForceTranscode: force, MediaID: s.item.VersionID, Part: s.part}
+		ForceTranscode: force, MediaID: s.item.VersionID, Part: s.part, SlowSeek: slow}
 	if force && !p.directPlay() {
 		req.ForceReason = "Direct play off"
 	}
 	s.part = nil // the start's read only: a restart reads the selection afresh
-	s.logf("playback request: offset=%d s cap=%d kbit/s force_transcode=%t fast_seek=1", offset, kbps, force)
+	s.logf("playback request: offset=%d s cap=%d kbit/s force_transcode=%t fast_seek=%d", offset, kbps, force, 1-btoi(slow))
 	decisionStart := time.Now()
 	info, err := s.client.PlaybackInfo(ctx, req)
 	s.logf("playback decision: elapsed_ms=%d success=%t", time.Since(decisionStart).Milliseconds(), err == nil)
@@ -141,6 +147,51 @@ func (s *Session) fallbackLocked(err error) bool {
 	_ = os.Remove(s.p.Status)
 	// startContext takes whole seconds: round to nearest rather than truncate
 	if err := s.startContext(int(math.Round(ps.Position)), false, s.sessionContext()); err != nil {
+		s.finishLocked(s.suppressStopCancellation(err))
+	}
+	return true
+}
+
+// resumeLadderLocked retries a transcode that sent nothing while it was
+// being opened (jfplay exit 8) when it was started at an offset: once more
+// at the same place with a slow seek (the server decodes from the file's
+// start instead of jumping by its index), then from the beginning, which a
+// server that cannot seek this file still plays. Each rung is logged for
+// the report; a third timeout ends playback with the worker's error. It
+// reports whether it took over the worker's exit; opMu is held.
+func (s *Session) resumeLadderLocked(err error) bool {
+	code := -1
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		code = ee.ExitCode()
+	}
+	if code != workerExitOpenTimeout {
+		return false
+	}
+	s.mu.Lock()
+	if s.direct || s.videoCopy || s.lastOffset <= 0 || s.resumeRetries >= 2 || s.closing || s.stopRequested {
+		s.mu.Unlock()
+		return false
+	}
+	s.resumeRetries++
+	rung, offset := s.resumeRetries, s.lastOffset
+	target := offset
+	if rung == 1 {
+		s.slowSeek = true
+	} else {
+		target = 0
+		s.notice = "Resume failed on this server; starting from the beginning"
+	}
+	s.started = false
+	s.cmd, s.cmdDone = nil, nil
+	s.mu.Unlock()
+	if rung == 1 {
+		s.logf("stream open timed out at %d s (jfplay exit %d); retrying with a slow seek", offset, code)
+	} else {
+		s.logf("stream open timed out again at %d s (jfplay exit %d); starting from the beginning", offset, code)
+	}
+	_ = os.Remove(s.p.Status)
+	if err := s.startContext(target, false, s.sessionContext()); err != nil {
 		s.finishLocked(s.suppressStopCancellation(err))
 	}
 	return true

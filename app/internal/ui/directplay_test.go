@@ -44,7 +44,11 @@ func fallbackPlayer(t *testing.T, f *playServer, codes []int, position string) (
 		if n < len(codes) {
 			code = codes[n]
 		}
-		script := "printf 'state=playing\\nposition=" + position + "\\nduration=300\\n' > '" + status + "'; sleep 0.4; exit " + strconv.Itoa(code)
+		state := "playing"
+		if code == workerExitOpenTimeout {
+			state = "opening" // the stream never came: no picture was played
+		}
+		script := "printf 'state=" + state + "\\nposition=" + position + "\\nduration=300\\n' > '" + status + "'; sleep 0.4; exit " + strconv.Itoa(code)
 		return exec.Command("sh", "-c", script)
 	}
 	return p, func() [][]string {
@@ -263,5 +267,93 @@ func waitDone(t *testing.T, s *Session) error {
 	case <-time.After(6 * time.Second):
 		t.Fatal("session did not end")
 		return nil
+	}
+}
+
+// A transcode started at an offset whose worker sees no stream (exit 8) is
+// asked for again with a slow seek, then from the beginning; the start that
+// plays is reported as usual and the three decisions share the session.
+func TestResumeLadderRetriesSlowThenFromStart(t *testing.T) {
+	f := newPlayServer(t, playVideoTranscode)
+	p, launches := fallbackPlayer(t, f, []int{workerExitOpenTimeout, workerExitOpenTimeout, 0}, "1")
+	s, err := p.Start(playItem(), 375)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := waitDone(t, s); err != nil {
+		t.Fatalf("playback ended with %v after the ladder", err)
+	}
+	l := launches()
+	if len(l) != 3 {
+		t.Fatalf("launches = %d, want three rungs: %v", len(l), l)
+	}
+	for i, want := range []struct{ base, timeout string }{{"375", "20"}, {"375", "20"}, {"0", ""}} {
+		if !containsArgPair(l[i], "--base", want.base) {
+			t.Fatalf("rung %d base: %v", i, l[i])
+		}
+		if hasArg(l[i], "--open-timeout") != (want.timeout != "") || (want.timeout != "" && !containsArgPair(l[i], "--open-timeout", want.timeout)) {
+			t.Fatalf("rung %d open timeout: %v", i, l[i])
+		}
+	}
+	d := f.requests("/video/:/transcode/universal/decision")
+	if len(d) != 3 {
+		t.Fatalf("decisions %+v", d)
+	}
+	for i, want := range []struct{ offset, fast string }{{"375", "1"}, {"375", "0"}, {"0", "0"}} {
+		if d[i].q.Get("offset") != want.offset || d[i].q.Get("fastSeek") != want.fast {
+			t.Fatalf("decision %d offset=%s fastSeek=%s, want %s/%s", i, d[i].q.Get("offset"), d[i].q.Get("fastSeek"), want.offset, want.fast)
+		}
+		if d[i].q.Get("session") != d[0].q.Get("session") {
+			t.Fatalf("decision %d changed session", i)
+		}
+	}
+	if n := s.TakeNotice(); n == "" {
+		t.Fatal("no notice for the start from the beginning")
+	}
+	want := []string{"decision", "decision", "decision", "timeline playing", "timeline stopped", "stop"}
+	if got := f.events(); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("server traffic %v, want %v", got, want)
+	}
+}
+
+// A third timeout ends playback with the worker's error.
+func TestResumeLadderGivesUpAfterTwoRetries(t *testing.T) {
+	f := newPlayServer(t, playVideoTranscode)
+	p, launches := fallbackPlayer(t, f, []int{workerExitOpenTimeout, workerExitOpenTimeout, workerExitOpenTimeout}, "1")
+	s, err := p.Start(playItem(), 375)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if waitDone(t, s) == nil {
+		t.Fatal("third timeout did not end playback with an error")
+	}
+	if l := launches(); len(l) != 3 {
+		t.Fatalf("launches = %d, want 3", len(l))
+	}
+}
+
+// Only a transcode started at an offset climbs the ladder: a start from the
+// beginning has nowhere lower to go, and a direct stream's timeout is a
+// network fault, not the server's seek.
+func TestResumeLadderOnlyForOffsetTranscodes(t *testing.T) {
+	for name, tc := range map[string]struct {
+		video  string
+		offset int
+	}{"from-start": {playVideoTranscode, 0}, "direct": {playVideoDirect, 10}} {
+		t.Run(name, func(t *testing.T) {
+			f := newPlayServer(t, tc.video)
+			p, launches := fallbackPlayer(t, f, []int{workerExitOpenTimeout}, "1")
+			s, err := p.Start(playItem(), tc.offset)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if waitDone(t, s) == nil {
+				t.Fatal("timeout was not reported")
+			}
+			l := launches()
+			if len(l) != 1 || hasArg(l[0], "--open-timeout") {
+				t.Fatalf("launches %v", l)
+			}
+		})
 	}
 }

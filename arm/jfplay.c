@@ -63,7 +63,10 @@ enum exit_code { EX_OK = 0, EX_ARGS = 2, EX_CORE = 3, EX_OPEN = 4,
                  EX_REFUSED = 5, EX_STREAM = 6,
                  /* --direct only: the stream needs a server transcode (the
                   * pre-check failed, or the core could not keep up) */
-                 EX_NEEDS_TRANSCODE = 7 };
+                 EX_NEEDS_TRANSCODE = 7,
+                 /* the stream gave no data before --open-timeout, or the
+                  * socket timed out, while the media was being opened */
+                 EX_OPEN_TIMEOUT = 8 };
 enum playback_state { STATE_OPENING, STATE_PLAYING, STATE_PAUSED,
                       STATE_ENDED, STATE_ERROR };
 
@@ -76,6 +79,7 @@ struct config {
     int anti_twitter, anti_twitter_set;
     struct video_geometry_config geometry;
     int geometry_set;
+    double open_timeout; /* --open-timeout: seconds to open the media, 0 for the socket's */
 };
 
 struct packet_node { AVPacket *pkt; uint64_t seq; struct packet_node *next; };
@@ -158,6 +162,8 @@ struct player {
     unsigned vui_rewrites;        /* access units whose SPS VUI timing was rewritten */
     unsigned lag_reanchor;        /* last DISP_REANCHOR the watchdog saw */
     int lag_reanchor_seen;
+    uint64_t open_deadline_ms; /* while opening: when --open-timeout runs out, 0 for never */
+    int open_timed_out;
 };
 
 static volatile sig_atomic_t caught_signal;
@@ -253,7 +259,7 @@ static void usage(void)
             "[--headers TEXT] [--cafile path] [--fifo path] [--status path] "
             "[--hold] [--direct] [--volume 0-100] [--audio-boost 100-300] [--surround-source] "
             "[--analog-aspect 0-4] [--anti-twitter 0-2] "
-            "[--geometry LEFT,TOP,RIGHT,BOTTOM,WIDTH] URL\n");
+            "[--geometry LEFT,TOP,RIGHT,BOTTOM,WIDTH] [--open-timeout SECONDS] URL\n");
 }
 
 static int parse_args(int argc, char **argv, struct config *c)
@@ -296,6 +302,10 @@ static int parse_args(int argc, char **argv, struct config *c)
             char *end; double value; errno = 0; value = strtod(argv[i], &end);
             if (errno || !*argv[i] || *end || !isfinite(value) || value < 0) return -1;
             if (start) c->start_in_file = value; else c->base = value;
+        } else if (!strcmp(argv[i], "--open-timeout") && ++i < argc) {
+            char *end; double value; errno = 0; value = strtod(argv[i], &end);
+            if (errno || !*argv[i] || *end || !isfinite(value) || value < 0) return -1;
+            c->open_timeout = value;
         } else if (argv[i][0] == '-' || c->url) return -1;
         else c->url = argv[i];
     }
@@ -348,6 +358,10 @@ static int interrupt_cb(void *opaque)
         int expected = 0;
         atomic_compare_exchange_strong(&p->exit_code, &expected, EX_CORE);
         atomic_store(&p->stop, 1);
+        return 1;
+    }
+    if (p->open_deadline_ms && mono_ms() >= p->open_deadline_ms) {
+        p->open_timed_out = 1;
         return 1;
     }
     return atomic_load(&p->stop) || caught_signal ||
@@ -1534,17 +1548,23 @@ static int open_media(struct player *p)
     av_dict_set(&opts, "analyzeduration", "5000000", 0);
     net_options(&p->cfg, &opts);
     stage_start = mono_ms();
+    /* --open-timeout bounds the open and the stream probe together: a
+     * transcoder that never sends its first byte is given up on here (exit
+     * 8, the app's cue to ask differently) instead of at the socket's limit. */
+    if (p->cfg.open_timeout > 0)
+        p->open_deadline_ms = stage_start + (uint64_t)(p->cfg.open_timeout * 1000.0);
     logmsg("startup stage=open-input begin");
     rc = avformat_open_input(&p->fmt, p->cfg.url, NULL, &opts);
     logmsg("startup stage=open-input elapsed_ms=%llu result=%d",
            (unsigned long long)(mono_ms() - stage_start), rc);
     av_dict_free(&opts);
-    if (rc < 0) return rc;
+    if (rc < 0) { p->open_deadline_ms = 0; return rc; }
     stage_start = mono_ms();
     logmsg("startup stage=stream-info begin");
     rc = avformat_find_stream_info(p->fmt, NULL);
     logmsg("startup stage=stream-info elapsed_ms=%llu result=%d",
            (unsigned long long)(mono_ms() - stage_start), rc);
+    p->open_deadline_ms = 0;
     if (rc < 0) return rc;
     if (p->cfg.start_in_file > 0) {
         int64_t target = (int64_t)(p->cfg.start_in_file * AV_TIME_BASE);
@@ -2085,7 +2105,13 @@ int main(int argc, char **argv)
             atomic_store(&p.stop, 1); stop_quickly(&p); goto done;
         }
         av_strerror(rc, e, sizeof e);
-        fail(&p, EX_OPEN, "stream open failed: %s", e); goto done;
+        if (p.open_timed_out)
+            fail(&p, EX_OPEN_TIMEOUT, "stream open timed out: no stream after %.0f s", p.cfg.open_timeout);
+        else if (rc == AVERROR(ETIMEDOUT))
+            fail(&p, EX_OPEN_TIMEOUT, "stream open timed out: %s", e);
+        else
+            fail(&p, EX_OPEN, "stream open failed: %s", e);
+        goto done;
     }
     if (p.cfg.direct) {
         /* The container's parameter sets, before anything is shown (a

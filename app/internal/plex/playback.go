@@ -458,6 +458,10 @@ type PlaybackRequest struct {
 	ForceReason string
 	// MediaID is the version to play (Version.ID), "" for the first.
 	MediaID string
+	// SlowSeek asks the transcoder to reach StartSeconds by decoding from
+	// the file's start (fastSeek=0) rather than by its index: the retry
+	// for a server whose seeking transcoder sends nothing.
+	SlowSeek bool
 	// Part is that version's media part as just fetched (ItemAndPart),
 	// spared a second fetch; nil fetches it.
 	Part *MediaPart
@@ -680,6 +684,10 @@ func (c *Client) transcodeQuery(r PlaybackRequest, session string, part MediaPar
 	if offset < 0 {
 		offset = 0
 	}
+	fastSeek := "1"
+	if r.SlowSeek {
+		fastSeek = "0"
+	}
 	q := url.Values{
 		"path": {"/library/metadata/" + r.RatingKey}, "mediaIndex": {strconv.Itoa(part.MediaIndex)}, "partIndex": {"0"},
 		"protocol": {"http"}, "directPlay": {"0"}, "directStream": {"0"},
@@ -687,7 +695,7 @@ func (c *Client) transcodeQuery(r PlaybackRequest, session string, part MediaPar
 		"audioBoost": {strconv.Itoa(boost)}, "subtitles": {"burn"}, "subtitleSize": {strconv.Itoa(size)},
 		"X-Plex-Client-Profile-Extra": {ProfileExtra(cap, part.fps())},
 		"session":                     {session}, "X-Plex-Session-Identifier": {session},
-		"copyts": {"1"}, "offset": {strconv.Itoa(offset)}, "fastSeek": {"1"},
+		"copyts": {"1"}, "offset": {strconv.Itoa(offset)}, "fastSeek": {fastSeek},
 		"location": {"wan"}, "mediaBufferSize": {"12288"}, "hasMDE": {"1"},
 	}
 	return q
