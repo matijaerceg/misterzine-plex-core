@@ -12,6 +12,15 @@
 # tools/seed_sweep.sh restores its own snapshot).
 #
 # SEED LEDGER (append one line per fit that ships or teaches something; never delete):
+#   2026-10-29 (Direct Video DAC fix dv27 + dv27b, tester 0.1.0-beta.35.2, source 88db301
+#     = 13b07fa + the stock csync on direct_video, CORE_VERSION plex-dv27-test3): SEED 29,
+#     clk_dec 105.22/105.99 MHz, clk_vid 89.79/86.49 MHz; both gates PASS (seed 1 PASS,
+#     seeds 42 and 7 FAIL). Shipped on the tester pre-release only; the reporter's
+#     HDMI-to-VGA adapter locked (docs/hd_raster.md S11).
+#   2026-10-29 (the same + the pixel-repetition report divided on clk_sys, 825e9e5,
+#     CORE_VERSION plex-dv27-test2): seeds 7/11/13 FAIL clk_dec 100.8/96.7/100.3 MHz,
+#     seeds 9/5/8/17 timed out at 60 min under load; no release image packed. A passing
+#     seed is owed by the first release build of this netlist.
 #   2026-10-25 (Plex 0.1.0-beta.30, source 15de904): SEED 9,
 #     clk_dec 102.31/102.48 MHz, clk_vid 95.84/92.96 MHz; both gates PASS.
 #   2026-10-24 (gradient dither default On + Start, source 328e108): SEED 9,
