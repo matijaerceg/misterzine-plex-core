@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -181,5 +183,41 @@ func TestThemeNavigationDoesNotWaitForTheFade(t *testing.T) {
 	defer mu.Unlock()
 	if playing != 0 || most != 1 || !slices.Equal(order, []string{"a", "c"}) {
 		t.Fatalf("after Stop: %d playing, at most %d at once, played %q", playing, most, order)
+	}
+}
+
+// A theme that ends on its own fades out over its last themeTail frames, or over
+// all of it when it is shorter; a sample of silence at the end leaves no click.
+func TestThemeFadesOutAtTheEnd(t *testing.T) {
+	for _, frames := range []int{48000 * 3, 48000 / 2} {
+		t.Run(fmt.Sprintf("%dframes", frames), func(t *testing.T) {
+			src := make([]byte, frames*4)
+			for i := 0; i < len(src); i += 2 {
+				binary.LittleEndian.PutUint16(src[i:], 20000)
+			}
+			var out []byte
+			if err := feedTheme(context.Background(), bytes.NewReader(src), func(b []byte) error {
+				out = append(out, b...)
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if len(out) != len(src) {
+				t.Fatalf("got %d bytes, want %d", len(out), len(src))
+			}
+			sample := func(frame int) int16 { return int16(binary.LittleEndian.Uint16(out[frame*4:])) }
+			tail := min(themeTail, frames)
+			if frames > themeTail && sample(frames-tail-1) != 20000 {
+				t.Fatalf("level before the tail %d", sample(frames-tail-1))
+			}
+			for f := max(frames-tail, 12000) + 1; f < frames; f++ { // past the fade in
+				if sample(f) > sample(f-1) {
+					t.Fatalf("tail rises at frame %d: %d after %d", f, sample(f), sample(f-1))
+				}
+			}
+			if sample(frames-1) != 0 || sample(frames-tail/2) == 0 {
+				t.Fatalf("tail ends at %d, halfway %d", sample(frames-1), sample(frames-tail/2))
+			}
+		})
 	}
 }

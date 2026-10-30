@@ -225,7 +225,7 @@ Options lists, in groups:
 - **Surround downmix boost**, **Subtitle size** and **Subtitle background**
   (see Subtitles), **Theme music** (a show's theme song on its pages, when
   the server provides one), and **Navigation sounds** (Off, Quiet or Loud).
-  Themes fade between shows and mix with navigation clicks. Both stop before
+  Themes fade between shows and at their end, and mix with navigation clicks. Both stop before
   movie playback. Navigation sounds prepare for about a second after startup
   or returning from a movie; presses during preparation are not queued.
 - Supporter extras, in builds that have them, each with the purple star (see

@@ -3,7 +3,6 @@ package ui
 import (
 	"bufio"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
@@ -295,33 +294,11 @@ func (m *menuAudio) playThemeCommand(ctx context.Context, command func(context.C
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
-	buf := make([]byte, 480*4)
-	gain := 0.0
-	for {
-		n, readErr := io.ReadFull(pcm, buf)
-		n -= n % 4
-		stopping := ctx.Err() != nil
-		for i := 0; i < n; i += 4 {
-			if stopping {
-				gain = max(0, gain-themeGain/7200)
-			} else {
-				gain = min(themeGain, gain+themeGain/12000)
-			}
-			for ch := 0; ch < 4; ch += 2 {
-				v := int16(binary.LittleEndian.Uint16(buf[i+ch:]))
-				binary.LittleEndian.PutUint16(buf[i+ch:], uint16(int16(float64(v)*gain)))
-			}
+	_ = feedTheme(ctx, pcm, func(b []byte) error {
+		if err := m.pcm.SetWriteDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+			return err
 		}
-		if n > 0 {
-			if err = m.pcm.SetWriteDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
-				return
-			}
-			if _, err = m.pcm.Write(buf[:n]); err != nil {
-				return
-			}
-		}
-		if readErr != nil || (stopping && gain == 0) {
-			return
-		}
-	}
+		_, err := m.pcm.Write(b)
+		return err
+	})
 }
