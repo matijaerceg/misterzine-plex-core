@@ -22,12 +22,23 @@ type Aspects struct {
 	known map[string]float64 // show rating key -> aspect (0: seen, unknown)
 	path  string
 	swept chan struct{} // closed when the library sweep has finished; nil before it starts
+	// when a library sweep last finished (unix seconds), kept on disk so
+	// the idle screen can sweep again once a day for replaced episodes
+	sweptAt    int64
+	resweeping bool
+}
+
+// aspectFile is aspects2.json on disk.
+type aspectFile struct {
+	Swept int64              `json:"swept"`
+	Shows map[string]float64 `json:"shows"`
 }
 
 const (
-	aspectProbes = 8                       // shows probed at once
-	aspectBudget = 6 * time.Second         // per batch; the rest stay visible until next time
-	aspectWait   = 1500 * time.Millisecond // how long a listing waits for the sweep before showing
+	aspectProbes  = 8                       // shows probed at once
+	aspectBudget  = 6 * time.Second         // per batch; the rest stay visible until next time
+	aspectWait    = 1500 * time.Millisecond // how long a listing waits for the sweep before showing
+	aspectResweep = 24 * time.Hour          // the idle screen sweeps again after this
 )
 
 func (a *Aspects) load(dir string) {
@@ -38,14 +49,21 @@ func (a *Aspects) load(dir string) {
 	a.path = filepath.Join(dir, "aspects2.json")
 	a.known = map[string]float64{}
 	a.swept = nil
+	a.sweptAt = 0
 	if data, err := os.ReadFile(a.path); err == nil {
-		_ = json.Unmarshal(data, &a.known)
+		var f aspectFile
+		if json.Unmarshal(data, &f) == nil {
+			a.sweptAt = f.Swept
+			for key, v := range f.Shows {
+				a.known[key] = v
+			}
+		}
 	}
 }
 
 func (a *Aspects) save() {
 	a.mu.Lock()
-	data, err := json.Marshal(a.known)
+	data, err := json.Marshal(aspectFile{Swept: a.sweptAt, Shows: a.known})
 	path := a.path
 	a.mu.Unlock()
 	if err != nil || path == "" {
@@ -107,27 +125,70 @@ func (a *Aspects) sweep(client *plex.Client, then func()) <-chan struct{} {
 	go func() {
 		defer close(done)
 		defer then()
-		secs, err := client.Sections()
-		if err != nil {
-			return
-		}
-		for _, s := range secs {
-			if s.Type != "show" {
-				continue
-			}
-			found, err := client.FirstEpisodeAspects(s.Key)
-			if err != nil {
-				continue
-			}
-			a.mu.Lock()
-			for key, v := range found {
-				a.known[key] = v
-			}
-			a.mu.Unlock()
-		}
-		a.save()
+		a.sweepLibraries(client)
 	}()
 	return done
+}
+
+// sweepLibraries asks every TV library for its first episodes, replaces
+// the answers for the shows they name (shows they miss keep their probed
+// answers), and saves with the time it finished.
+func (a *Aspects) sweepLibraries(client *plex.Client) {
+	secs, err := client.Sections()
+	if err != nil {
+		return
+	}
+	for _, s := range secs {
+		if s.Type != "show" {
+			continue
+		}
+		found, err := client.FirstEpisodeAspects(s.Key)
+		if err != nil {
+			continue
+		}
+		a.mu.Lock()
+		for key, v := range found {
+			a.known[key] = v
+		}
+		a.mu.Unlock()
+	}
+	a.mu.Lock()
+	a.sweptAt = time.Now().Unix()
+	a.mu.Unlock()
+	a.save()
+}
+
+// resweepAspects sweeps the TV libraries again once the last sweep is
+// aspectResweep old, so a show whose first episode was replaced is judged
+// again. Called on every idle tick; it returns at once unless due.
+func (a *App) resweepAspects(now time.Time) {
+	if a.Plex == nil || a.Cfg == nil || !a.Cfg.FourThree {
+		return
+	}
+	s := &a.aspects
+	s.mu.Lock()
+	running := s.resweeping
+	if s.swept != nil {
+		select {
+		case <-s.swept:
+		default:
+			running = true // the first sweep is still going
+		}
+	}
+	if running || s.path == "" || now.Sub(time.Unix(s.sweptAt, 0)) < aspectResweep {
+		s.mu.Unlock()
+		return
+	}
+	s.resweeping = true
+	s.mu.Unlock()
+	client := a.Plex
+	go func() {
+		s.sweepLibraries(client)
+		s.mu.Lock()
+		s.resweeping = false
+		s.mu.Unlock()
+		a.Later(a.refilterHome)
+	}()
 }
 
 // measureShows fills in the aspect of every show and season in items: from the

@@ -1,12 +1,16 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"plexcrt/internal/plex"
 )
@@ -158,5 +162,69 @@ func TestSeasonAspectPreservesExistingValue(t *testing.T) {
 	}
 	if season.Aspect != 1.33 {
 		t.Fatalf("existing season aspect changed to %v", season.Aspect)
+	}
+}
+
+// Once the dimmed menus have waited a day since the last sweep, the TV
+// libraries are swept again: a replaced first episode changes the saved
+// shape, a show the sweep misses keeps its probed answer. A fresh sweep
+// or the filter off asks nothing.
+func TestIdleResweepsAspectsDaily(t *testing.T) {
+	var sweeps atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/library/sections":
+			fmt.Fprint(w, `<MediaContainer><Directory key="2" type="show" title="TV"/><Directory key="4" type="show" title="Kids"/><Directory key="3" type="movie" title="Films"/></MediaContainer>`)
+		case strings.HasPrefix(r.URL.Path, "/library/sections/") && r.URL.Query().Get("episode.index") == "1":
+			sweeps.Add(1)
+			fmt.Fprint(w, `<MediaContainer><Video ratingKey="101" type="episode" grandparentRatingKey="16" parentIndex="1"><Media aspectRatio="1.33"/></Video></MediaContainer>`)
+		default:
+			t.Errorf("unexpected request %s", r.URL)
+		}
+	}))
+	defer server.Close()
+	now := time.Now()
+	run := func(swept time.Time, fourThree bool) (*App, string) {
+		dir := t.TempDir()
+		data, _ := json.Marshal(aspectFile{Swept: swept.Unix(), Shows: map[string]float64{"16": 1.78, "77": 2.35}})
+		path := filepath.Join(dir, "aspects2.json")
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		a := &App{Plex: plex.New(server.URL, "", dir, "test"), Cfg: &Config{FourThree: fourThree}, stack: []Screen{}}
+		a.SetCacheDir(dir)
+		a.dim.last = now.Add(-DimAfter - time.Second)
+		a.idle(now, true)
+		a.idle(now, true) // a second tick while it runs must not start another
+		for i := 0; i < 200; i++ {
+			a.aspects.mu.Lock()
+			busy := a.aspects.resweeping
+			a.aspects.mu.Unlock()
+			if !busy {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		return a, path
+	}
+
+	a, path := run(now.Add(-25*time.Hour), true)
+	if sweeps.Load() != 2 {
+		t.Fatalf("sweeps %d, want one per TV library", sweeps.Load())
+	}
+	var f aspectFile
+	data, _ := os.ReadFile(path)
+	if err := json.Unmarshal(data, &f); err != nil || f.Shows["16"] != 1.33 || f.Shows["77"] != 2.35 || f.Swept < now.Unix() {
+		t.Fatalf("saved %s, want 16 re-measured, 77 kept, a new sweep time", data)
+	}
+	a.idle(now.Add(time.Minute), true)
+	if sweeps.Load() != 2 {
+		t.Fatal("swept again right after a sweep")
+	}
+
+	run(now.Add(-time.Hour), true)
+	run(now.Add(-25*time.Hour), false)
+	if sweeps.Load() != 2 {
+		t.Fatalf("sweeps %d: a fresh sweep or the filter off must ask nothing", sweeps.Load())
 	}
 }
