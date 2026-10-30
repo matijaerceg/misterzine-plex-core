@@ -27,9 +27,11 @@ binaries.
 
 Saved video geometry is sent only to a core advertising HPS interface 1.2 or
 later. The core shipped with the app (interface 1.4) applies saved geometry;
-older H.264 cores keep calibration preview-only. The app's 14:9 crop uses the
-same geometry interface. On older cores it falls back to Off, while the core
-receives its valid Letterbox setting.
+older H.264 cores keep calibration preview-only. The app's Fill and 14:9 crops
+use the same geometry interface: the core's own Analog Aspect setting no
+longer shapes the picture (its fit follows Display Shape alone). On older
+cores 14:9 falls back to Off, while the core receives its valid Letterbox
+setting, and Fill is left to the core's setting.
 
 The core OSD's **Output Mode**, **Refresh Rate Match**, **Display Shape**,
 **De-flicker**, **240p Playback**, and **Play 24fps at 25fps** controls use

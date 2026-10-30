@@ -1075,6 +1075,15 @@ static void set_volume(struct player *p, int volume)
 static void set_playback_settings(struct player *p);
 static int apply_geometry(struct player *p);
 
+/* The crops the player draws through the calibrated geometry: Fill and 14:9.
+ * The core's Analog Aspect setting no longer shapes the picture (the fit
+ * follows Display Shape alone since the Oct 19 2026 core), so Fill asked
+ * for only through the settings word looks like Off. */
+static int crop_mode(int aspect)
+{
+    return aspect == VIDEO_MODE_CROP || aspect == VIDEO_MODE_CROP_14_9;
+}
+
 static void set_analog_aspect(struct player *p, int aspect)
 {
     p->cfg.analog_aspect = aspect;
@@ -1114,15 +1123,18 @@ static void set_playback_settings(struct player *p)
 static int apply_geometry(struct player *p)
 {
     if (!p->cfg.geometry_set && !p->geometry_status_valid &&
-        p->cfg.analog_aspect != VIDEO_MODE_CROP_14_9) return 0;
+        !crop_mode(p->cfg.analog_aspect)) return 0;
     if (!core_owner_ok(p)) return -1;
     struct h264ring_status status;
     if (h264ring_status(p->ring, &status)) {
         fail(p, EX_CORE, "cannot read core status for video calibration"); return -1;
     }
-    /* HPS 1.2 added custom geometry. 14:9 has no core enum, so on older
-     * cores leave the valid Letterbox request in place (the safe Off mode). */
-    if (p->cfg.analog_aspect == VIDEO_MODE_CROP_14_9 &&
+    /* HPS 1.2 added custom geometry. 14:9 has no core enum and a 1.3+ core
+     * fits by Display Shape alone (Fill through the settings word is a
+     * no-op there), so both crops are geometry; on older cores leave the
+     * valid request in place (Letterbox, or Fill where the core still
+     * honours it). */
+    if (crop_mode(p->cfg.analog_aspect) &&
         H264RING_ST(&status, VERSION) < 0x102) {
         p->geometry_status_valid = 0;
         return 0;
@@ -1387,7 +1399,7 @@ static void write_status(struct player *p, int force)
         refused = (unsigned)H264RING_ST(&st, FE_REFUSED_CODE);
         aud_samples = (unsigned)H264RING_ST(&st, AUD_Q_SAMPLES);
         if (p->opened && (p->cfg.geometry_set || p->geometry_status_valid ||
-                          p->cfg.analog_aspect == VIDEO_MODE_CROP_14_9)) {
+                          crop_mode(p->cfg.analog_aspect))) {
             unsigned rw = H264RING_ST(&st, RASTER_W);
             unsigned rh = H264RING_ST(&st, RASTER_H);
             unsigned vo = H264RING_ST(&st, VIDEO_OUT);

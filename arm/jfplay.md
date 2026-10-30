@@ -115,6 +115,9 @@ after the command; audio already queued for playback keeps its previous gain.
 
 `--analog-aspect N` requests the analog picture treatment for this
 playback: 0 Auto, 1 Fit, 2 Letterbox, 3 Crop, or 4 (jfplay-only) 14:9 crop.
+The value is sent through the core's settings word; Crop and 14:9 are also
+drawn through the calibrated geometry on a 1.2+ core, since a 1.3+ core's fit
+follows Display Shape alone and ignores the Analog Aspect value.
 Mode 4 uses interface 1.2 custom geometry and falls back to Letterbox on older
 cores. The request is made after the
 core session starts, can be replaced live with `aspect N`, and is cleared when
