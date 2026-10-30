@@ -12,6 +12,11 @@
 # tools/seed_sweep.sh restores its own snapshot).
 #
 # SEED LEDGER (append one line per fit that ships or teaches something; never delete):
+#   2026-10-29 (main e49c62f: the Direct Video fix with the clk_sys pixel-repetition report,
+#     CORE_VERSION plex-0.1.0-beta.31): SEED 7 first roll, clk_dec 103.1/104.09 MHz, clk_vid
+#     89.03/88.35 MHz; both gates PASS, hdmi_pll_check PASS (X0_Y5_N1); ALM 40,945 (98 %),
+#     M10K 421, DSP 107, PlexH264_plex-0.1.0-beta.31_20261030_0258.rbf (not released: the
+#     release build re-rolls with its own version string).
 #   2026-10-29 (Direct Video DAC fix dv27 + dv27b, tester 0.1.0-beta.35.2, source 88db301
 #     = 13b07fa + the stock csync on direct_video, CORE_VERSION plex-dv27-test3): SEED 29,
 #     clk_dec 105.22/105.99 MHz, clk_vid 89.79/86.49 MHz; both gates PASS (seed 1 PASS,
