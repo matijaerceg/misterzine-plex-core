@@ -228,3 +228,33 @@ func TestIdleResweepsAspectsDaily(t *testing.T) {
 		t.Fatalf("sweeps %d: a fresh sweep or the filter off must ask nothing", sweeps.Load())
 	}
 }
+
+// A re-sweep whose Sections request fails is not retried on every tick.
+func TestFailedResweepWaitsBeforeRetry(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	a := &App{Plex: plex.New(server.URL, "", dir, "test"), Cfg: &Config{FourThree: true}}
+	a.SetCacheDir(dir)
+	now := time.Now()
+	a.dim.last = now.Add(-DimAfter - time.Second)
+	for i := 0; i < 5; i++ {
+		a.idle(now.Add(time.Duration(i)*time.Second), true)
+		for j := 0; j < 200; j++ {
+			a.aspects.mu.Lock()
+			busy := a.aspects.resweeping
+			a.aspects.mu.Unlock()
+			if !busy {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("requests %d, want one until aspectRetry passes", calls.Load())
+	}
+}

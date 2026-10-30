@@ -26,6 +26,7 @@ type Aspects struct {
 	// the idle screen can sweep again once a day for replaced episodes
 	sweptAt    int64
 	resweeping bool
+	tried      time.Time // when the last re-sweep started (in memory only)
 }
 
 // aspectFile is aspects2.json on disk.
@@ -38,6 +39,7 @@ const (
 	aspectProbes  = 8                       // shows probed at once
 	aspectBudget  = 6 * time.Second         // per batch; the rest stay visible until next time
 	aspectWait    = 1500 * time.Millisecond // how long a listing waits for the sweep before showing
+	aspectRetry   = time.Hour               // a failed re-sweep waits this long before another
 	aspectResweep = 24 * time.Hour          // the idle screen sweeps again after this
 )
 
@@ -175,11 +177,13 @@ func (a *App) resweepAspects(now time.Time) {
 			running = true // the first sweep is still going
 		}
 	}
-	if running || s.path == "" || now.Sub(time.Unix(s.sweptAt, 0)) < aspectResweep {
+	if running || s.path == "" || now.Sub(time.Unix(s.sweptAt, 0)) < aspectResweep ||
+		(!s.tried.IsZero() && now.Sub(s.tried) < aspectRetry) {
 		s.mu.Unlock()
 		return
 	}
 	s.resweeping = true
+	s.tried = now
 	s.mu.Unlock()
 	client := a.Plex
 	go func() {
