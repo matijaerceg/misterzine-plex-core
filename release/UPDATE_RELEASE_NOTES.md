@@ -13,6 +13,10 @@
   lock and the screen stayed black. The transmitter now runs at 27 MHz there
   and sends the plain composite sync the other cores use. Confirmed on the
   reporter's adapter with test build 0.1.0-beta.35.2.
+- Composite and S-Video colour (MiSTer.ini vga_mode=svideo or cvbs) is now
+  pinned: the app adds this core's lines to the SD card's yc.txt, as the
+  other cores have. This fixes the occasional wrong colours after an OSD
+  Reset or a new start, and the dot crawl that came with them.
 
 Ships a new qualified FPGA core (the Direct Video fix is in the core) with an
 updated playback worker. Existing settings, calibration and saved access are
