@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Help page
+    url: https://github.com/matijaerceg/misterzine-plex-core/blob/main/release/README.md
+    about: Common problems and fixes, and how to send a report from the app.

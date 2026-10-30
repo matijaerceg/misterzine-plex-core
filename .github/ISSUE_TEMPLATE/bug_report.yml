@@ -1,58 +1,19 @@
-name: Bug report
-description: Report an installation, browsing, display or playback problem.
+name: Problem report
+description: Something is not working. A report code from the app tells us almost everything.
 title: "[Bug]: "
 body:
   - type: markdown
     attributes:
       value: |
-        Please check the [help page](https://github.com/matijaerceg/misterzine-plex-core/blob/main/release/README.md) first.
-        Do not post Plex tokens, account files, member codes, beta keys, unlock receipts or server addresses. Review diagnostics and screenshots before attaching them.
+        The quickest way to get help: in the app open **Options > Send a report**, press OK, and paste the short code it shows (such as `K7M4`) below. The report carries your version, board, display settings and logs, so you do not have to type any of that. Tokens and server addresses are never included.
+        If the app does not start, **MisterZine-Plex-Diagnostics** in the MiSTer menu sends the same report.
   - type: input
-    id: version
+    id: code
     attributes:
-      label: App version / release ID
-      description: Find this in Options. If installation failed, name the release you downloaded.
-    validations:
-      required: true
-  - type: input
-    id: hardware
-    attributes:
-      label: MiSTer hardware and system version
-      placeholder: Board model and MiSTer Linux version
-    validations:
-      required: true
-  - type: input
-    id: display
-    attributes:
-      label: Display and connection
-      description: CRT or HDMI, cable/output profile, and selected video mode.
-    validations:
-      required: true
-  - type: dropdown
-    id: server
-    attributes:
-      label: Plex server connection
-      options:
-        - Local network
-        - Remote
-        - Not applicable / unknown
-    validations:
-      required: true
+      label: Report code
+      placeholder: K7M4
   - type: textarea
-    id: steps
+    id: what
     attributes:
-      label: Steps to reproduce
-      description: Include relevant settings, without account or media identifiers.
-    validations:
-      required: true
-  - type: textarea
-    id: result
-    attributes:
-      label: Expected and actual result
-    validations:
-      required: true
-  - type: textarea
-    id: diagnostics
-    attributes:
-      label: Reviewed diagnostics or screenshots (optional)
-      description: Remove private details before attaching files. See the help page.
+      label: What happened
+      description: What you were doing, what you saw, and roughly when, so we can find it in the log. Anything else you think helps.
