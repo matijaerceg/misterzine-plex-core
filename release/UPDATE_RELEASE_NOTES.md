@@ -6,7 +6,14 @@
 - Theme music fades out over its last seconds instead of stopping dead.
   The clips servers hold are mostly 30 s long and cut hard at the end,
   which sounded like the app cutting the music off.
+- Direct Video works again through HDMI-to-VGA adapters, such as a DAC
+  feeding a 15 kHz CRT. Since the decoder-core release the core clocked the
+  HDMI transmitter at 81 MHz on Direct Video and put a broadcast-style
+  composite sync with equalizing pulses on the sync line; adapters dropped
+  lock and the screen stayed black. The transmitter now runs at 27 MHz there
+  and sends the plain composite sync the other cores use. Confirmed on the
+  reporter's adapter with test build 0.1.0-beta.35.2.
 
-Uses the same qualified FPGA core as beta.33, with an updated playback worker. Existing
-settings, calibration and saved access are preserved. Rollback restores the
-previous release.
+Ships a new qualified FPGA core (the Direct Video fix is in the core) with an
+updated playback worker. Existing settings, calibration and saved access are
+preserved. Rollback restores the previous release.
