@@ -513,18 +513,25 @@ func (c *Client) ItemsContext(ctx context.Context, path string, q url.Values, ma
 	return out, nil
 }
 
-// ShowAspect is the picture aspect of a show's first episode (0 when the
-// server has not measured it), one small request per show.
+// ShowAspect is the picture aspect of a show's first regular episode (0
+// when the server has not measured it), one small request per show.
+// Specials (season 0) sort first and are often a different shape, so they
+// only answer for a show whose first page holds nothing else.
 func (c *Client) ShowAspect(ratingKey string) (float64, error) {
 	q := url.Values{}
 	q.Set("excludeFields", "summary,tagline")
 	q.Set("excludeElements", "Genre,Director,Writer,Role,Country,Producer,Guid,Collection,Label,Field,Image,Stream,Marker,UltraBlurColors")
-	items, err := c.Items("/library/metadata/"+ratingKey+"/allLeaves", q, 1)
+	items, err := c.Items("/library/metadata/"+ratingKey+"/allLeaves", q, 10)
 	if err != nil {
 		return 0, err
 	}
 	if len(items) == 0 {
 		return 0, nil
+	}
+	for _, it := range items {
+		if it.Parent != 0 {
+			return it.Aspect, nil
+		}
 	}
 	return items[0].Aspect, nil
 }
@@ -567,6 +574,8 @@ func (c *Client) ShowEpisodes(ratingKey string) ([]*Item, error) {
 // FirstEpisodeAspects is the picture aspect of every show in a TV library
 // that has a first episode of some season, keyed by the show's rating key
 // and taken from its lowest season: one request for the whole library.
+// Specials (season 0) are ignored, so a show with only specials is left
+// for ShowAspect.
 func (c *Client) FirstEpisodeAspects(sectionKey string) (map[string]float64, error) {
 	q := url.Values{}
 	q.Set("type", "4")
@@ -587,7 +596,7 @@ func (c *Client) FirstEpisodeAspects(sectionKey string) (map[string]float64, err
 	season := map[string]int{}
 	for i := range mc.Items {
 		x := &mc.Items[i]
-		if x.GrandparentKey == "" || len(x.Medias) == 0 || x.Medias[0].Aspect == 0 {
+		if x.GrandparentKey == "" || x.ParentIndex == 0 || len(x.Medias) == 0 || x.Medias[0].Aspect == 0 {
 			continue
 		}
 		if s, seen := season[x.GrandparentKey]; seen && s <= x.ParentIndex {

@@ -30,11 +30,13 @@ func TestShowsAreMeasuredOnceForTheFilter(t *testing.T) {
 				<Video ratingKey="201" type="episode" grandparentRatingKey="16" parentIndex="2"><Media aspectRatio="1.33"/></Video>
 				<Video ratingKey="101" type="episode" grandparentRatingKey="16" parentIndex="1"><Media aspectRatio="1.78"/></Video>
 				<Video ratingKey="102" type="episode" grandparentRatingKey="43" parentIndex="1"><Media aspectRatio="1.33"/></Video>
+				<Video ratingKey="301" type="episode" grandparentRatingKey="55" parentIndex="0"><Media aspectRatio="1.78"/></Video>
+				<Video ratingKey="302" type="episode" grandparentRatingKey="55" parentIndex="1"><Media aspectRatio="1.33"/></Video>
 				</MediaContainer>`)
 		case strings.HasSuffix(r.URL.Path, "/allLeaves"):
 			probes.Add(1)
-			if r.URL.Query().Get("X-Plex-Container-Size") != "1" {
-				t.Errorf("probe should ask for one episode: %s", r.URL)
+			if r.URL.Query().Get("X-Plex-Container-Size") != "10" {
+				t.Errorf("probe should ask for a short page: %s", r.URL)
 			}
 			fmt.Fprint(w, `<MediaContainer><Video ratingKey="9" type="episode" title="Special"><Media aspectRatio="2.35"/></Video></MediaContainer>`)
 		default:
@@ -48,8 +50,9 @@ func TestShowsAreMeasuredOnceForTheFilter(t *testing.T) {
 	wide := &plex.Item{RatingKey: "16", Type: "show", Title: "Wide"}
 	square := &plex.Item{RatingKey: "43", Type: "show", Title: "Square"}
 	odd := &plex.Item{RatingKey: "77", Type: "show", Title: "Specials only"}
+	special := &plex.Item{RatingKey: "55", Type: "show", Title: "Wide special"}
 	movie := &plex.Item{RatingKey: "7", Type: "movie", Aspect: 2.35}
-	items := []*plex.Item{wide, square, odd, movie}
+	items := []*plex.Item{wide, square, odd, special, movie}
 	// Recently added TV hubs can contain seasons instead of shows. They
 	// must use the same parent-show measurement as the library wall.
 	wideSeason := &plex.Item{RatingKey: "160", ParentKey: "16", Type: "season"}
@@ -64,6 +67,9 @@ func TestShowsAreMeasuredOnceForTheFilter(t *testing.T) {
 	}
 	if a.Keep(wide) || !a.Keep(square) || a.Keep(odd) || a.Keep(movie) {
 		t.Fatal("filter did not use the measured shapes")
+	}
+	if !a.Keep(special) {
+		t.Fatal("a wide season 0 special decided a 4:3 show")
 	}
 	if wide.Aspect != 1.78 {
 		t.Fatalf("season 1 should decide a show, got %v", wide.Aspect)
@@ -96,6 +102,21 @@ func TestShowsAreMeasuredOnceForTheFilter(t *testing.T) {
 	c.measureShows([]*plex.Item{{RatingKey: "99", Type: "show"}})
 	if sweeps.Load() != 1 || probes.Load() != 1 {
 		t.Fatal("asked with the filter off")
+	}
+}
+
+// Specials sort first in allLeaves; the probe skips them for a regular episode.
+func TestShowAspectSkipsSpecials(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<MediaContainer>
+			<Video ratingKey="1" type="episode" parentIndex="0"><Media aspectRatio="1.78"/></Video>
+			<Video ratingKey="2" type="episode" parentIndex="1"><Media aspectRatio="1.33"/></Video>
+			</MediaContainer>`)
+	}))
+	defer server.Close()
+	got, err := plex.New(server.URL, "", t.TempDir(), "test").ShowAspect("16")
+	if err != nil || got != 1.33 {
+		t.Fatalf("ShowAspect = %v, %v; want season 1's 1.33", got, err)
 	}
 }
 

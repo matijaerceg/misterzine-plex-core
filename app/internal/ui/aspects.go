@@ -33,7 +33,9 @@ const (
 func (a *Aspects) load(dir string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.path = filepath.Join(dir, "aspects.json")
+	// aspects2: answers from before specials were skipped are measured again
+	_ = os.Remove(filepath.Join(dir, "aspects.json"))
+	a.path = filepath.Join(dir, "aspects2.json")
 	a.known = map[string]float64{}
 	a.swept = nil
 	if data, err := os.ReadFile(a.path); err == nil {
