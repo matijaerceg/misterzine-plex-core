@@ -423,6 +423,87 @@ class InstallerTests(unittest.TestCase):
         self.assertIn('&v=1', value)
 
 
+class YCTests(unittest.TestCase):
+    """The install's copy of the app's yc.txt lines (app/internal/ring/yc.go)."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.card = Path(self.temp.name)
+        self.path = self.card / 'yc.txt'
+        self.comment = '; ' + manager.CORE_NAME + ': composite/S-Video colour for its fixed 81 MHz video clock'
+
+    def test_table_matches_the_go_table(self):
+        import re
+        app = Path(manager.__file__).resolve().parent.parent / 'app/internal/ring'
+        go = (app / 'yc.go').read_text()
+        consts = {name: int(value) for name, value in re.findall(r'\b(yc(?:NTSC|PALM|PAL))\s*=\s*(\d+)', go)}
+        self.assertEqual(consts, {'ycNTSC': manager.YC_NTSC, 'ycPAL': manager.YC_PAL, 'ycPALM': manager.YC_PALM})
+        table = go.split('var ycModes', 1)[1].split('\n}\n', 1)[0]
+        modes = tuple((suffix, consts[name]) for suffix, name in re.findall(r'\{"([^"]+)",\s*(yc\w+)\}', table))
+        self.assertEqual(modes, manager.YC_MODES)
+        self.assertIn('"; " + core + ": composite/S-Video colour for its fixed 81 MHz video clock"', go)
+        name = re.search(r'const AppCoreName = "([^"]+)"', (app / 'launch.go').read_text()).group(1)
+        self.assertEqual(name, manager.CORE_NAME)
+
+    def test_lines(self):
+        lines = manager.yc_lines()
+        self.assertEqual(len(lines), 14)
+        self.assertIn(manager.CORE_NAME + '_59.9i=48589522835', lines)
+        self.assertIn(manager.CORE_NAME + '_50.0i=60182905787', lines)
+        self.assertIn(manager.CORE_NAME + '_59.9im=48536121863', lines)
+
+    def test_creates_the_file_and_is_idempotent(self):
+        self.assertEqual(manager.ensure_yc(self.path), 14)
+        want = '\n'.join([self.comment] + manager.yc_lines()) + '\n'
+        self.assertEqual(self.path.read_bytes(), want.encode())
+        self.assertEqual(manager.ensure_yc(self.path), 0)
+        self.assertEqual(self.path.read_bytes(), want.encode())
+
+    def test_keeps_existing_bytes_and_adds_only_missing_keys(self):
+        old = ('Genesis_59.9=1\r\n  ' + manager.CORE_NAME.lower() + '_59.9I=123 ; mine\r\n'
+               + '; ' + manager.CORE_NAME + '_50.0=1\r\nNES_60.0=2').encode()
+        self.path.write_bytes(old)
+        self.assertEqual(manager.ensure_yc(self.path), 13)
+        data = self.path.read_bytes()
+        self.assertTrue(data.startswith(old + b'\r\n' + self.comment.encode() + b'\r\n'))
+        added = data[len(old):].decode().split('\r\n')
+        self.assertNotIn(manager.CORE_NAME + '_59.9i=48589522835', added)
+        self.assertIn(manager.CORE_NAME + '_50.0=60182905787', added)
+        self.assertNotIn(b'\n', data.replace(b'\r\n', b''))
+
+    def test_lf_file_gets_lf_lines(self):
+        self.path.write_bytes(b'Genesis_59.9=1\n')
+        manager.ensure_yc(self.path)
+        self.assertNotIn(b'\r', self.path.read_bytes())
+
+    def test_missing_card_or_unwritable_file_never_fails(self):
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(manager.pin_yc(self.card / 'missing'), 0)
+        self.assertIn('yc.txt not updated (FileNotFoundError)', err.getvalue())
+        self.assertFalse((self.card / 'missing').exists())
+        with mock.patch('builtins.open', side_effect=PermissionError(errno.EROFS, 'read-only')), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(manager.pin_yc(self.card), 0)
+        self.assertIn('PermissionError', err.getvalue())
+        self.assertNotIn('read-only', err.getvalue())
+
+    def test_install_writes_the_lines(self):
+        package = self.card / 'package'
+        (package / 'payload').mkdir(parents=True)
+        files = {}
+        for name in manager.PAYLOAD:
+            data = name.encode()
+            (package / 'payload' / name).write_bytes(data)
+            files[name] = hashlib.sha256(data).hexdigest()
+        manager.write_json(package / 'manifest.json', {'id': 'beta-1', 'files': files})
+        card = self.card / 'card'
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            manager.install(card, package)
+        self.assertIn(manager.CORE_NAME + '_59.9i=48589522835', (card / 'yc.txt').read_text())
+        self.assertIn('yc.txt: added 14 composite/S-Video colour lines for ' + manager.CORE_NAME, out.getvalue())
+
+
 class ReportTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

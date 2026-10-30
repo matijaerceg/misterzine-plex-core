@@ -144,11 +144,15 @@ the meaning carried over (`compat.go`).
   it accepts (`H264` is another app's core); rbf `_Other/PlexH264`, or
   `$MISTERZINE_H264_RBF`) and waits for the heartbeat. An installed release
   is started by its menu entry, which loads the release's own `PlexH264.rbf`
-  first. Before that load (the launcher's `-check` run, and every app start)
-  `ring.PinYC` appends any missing `MisterZine Plex Core_<fps>` lines to
-  `/media/fat/yc.txt`, which MiSTer main reads at each core load: they pin the
-  composite/S-Video subcarrier increment to the core's fixed 81 MHz video clock
-  instead of main's per-load measurement (`app/internal/ring/yc.go`).
+  first. At every app start (the launcher's `-check` run included, which comes
+  before the launcher selects a core) `ring.PinYC` appends any missing
+  `MisterZine Plex Core_<fps>` lines to `/media/fat/yc.txt`, which MiSTer main
+  reads at each core load: they pin the composite/S-Video subcarrier increment
+  to the core's fixed 81 MHz video clock instead of main's per-load
+  measurement (`app/internal/ring/yc.go`). The install writes the same lines
+  (`release/manager.py` `pin_yc`, a copy of the table that its tests compare
+  with the Go one), because the menu entry loads the core before the app
+  first runs.
 - **Input.** `input.Poll` reads the whole input region (words 48-71) as a seqlock
   (in_tail first, in_head last) when the source offers `InputRegion`, keeps its
   own event count against `ev_count` (more than 32 between reads: the oldest are

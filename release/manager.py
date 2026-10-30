@@ -872,6 +872,9 @@ def install(card, package):
         menu_entries(card, folder=root / 'releases' / ident)
     write_json(root / 'active.json', {'current': ident, 'previous': previous})
     configure_channel(root, manifest)
+    # Before the first start: the menu entry loads the core before the app
+    # can add these itself, and main reads yc.txt only at a core load.
+    pin_yc(card)
     start_menu_launcher(card)
     print('Installed ' + ident + '. Launch MisterZine Plex from the main menu.')
 
@@ -1016,6 +1019,79 @@ CORE_NAME = 'MisterZine Plex Core'
 ALTCFG_ADDRESS, ALTCFG_OFFSET, ALTCFG_SIGNATURE = 0x1FFFF000, 0xF04, b'\x34\x99\xba'
 # What main keeps of an INI line besides blanks (CHAR_IS_VALID in its cfg.cpp).
 INI_CHARS = frozenset('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789[]()-+/=#$@_,.!*:~')
+
+
+# Composite / S-Video colour: the yc.txt lines MiSTer main reads at each core
+# load to pin the Y/C subcarrier increment (vga_mode=svideo or cvbs). The app
+# appends the same lines before every start (app/internal/ring/yc.go, which
+# explains the values); the install writes them too, because the menu entry
+# loads the core before the app first runs, and without them the first start
+# after an install would run on main's estimate. A duplicate of the Go table:
+# test_manager asserts the two are identical.
+YC_NTSC, YC_PAL, YC_PALM = 48589522835, 60182905787, 48536121863
+YC_MODES = (
+    ('59.9', YC_NTSC), ('59.9i', YC_NTSC), ('60.0', YC_NTSC), ('60.0i', YC_NTSC),
+    ('50.0', YC_PAL), ('50.0i', YC_PAL),
+    ('59.9s', YC_PAL), ('59.9is', YC_PAL), ('60.0s', YC_PAL), ('60.0is', YC_PAL),
+    ('59.9m', YC_PALM), ('59.9im', YC_PALM), ('60.0m', YC_PALM), ('60.0im', YC_PALM),
+)
+
+
+def yc_lines(core=CORE_NAME):
+    """The yc.txt lines for a core named core, in file order."""
+    return [core + '_' + suffix + '=' + str(inc) for suffix, inc in YC_MODES]
+
+
+def yc_keys(data):
+    """The keys main would read from yc.txt bytes, lowercased: per line, CR
+    dropped, the text from ';' on ignored, leading blanks skipped, then
+    everything up to '='."""
+    keys = set()
+    for line in data.split(b'\n'):
+        line = line.replace(b'\r', b'').split(b';', 1)[0].lstrip(b' \t')
+        key, sep, _ = line.partition(b'=')
+        if sep and key:
+            keys.add(key.lower())
+    return keys
+
+
+def ensure_yc(path, core=CORE_NAME):
+    """Append to path the lines of yc_lines(core) whose keys it lacks, creating
+    the file if needed; return how many were added. The existing bytes stay as
+    they are (a key already there, whatever its value, wins); lines follow the
+    file's CRLF if it has one. The card's directory must exist."""
+    path = Path(path)
+    path.parent.stat()
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        data = b''
+    have = yc_keys(data)
+    eol = b'\r\n' if b'\r\n' in data else b'\n'
+    add = [line.encode() for line in yc_lines(core)
+           if line.split('=', 1)[0].encode().lower() not in have]
+    if not add:
+        return 0
+    head = eol if data and not data.endswith(b'\n') else b''
+    head += ('; ' + core + ': composite/S-Video colour for its fixed 81 MHz video clock').encode() + eol
+    with open(path, 'ab') as out:
+        out.write(head + b''.join(line + eol for line in add))
+        out.flush()
+        os.fsync(out.fileno())
+    return len(add)
+
+
+def pin_yc(card, core=CORE_NAME):
+    """ensure_yc on the card's yc.txt, logging one line. Never fails."""
+    try:
+        added = ensure_yc(Path(card) / 'yc.txt', core)
+    except (OSError, ValueError) as exc:
+        print(core + ': yc.txt not updated (' + type(exc).__name__
+              + "); composite/S-Video colour stays on MiSTer's estimate", file=sys.stderr)
+        return 0
+    if added:
+        print('yc.txt: added %d composite/S-Video colour lines for %s' % (added, core))
+    return added
 
 
 def alt_ini_names(card):
