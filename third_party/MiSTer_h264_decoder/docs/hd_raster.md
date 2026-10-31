@@ -78,10 +78,7 @@ and `sys_pll`). It runs from the same 50 MHz pin as `sys_pll`: VCO 810 = 50 x 81
 clock on the SD rasters and every clock on the native raster:
 
 - **ascal** samples on CE_PIXEL. Only DE matters to it (`hdmi_raster.md` §2).
-- **`yc_out`** (composite / S-Video) adds a phase increment each `clk_vid` cycle. Main computes
-  that increment from the clock it measures (`video.cpp` `set_yc_mode`: `CLK_VIDEO = ctime x 100 /
-  ptime`), so the subcarrier follows any clock. **To confirm on S-Video with the maintainer**:
-  analog first.
+- **`yc_out`** (composite / S-Video) adds a phase increment each `clk_vid` cycle. Main computes that increment from the clock it measures, so the subcarrier follows any clock. `video.cpp` `set_yc_mode` uses the `clk_vid` count of one whole frame (`frame_clocks`, words 19/20 of the framework's `video_calc` in `sys/hps_io.sv`) over the frame's 100 MHz time; with a framework that sends no count it falls back to one line (`CLK_VIDEO = ctime x 100 / ptime`). **To confirm on S-Video with the maintainer**: analog first.
 - **Timing.** ascal's input side (12.2 ns paths today, constrained at 27 MHz) and `yc_out` (13.4 ns)
   must close at 86 MHz. They are framework code: if they do not close, that is a finding to bring
   back, not something to retime here.
