@@ -30,14 +30,14 @@ func TestClientProfileFollowsCap(t *testing.T) {
 	if MaxVideoKbps != 8000 {
 		t.Fatalf("core limit %d kbit/s", MaxVideoKbps)
 	}
-	extra := plex.ProfileExtra(2000, 23.976)
+	extra := plex.ProfileExtra(2000, 23.976, false)
 	for _, want := range []string{"name=video.width&value=854", "name=video.height&value=480", "name=video.bitDepth&value=8", "name=audio.channels&value=2"} {
 		if !strings.Contains(extra, want) {
 			t.Errorf("profile for 2000 kbit/s lacks %q: %s", want, extra)
 		}
 	}
 	for _, kbps := range []int{0, 20000} {
-		if extra := plex.ProfileExtra(kbps, 23.976); !strings.Contains(extra, "name=video.height&value=720") {
+		if extra := plex.ProfileExtra(kbps, 23.976, false); !strings.Contains(extra, "name=video.height&value=720") {
 			t.Errorf("cap %d: profile %s", kbps, extra)
 		}
 	}

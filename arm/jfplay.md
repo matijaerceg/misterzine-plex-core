@@ -68,7 +68,10 @@ jfplay [--rbf path] [--core-name NAME] [--base SECONDS] [--start-in-file SECONDS
 passed to every FFmpeg HTTP open, including HLS children.  Without
 `--headers`, the environment variable `JFPLAY_HEADERS` supplies them; the app
 uses it, since the headers carry the token and a process's command line is
-readable by every other process.  `--cafile` enables
+readable by every other process.  `JFPLAY_NOPIC_CAPTURE`, when it names a
+path, is where a worker that exits 9 (the core decoded pictures but showed
+none) first saves the first 6 MiB of the video it sent, as raw Annex-B, for
+replay on the bench.  `--cafile` enables
 TLS peer verification using that CA bundle.  The URL is never logged unless
 `JFPLAY_LOG_URLS=1` is in the environment.
 
@@ -306,6 +309,7 @@ and fractional seconds use three decimal places.
 | 6 | A network/demux/decode failure occurred after playback opened. A socket read that sees no data for 15 s (direct) or 60 s (transcode) fails and FFmpeg reconnects at the same offset, backing off for about two minutes; only then does the worker exit 6. |
 | 7 | `--direct` only: the stream needs a server transcode (pre-check failed, or the core could not keep up). |
 | 8 | The stream gave no data while the media was being opened: `--open-timeout` ran out before the open and the stream probe finished, or the socket's read timeout did. The app ends playback with a line saying the server accepted the request but sent no video. |
+| 9 | The core decoded pictures but showed none for two seconds after the first access unit, four seconds in: the app retries the item as a smaller transcode. With `JFPLAY_NOPIC_CAPTURE` set to a path the first 6 MiB of the video sent, as raw Annex-B, is saved there first. |
 
 On natural EOF the final held video access unit carries
 `H264RING_F_END_OF_STREAM` after queued audio. On stop, a session reset discards

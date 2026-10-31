@@ -56,6 +56,15 @@
 #define PTS_MARGIN 90000
 #define PTS_CONTIG_TOLERANCE 90
 #define AUDIO_RESYNC_TOLERANCE 9000 /* 0.1 s: a decoded frame's timestamp this near the sample clock follows it */
+/* The no-picture watch: the core decodes but its display never picks a
+ * picture. Samples start four seconds after the first access unit, so a slow
+ * start is not mistaken for it, and eight in a row (two seconds of status
+ * polls) must agree. The capture keeps the start of the video as sent, enough
+ * for several GOPs, so the stream can be replayed on the bench. */
+#define NOPIC_GRACE_MS 4000
+#define NOPIC_MIN_DECODED 24
+#define NOPIC_HITS 8
+#define NOPIC_CAPTURE_MAX (6u * 1024u * 1024u)
 
 enum seek_state { SEEK_IDLE, SEEK_IN_PROGRESS, SEEK_READY, SEEK_ERROR };
 
@@ -66,7 +75,9 @@ enum exit_code { EX_OK = 0, EX_ARGS = 2, EX_CORE = 3, EX_OPEN = 4,
                  EX_NEEDS_TRANSCODE = 7,
                  /* the stream gave no data before --open-timeout, or the
                   * socket timed out, while the media was being opened */
-                 EX_OPEN_TIMEOUT = 8 };
+                 EX_OPEN_TIMEOUT = 8,
+                 /* the core decoded pictures but showed none */
+                 EX_NO_PICTURE = 9 };
 enum playback_state { STATE_OPENING, STATE_PLAYING, STATE_PAUSED,
                       STATE_ENDED, STATE_ERROR };
 
@@ -164,6 +175,11 @@ struct player {
     int lag_reanchor_seen;
     uint64_t open_deadline_ms; /* while opening: when --open-timeout runs out, 0 for never */
     int open_timed_out;
+    uint8_t *nopic_cap;        /* the video access units as received, up to NOPIC_CAPTURE_MAX */
+    size_t nopic_cap_len;
+    int nopic_cap_full;        /* capture stopped: the limit was reached or memory ran out */
+    uint64_t first_au_ms;      /* when the first video access unit reached the ring, 0 before */
+    unsigned nopic_hits;       /* consecutive status samples with pictures decoded and none shown */
 };
 
 static volatile sig_atomic_t caught_signal;
@@ -697,6 +713,39 @@ static void pal_log_header(unsigned type, const uint8_t *data, size_t len)
     logmsg("PAL-DIAG-1 parameter_set type=%u bytes=%zu hex=%s",type,len,hex);
 }
 
+/* Keeps the raw access units (before the VUI rewrite) for the no-picture
+ * capture. The whole access unit or nothing goes in, so the file stays valid
+ * Annex-B; a failed allocation only ends the capture, never playback. */
+static void nopic_capture(struct player *p, const uint8_t *data, size_t len)
+{
+    if (p->nopic_cap_full || !len) return;
+    if (len > NOPIC_CAPTURE_MAX - p->nopic_cap_len) { p->nopic_cap_full = 1; return; }
+    uint8_t *grown = realloc(p->nopic_cap, p->nopic_cap_len + len);
+    if (!grown) { p->nopic_cap_full = 1; return; }
+    memcpy(grown + p->nopic_cap_len, data, len);
+    p->nopic_cap = grown; p->nopic_cap_len += len;
+}
+
+static void nopic_save_capture(struct player *p)
+{
+    const char *path = getenv("JFPLAY_NOPIC_CAPTURE");
+    if (!path || !*path || !p->nopic_cap_len) return;
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        logmsg("no-picture capture: cannot create %s: %s", path, strerror(errno));
+        return;
+    }
+    size_t wrote = fwrite(p->nopic_cap, 1, p->nopic_cap_len, f);
+    int err = wrote == p->nopic_cap_len ? 0 : errno;
+    if (fclose(f) && !err) err = errno;
+    if (wrote != p->nopic_cap_len || err) {
+        logmsg("no-picture capture: writing %s failed: %s", path, strerror(err ? err : EIO));
+        unlink(path);
+        return;
+    }
+    logmsg("no-picture capture: %zu bytes of video saved to %s", p->nopic_cap_len, path);
+}
+
 static int write_au(struct player *p, AVPacket *pkt, unsigned flags)
 {
     if (!core_owner_ok(p)) return AVERROR_EXIT;
@@ -733,6 +782,8 @@ static int write_au(struct player *p, AVPacket *pkt, unsigned flags)
         video_bitrate_add(&p->bitrate, (uint32_t)pkt->size, video_duration90(p, pkt));
         /* the parameter sets as received, before any VUI rewrite */
         pal_capture_headers(&p->pal_headers, pkt->data, (size_t)pkt->size, pal_log_header);
+        if (!p->first_au_ms) p->first_au_ms = mono_ms();
+        nopic_capture(p, pkt->data, (size_t)pkt->size);
     }
     if (!rc && source_pts != AV_NOPTS_VALUE) {
         p->newest_video90 = clock_pts;
@@ -1430,6 +1481,24 @@ static void write_status(struct player *p, int force)
             fail(p, EX_NEEDS_TRANSCODE,
                  "direct stream needs a transcode: the core cannot keep up (%d ms behind)",
                  -(int)(int16_t)raw_lag);
+    }
+    if (have && !atomic_load(&p->exit_code) && p->first_au_ms &&
+        p->state == STATE_PLAYING && !p->paused && p->seek_state != SEEK_IN_PROGRESS &&
+        now - p->first_au_ms >= NOPIC_GRACE_MS) {
+        /* Some encoders (an Intel hardware transcode at 1280x720 was the case
+         * seen) make streams the core decodes but never displays: FE_PIC
+         * climbs while DISP_PICK stays 0 and audio plays over a black screen.
+         * This covers transcodes as well as --direct, so the app can retry at
+         * a smaller size. */
+        unsigned fe_pic = (unsigned)H264RING_ST(&st, FE_PIC);
+        unsigned shown = (unsigned)H264RING_ST(&st, DISP_PICK);
+        if (fe_pic >= NOPIC_MIN_DECODED && shown == 0) p->nopic_hits++;
+        else p->nopic_hits = 0;
+        if (p->nopic_hits >= NOPIC_HITS) {
+            nopic_save_capture(p);
+            fail(p, EX_NO_PICTURE, "the core decoded %u pictures but showed none in %u s",
+                 fe_pic, (unsigned)((now - p->first_au_ms) / 1000u));
+        }
     }
     char tmp[1024], clean[256], seek_clean[256], state[16], seek_state[16];
     snprintf(tmp, sizeof tmp, "%s.tmp.%ld", p->cfg.status, (long)getpid());
@@ -2213,6 +2282,7 @@ done:
     }
     result = atomic_load(&p.exit_code);
     write_status(&p, 1);
+    free(p.nopic_cap); p.nopic_cap = NULL; p.nopic_cap_len = 0;
     cleanup(&p, reader_started);
     return result;
 }

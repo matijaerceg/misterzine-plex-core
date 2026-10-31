@@ -39,7 +39,7 @@ Otherwise the app asks the server's universal transcoder for a decision
 (`/video/:/transcode/universal/decision`) and plays its progressive Matroska
 stream (`start.mkv`) over HTTP. The request asks as the Plex Web client, with
 extra profile lines that hold the transcode to the core's limits: H.264 High
-or Main, level 4.1, 8-bit, at the **Video bitrate** setting (8 Mbit/s at
+or Main, level 3.1, 8-bit, at the **Video bitrate** setting (8 Mbit/s at
 most), and stereo AAC audio, so the server downmixes surround sound. The
 bitrate steps below 3 Mbit/s also make the transcode smaller, so a low bitrate
 is spent on fewer pixels: at most 854x480 below 3 Mbit/s and 640x360 below
@@ -61,7 +61,9 @@ direct stream's parameter sets before the first picture is shown. If the check
 fails, the core refuses the stream, or the core keeps falling behind for
 several seconds, the app restarts the item once as a transcode at the current
 position. The switch is recorded in the playback log and is not shown as an
-error.
+error. When the core decodes a stream but shows no picture, the app likewise
+restarts the item once at the current position, as a transcode of at most
+854x480 for the rest of the playback.
 
 The app passes the token and its client identifier to `jfplay` as request
 headers; stream URLs never carry the token, and the playback log redacts it.

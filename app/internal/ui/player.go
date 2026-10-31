@@ -45,9 +45,12 @@ type Player struct {
 	// read on the caller's thread at each start. A listing's item comes
 	// without its tracks; the session fetches them and marks these.
 	SavedStreams func(item *plex.Item) (audio, subtitle string)
-	Hide         func()
-	exec         func(string, ...string) *exec.Cmd
-	stopGrace    time.Duration // how long a worker asked to stop has before it is killed; 0 is 3 s
+	// Capture is where jfplay saves the video of a playback that showed no
+	// picture; "" saves nothing.
+	Capture   string
+	Hide      func()
+	exec      func(string, ...string) *exec.Cmd
+	stopGrace time.Duration // how long a worker asked to stop has before it is killed; 0 is 3 s
 	// reportWait bounds StartAsync's wait for the last session's stopped
 	// report; 0 is 3 s
 	reportWait time.Duration
@@ -106,6 +109,9 @@ type Session struct {
 	// forceTranscode makes every later PlaybackInfo of this session ask for a
 	// transcode; fellBack records that the one automatic fallback was used.
 	forceTranscode, fellBack bool
+	// smallTranscode caps every later transcode of this session at 854x480;
+	// set by the no-picture retry (noPictureFallbackLocked).
+	smallTranscode bool
 	// session is the playback's transcode session id (plex.NewSession),
 	// made at the first start: seeks, track changes and the fallback reuse
 	// it, and the stopped report ends it.
@@ -464,10 +470,10 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 	if !reuseDirect {
 		kbps := s.capKbps()
 		s.mu.Lock()
-		force := s.forceTranscode || !p.directPlay()
+		force, small := s.forceTranscode || !p.directPlay(), s.smallTranscode
 		s.mu.Unlock()
 		burn := s.burnedSubtitle(subtitle)
-		info, err := s.playbackInfo(ctx, kbps, offset, audio, burn, force)
+		info, err := s.playbackInfo(ctx, kbps, offset, audio, burn, force, small)
 		if err != nil {
 			return err
 		}
@@ -533,7 +539,7 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 		args = append(args, "--direct")
 	} else if base > 0 {
 		// a transcode started at an offset: jfplay exits 8 when the server
-		// sends nothing in time (openTimeoutError)
+		// sends nothing in time (workerExitError)
 		args = append(args, "--open-timeout", strconv.Itoa(int(openTimeout/time.Second)))
 	}
 	args = append(args, "--fifo", p.Fifo, "--status", p.Status)
@@ -569,6 +575,9 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 	// this user only), not on the command line (readable by every process).
 	cmd.Env = append(os.Environ(), "MISTERZINE_JFPLAY_OWNER="+filepath.Clean(p.Binary),
 		"JFPLAY_HEADERS="+s.client.StreamHeaders())
+	if p.Capture != "" {
+		cmd.Env = append(cmd.Env, "JFPLAY_NOPIC_CAPTURE="+p.Capture)
+	}
 	s.mu.Lock()
 	if ctx.Err() != nil || s.closing || s.stopRequested {
 		s.mu.Unlock()
@@ -592,10 +601,10 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 		current, closing := s.cmd == cmd, s.closing
 		s.mu.Unlock()
 		if current && !closing {
-			if s.fallbackLocked(err) {
+			if s.fallbackLocked(err) || s.noPictureFallbackLocked(err) {
 				return
 			}
-			s.finishLocked(s.openTimeoutError(err))
+			s.finishLocked(s.workerExitError(err))
 		}
 	}()
 	return nil
