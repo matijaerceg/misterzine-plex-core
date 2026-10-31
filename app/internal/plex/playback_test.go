@@ -164,7 +164,8 @@ func TestDirectEligible(t *testing.T) {
 		{"rounded block boundary", videoPart(with(ok720, func(v *MediaStream) { v.Width, v.Height, v.FrameRate = 1280, 721, 29.97 }), 0), false},
 		{"narrow tall within budget", videoPart(with(ok720, func(v *MediaStream) { v.Width, v.Height, v.FrameRate = 960, 960, 29.97 }), 0), true},
 		{"narrow tall over rate", videoPart(with(ok720, func(v *MediaStream) { v.Width, v.Height, v.FrameRate = 848, 1024, 60 }), 0), false},
-		{"over block budget", videoPart(with(ok720, func(v *MediaStream) { v.Width, v.Height, v.FrameRate = 1200, 800, 24 }), 0), false},
+		{"padded 720p within block budget", videoPart(with(ok720, func(v *MediaStream) { v.Width, v.Height, v.FrameRate = 1280, 736, 24 }), 0), true},
+		{"over block budget", videoPart(with(ok720, func(v *MediaStream) { v.Width, v.Height, v.FrameRate = 1280, 832, 24 }), 0), false},
 		{"480p60 main", videoPart(ok480, 0), true},
 		{"no probe data trusts the worker's check", MediaPart{ID: "9"}, true},
 		{"unknown values pass", videoPart(MediaStream{Codec: "h264"}, 0), true},
@@ -244,7 +245,7 @@ func TestTranscodeSizeAndProfileExtra(t *testing.T) {
 	for _, want := range []string{
 		"add-limitation(scope=videoAudioCodec&scopeName=aac&type=upperBound&name=audio.channels&value=2&isRequired=true)",
 		"type=match&name=video.profile&list=high|main)",
-		"name=video.level&value=31)", "name=video.bitDepth&value=8)",
+		"name=video.level&value=41)", "name=video.bitDepth&value=8)",
 		"name=video.width&value=1280)", "name=video.height&value=720)", "name=video.frameRate&value=60)",
 		"add-transcode-target(type=videoProfile&context=streaming&protocol=http&container=mkv&videoCodec=h264&audioCodec=aac&replace=true)",
 	} {
