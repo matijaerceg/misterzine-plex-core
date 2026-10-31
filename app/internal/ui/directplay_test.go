@@ -27,8 +27,9 @@ func TestWorkerNeedsTranscodeCodes(t *testing.T) {
 
 // fallbackPlayer is a Player on f whose workers write a playing status at
 // position, then exit with the next code from codes (0 once they run out).
-// Its bitrate cap is 6 Mbit/s, above playVideoDirect's 4. launches returns
-// each worker's arguments.
+// A worker whose stream does not open (exit 4) writes no status, as jfplay
+// is still in its open then. Its bitrate cap is 6 Mbit/s, above
+// playVideoDirect's 4. launches returns each worker's arguments.
 func fallbackPlayer(t *testing.T, f *playServer, codes []int, position string) (*Player, func() [][]string) {
 	t.Helper()
 	p := f.player(t)
@@ -49,13 +50,36 @@ func fallbackPlayer(t *testing.T, f *playServer, codes []int, position string) (
 		if code == workerExitOpenTimeout {
 			state = "opening" // the stream never came: no picture was played
 		}
-		script := "printf 'state=" + state + "\\nposition=" + position + "\\nduration=300\\n' > '" + status + "'; sleep 0.4; exit " + strconv.Itoa(code)
+		script := "printf 'state=" + state + "\\nposition=" + position + "\\nduration=300\\n' > '" + status + "'; "
+		if code == workerExitOpenFailed {
+			script = ""
+		}
+		script += "sleep 0.4; exit " + strconv.Itoa(code)
 		return exec.Command("sh", "-c", script)
 	}
 	return p, func() [][]string {
 		mu.Lock()
 		defer mu.Unlock()
 		return append([][]string(nil), launches...)
+	}
+}
+
+// recordSleeps replaces noPictureSleep for the test with one that does not
+// wait and records each wait with the worker launch it came before.
+func recordSleeps(t *testing.T, launches func() [][]string) func() []string {
+	t.Helper()
+	var mu sync.Mutex
+	var sleeps []string
+	noPictureSleep = func(d time.Duration) {
+		mu.Lock()
+		defer mu.Unlock()
+		sleeps = append(sleeps, d.String()+" before launch "+strconv.Itoa(len(launches())+1))
+	}
+	t.Cleanup(func() { noPictureSleep = time.Sleep })
+	return func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), sleeps...)
 	}
 }
 
@@ -248,19 +272,23 @@ func TestDirectFallsBackToTranscodeOnce(t *testing.T) {
 // A stream the core decoded but never showed (exit 9) is played again at the
 // same position as a transcode of at most 854x480, once: the second exit 9
 // ends playback with the no-picture error, which carries the worker's exit.
-// After the direct fallback the small retry is still available.
+// After the direct fallback the small retry is still available. The server
+// is given noPictureRestartDelay before the small transcode, and the direct
+// fallback no wait.
 func TestNoPictureRetriesSmallTranscodeOnce(t *testing.T) {
 	for name, tc := range map[string]struct {
-		video string
-		codes []int
-		sizes []string // each decision's videoResolution
+		video  string
+		codes  []int
+		sizes  []string // each decision's videoResolution
+		sleeps []string
 	}{
-		"transcode": {playVideoTranscode, []int{workerExitNoPicture, workerExitNoPicture}, []string{"1280x720", "854x480"}},
-		"direct":    {playVideoDirect, []int{workerExitNeedsTranscode, workerExitNoPicture, workerExitNoPicture}, []string{"1280x720", "854x480"}},
+		"transcode": {playVideoTranscode, []int{workerExitNoPicture, workerExitNoPicture}, []string{"1280x720", "854x480"}, []string{"1.5s before launch 2"}},
+		"direct":    {playVideoDirect, []int{workerExitNeedsTranscode, workerExitNoPicture, workerExitNoPicture}, []string{"1280x720", "854x480"}, []string{"1.5s before launch 3"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newPlayServer(t, tc.video)
 			p, launches := fallbackPlayer(t, f, tc.codes, "42")
+			sleeps := recordSleeps(t, launches)
 			s, err := p.Start(playItem(), 10)
 			if err != nil {
 				t.Fatal(err)
@@ -296,7 +324,129 @@ func TestNoPictureRetriesSmallTranscodeOnce(t *testing.T) {
 			if !strings.Contains(string(log), "restarting at 42.000 s as a transcode of at most 854x480") || !strings.Contains(string(log), "small_transcode=true") {
 				t.Fatalf("log does not say so: %s", log)
 			}
+			if got := sleeps(); strings.Join(got, ",") != strings.Join(tc.sleeps, ",") {
+				t.Fatalf("waits %v, want %v", got, tc.sleeps)
+			}
 		})
+	}
+}
+
+// A small transcode whose stream the server closes unopened (exit 4) soon
+// after the no-picture restart is opened once more, after the same wait, at
+// the same position, on the same session and still small; a second exit 4
+// ends playback with the worker's exit. An ordinary transcode that does not
+// open is not retried.
+func TestSmallTranscodeReopensOnce(t *testing.T) {
+	small := []string{"1.5s before launch 2", "1.5s before launch 3"}
+	for name, tc := range map[string]struct {
+		codes  []int
+		sizes  []string // each decision's videoResolution
+		sleeps []string
+		fails  bool
+	}{
+		"plays":    {[]int{workerExitNoPicture, workerExitOpenFailed, 0}, []string{"1280x720", "854x480", "854x480"}, small, false},
+		"fails":    {[]int{workerExitNoPicture, workerExitOpenFailed, workerExitOpenFailed}, []string{"1280x720", "854x480", "854x480"}, small, true},
+		"ordinary": {[]int{workerExitOpenFailed}, []string{"1280x720"}, nil, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newPlayServer(t, playVideoTranscode)
+			p, launches := fallbackPlayer(t, f, tc.codes, "42")
+			sleeps := recordSleeps(t, launches)
+			s, err := p.Start(playItem(), 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = waitDone(t, s)
+			if !tc.fails && err != nil {
+				t.Fatalf("playback ended with %v, want a clean end", err)
+			}
+			if tc.fails {
+				var ee *exec.ExitError
+				if !errors.As(err, &ee) || ee.ExitCode() != workerExitOpenFailed {
+					t.Fatalf("playback ended with %v, want the worker's open failure", err)
+				}
+			}
+			l := launches()
+			if len(l) != len(tc.codes) {
+				t.Fatalf("launches %v, want %d", l, len(tc.codes))
+			}
+			for i := 1; i < len(l); i++ {
+				if !containsArgPair(l[i], "--base", "42") {
+					t.Fatalf("launch %d did not resume at the first worker's position: %v", i+1, l[i])
+				}
+			}
+			d := f.requests("/video/:/transcode/universal/decision")
+			if len(d) != len(tc.sizes) {
+				t.Fatalf("decisions %+v", d)
+			}
+			for i, want := range tc.sizes {
+				q := d[i].q
+				if got := q.Get("videoResolution"); got != want {
+					t.Errorf("decision %d at %s, want %s", i, got, want)
+				}
+				if q.Get("session") != d[0].q.Get("session") {
+					t.Errorf("decision %d on session %s, want %s", i, q.Get("session"), d[0].q.Get("session"))
+				}
+				if i > 0 && q.Get("offset") != "42" {
+					t.Errorf("decision %d at offset %s, want 42", i, q.Get("offset"))
+				}
+			}
+			if got := sleeps(); strings.Join(got, ",") != strings.Join(tc.sleeps, ",") {
+				t.Fatalf("waits %v, want %v", got, tc.sleeps)
+			}
+			log, _ := os.ReadFile(p.LogTo)
+			want := 0
+			if len(tc.codes) > 1 {
+				want = 1
+			}
+			if n := strings.Count(string(log), "small transcode did not open (jfplay exit 4)"); n != want || (want == 1 && !strings.Contains(string(log), "starting it once more at 42.000 s")) {
+				t.Fatalf("log has %d re-open lines, want %d: %s", n, want, log)
+			}
+		})
+	}
+}
+
+// A stop asked for while the app waits before the small transcode ends the
+// session there: no decision is asked for and no worker started.
+func TestStopDuringNoPictureWaitStartsNothing(t *testing.T) {
+	f := newPlayServer(t, playVideoTranscode)
+	p, launches := fallbackPlayer(t, f, []int{workerExitNoPicture}, "42")
+	var mu sync.Mutex
+	var s *Session
+	noPictureSleep = func(time.Duration) {
+		mu.Lock()
+		defer mu.Unlock()
+		s.mu.Lock()
+		s.stopRequested = true // what StopUI does before its Stop
+		s.mu.Unlock()
+	}
+	t.Cleanup(func() { noPictureSleep = time.Sleep })
+	mu.Lock()
+	started, err := p.Start(playItem(), 10)
+	s = started
+	mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		s.mu.Lock()
+		stopping := s.stopRequested
+		s.mu.Unlock()
+		if stopping || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	s.Stop()
+	if err := waitDone(t, s); err != nil {
+		t.Fatalf("playback ended with %v, want a clean end", err)
+	}
+	if l := launches(); len(l) != 1 {
+		t.Fatalf("launches %v, want only the first", l)
+	}
+	if d := f.requests("/video/:/transcode/universal/decision"); len(d) != 1 {
+		t.Fatalf("decisions %+v, want only the first", d)
 	}
 }
 
