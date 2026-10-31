@@ -1762,3 +1762,17 @@ canary PASS, ALM 40,943 (98 %), RAM 421, DSP 110, `H264_20261014.rbf`.
 **On .201:** HDMI 27.000 MHz at `video_mode=2` (720x480); word 1 0x0101; 480p the 10 Mbit/s Sunshine capture (1,315
 pictures) and x264 720p30 8 Mbit/s (600) -- errors / late 0, idle 64.8 % / 17.5 % as main's; 480i the capture, errors /
 late / `disp_fetch_late` 0. Restored.
+
+## 52. The picture bound at a store's 4,096 macroblocks (2026-10-31)
+
+A Plex server with Intel Quick Sync transcoding to 720p sent pictures the core decoded and never showed: the
+encoder codes 1280x720 as 1280x736 (`pic_height_in_map_units_minus1` 45, `frame_crop_bottom_offset` 8), 3,680
+macroblocks, and `recon_top` refused everything above Level 3.1's MaxFS of 3,600 (`rc_ref_size` climbing, pictures
+shown 0). The bound is now the store's, 4,096 macroblocks: the 2 MiB store's layout (luma, chroma, the side words,
+512 B a macroblock) depends only on `W x HF` and ends at 2^18 words exactly at 4,096; reference fetches are clamped
+to the picture and the co-located reads stay inside it (`h264_recon.md` §2.2). Word 81's `cap_max_mbs` reads 4,096
+(`ring_layout.py`; the value of a capability constant, its meaning unchanged), the clients' `h264check` defaults to
+it. The display already took the crop: `disp_fit` computes `Hc = 16 HF - 2 (top + bottom)` = 720 from the store's
+736 lines. `run_recon_top.sh`: `qsv` (1280x736 cropped to 720, I / P / B) and `edge` (1024x1024, a store exactly)
+bit-exact, `big` now 1312x800 (4,100, refused); S8 (the 3,600 bound back) and S9 (the side words moved into the
+store's slack) caught. Not yet fitted.

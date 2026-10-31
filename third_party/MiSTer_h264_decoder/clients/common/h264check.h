@@ -17,14 +17,14 @@ enum h264check {
     H264C_MBAFF,            /* mb_adaptive_frame_field_flag 1 */
     H264C_CHROMA,           /* not 4:2:0 */
     H264C_BITDEPTH,         /* not 8 bits */
-    H264C_SIZE,             /* more than max_mbs macroblocks a picture (0.11: 3,600, 1280x720) */
+    H264C_SIZE,             /* more than max_mbs macroblocks a picture (4,096: 1280x720 coded up to 1280x816) */
     H264C_PROFILE,          /* a profile the core does not decode (SVC / MVC, ...) */
     H264C_RATE,             /* (0.11) more than mb_rate macroblocks a second (720p at 60 frames/s) */
 };
 
 struct h264check_state {
     /* the core's limits, set before the first h264check_au (h264ring_caps, interface 0.11; 0: the
-     * 0.11 core's 3,600 / 108,000) and the stream's frame rate (the container's; 0 unknown: no
+     * core's 4,096 / 108,000) and the stream's frame rate (the container's; 0 unknown: no
      * rate check -- a raw .264 has none) */
     unsigned max_mbs, mb_rate;
     double fps;

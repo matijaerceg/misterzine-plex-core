@@ -7,7 +7,7 @@
  *       SIGTERM. DIR: the binary's own directory (/media/fat/h264player: the typefaces too).
  *   h264player [--dir DIR] play FILE
  *       one file through the same player, no browser; ends with it (bring-up and the rig's tests)
- * What plays is the core's: H.264 Main / High, CABAC, 8-bit 4:2:0, at most 3,600 macroblocks a
+ * What plays is the core's: H.264 Main / High, CABAC, 8-bit 4:2:0, at most 4,096 macroblocks a
  * picture (1280x720) and 108,000 a second (720p30, 480p60: h264ring_caps). Anything else is refused before a byte of it reaches the core, the reason on screen
  * (docs/player.md "The envelope"). */
 #include <dirent.h>

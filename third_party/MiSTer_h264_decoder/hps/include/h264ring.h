@@ -391,7 +391,8 @@ void h264ring_raster(const struct h264ring_status *st, struct h264ring_raster *r
  * raster -- a program choosing a transcode's size gains nothing above it). A word 81 of 0 (no
  * status frame yet) reads as 0.10's limits. */
 struct h264ring_caps {
-    unsigned max_mbs;                  /* 3,600: 1280x720 (Level 3.1's MaxFS) */
+    unsigned max_mbs;                  /* 4,096: a 2 MiB store (1280x720 and its padded 1280x736;
+                                          cores before 2026-10-31 said 3,600, Level 3.1's MaxFS) */
     unsigned mb_rate;                  /* 108,000 a second: 1280x720 at 30, 854x480 at 60 (MaxMBPS) */
     unsigned native_h;                 /* 480 */
 };

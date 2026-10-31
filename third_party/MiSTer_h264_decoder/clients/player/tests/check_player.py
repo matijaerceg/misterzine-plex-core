@@ -293,11 +293,11 @@ def main():
             consumed.add(md5(v["data"]))
     leaked = {n: len(consumed & m) for n, m in refused_md5.items() if consumed & m}
     cant = [ln for ln in log if "h264player: cannot play" in ln]
-    reasons = {"d_big": "1344x720 is larger", "g_fast": "too fast", "j_ffv1": "cannot decode", "k_hd": "larger than SD"}
+    reasons = {"d_big": "1344x784 is larger", "g_fast": "too fast", "j_ffv1": "cannot decode", "k_hd": "larger than SD"}
     named = {n: any(n in ln and w in ln for ln in cant) for n, w in reasons.items()}
     pics = load_pics(outdir)
     pic_sess = sorted(set(p["sess"] for p in pics))
-    check("(e) refused: a CAVLC 1344x720 (its size, CAVLC checked last), 720p60 (too fast), FFV1 (not decoded), MPEG-4 1280x720 (over SD) -- none reached the core, each reason named",
+    check("(e) refused: a CAVLC 1344x784 (its size, CAVLC checked last), 720p60 (too fast), FFV1 (not decoded), MPEG-4 1280x720 (over SD) -- none reached the core, each reason named",
           not leaked and all(named.values()) and len(pic_sess) == 3,
           "leaked %s, named %s, sessions of pictures %d (f_mpeg4, h_mpeg2i, i_mjpeg)" % (leaked, named, len(pic_sess)))
 

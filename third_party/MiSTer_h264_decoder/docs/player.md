@@ -66,14 +66,15 @@ The core decides it; the sources are `docs/spec_hardening.md`, `docs/high_profil
 | | Plays | Refused (by the player, before the ring) |
 |---|---|---|
 | Video (P7, decoded on the ARM) | MPEG-1, MPEG-2 (DVD rips, broadcast recordings; interlaced as field pairs, repeat_first_field as pic_struct), MPEG-4 Part 2 (Xvid, DivX 4-6), MS-MPEG4 v1-v3 (DivX 3), WMV7 / WMV8, Theora, MJPEG (4:2:2 / full range converted), H.263 -- **up to 720x576 at 30 frames/s**, 8-bit 4:2:0 or 4:2:2 | the same codecs above 720x576 ("larger than SD: too much for the ARM") or 30 frames/s ("too fast for the ARM"); HEVC, AV1, VP8 / VP9, VC-1 / WMV9, FFV1, ProRes and the rest ("the MiSTer cannot decode it"); other pixel formats (4:4:4, 10-bit) |
-| Video | H.264 Main / High (CABAC), and CAVLC (Baseline / Constrained Baseline: phones, webcams, old iPod files; Main / High coded CAVLC) rewritten into CABAC by the library (P6, up to ~4-5 Mbit/s at 480p60 in real time); 8-bit, 4:2:0; progressive or field-coded (PAFF); any shape up to **3,600 macroblocks** a picture (interface 0.11: 1280x720, 854x480, 720x576 and smaller, cropped; 1,620 before); 23.976-60 frames/s, up to **108,000 macroblocks a second** (720p at 30 or less, 480p at 60) | 1080p (more than 3,600 macroblocks); 720p at 50 / 60 frames/s ("too fast": 216,000 a second); MBAFF interlaced (x264's `--interlaced`); High 10 (most fansubbed anime), 4:2:2, 4:4:4, monochrome; Baseline / Extended features the rewrite cannot carry (FMO, ASO, redundant pictures, data partitioning) |
+| Video | H.264 Main / High (CABAC), and CAVLC (Baseline / Constrained Baseline: phones, webcams, old iPod files; Main / High coded CAVLC) rewritten into CABAC by the library (P6, up to ~4-5 Mbit/s at 480p60 in real time); 8-bit, 4:2:0; progressive or field-coded (PAFF); any shape up to **4,096 macroblocks** a picture (1280x720 and its padded 1280x736, 854x480, 720x576 and smaller, cropped; 3,600 from interface 0.11 until 2026-10-31, 1,620 before); 23.976-60 frames/s, up to **108,000 macroblocks a second** (720p at 30 or less, 480p at 60) | 1080p (more than 4,096 macroblocks); 720p at 50 / 60 frames/s ("too fast": 216,000 a second); MBAFF interlaced (x264's `--interlaced`); High 10 (most fansubbed anime), 4:2:2, 4:4:4, monochrome; Baseline / Extended features the rewrite cannot carry (FMO, ASO, redundant pictures, data partitioning) |
 | Rate | Real time up to 97,200 macroblocks a second (854x480p60 at about 10 Mbit/s; 1.43x on the rig, `history.md` §19); 720p24 films (x264 B-frames: ~1.2x estimated at 4 Mbit/s, marginal at 8 Mbit/s of dense content, `mb_pipeline.md` §4g); 720p30 is 108,000 -- real time for light streams, behind for x264 above ~4 Mbit/s until roadmap Phase 5c part 2 | A file above 108,000 a second is refused by name (`h264check`'s rate check, 0.11, from the container's frame rate; a rate of 0 or above 120 -- a VFR file, a remux's time base -- is taken as unknown: no rate check); a heavy one below it decodes correctly and falls behind visibly (the late counter) |
 | Audio | AAC, AC-3, E-AC-3, DTS (core), MP3, Opus, Vorbis, FLAC, mixed down to 48 kHz stereo on the ARM (R2: about 7-13 % of one A9 core); (P7) MP2 (DVDs, broadcast), LPCM (DVD, WAV in AVI), WMA v1 / v2, IMA / MS ADPCM | TrueHD (not built: 37 % of a core, R2); its file plays silent unless another track is picked; ALAC (not built: P3) |
 | Containers | MKV / WebM-with-H.264, MP4 / MOV / M4V, MPEG-TS / M2TS / MTS, raw `.264` / `.h264`; (P7) AVI / DivX, MPEG-PS (`.mpg`, `.mpeg`, `.vob`), MPEG elementary (`.m1v`, `.m2v`), ASF (`.wmv`, `.asf`), Ogg (`.ogv`), 3GP | FLV |
 | Subtitles | A `.srt` beside the file (`name.srt` or `name.<lang>.srt`); the file's text tracks: SRT, ASS / SSA (as plain text), mov_text, WebVTT | PGS, VobSub, DVB (bitmaps: not shown, not offered) |
 
-**Why the check is the player's:** a stream over the core's bound (3,600 macroblocks since
-interface 0.11, word 81's `cap_max_mbs`; 1,620 before) is not refused by the core at the SPS.
+**Why the check is the player's:** a stream over the core's bound (4,096 macroblocks since
+2026-10-31, word 81's `cap_max_mbs`; 3,600 from interface 0.11, 1,620 before) is not refused by
+the core at the SPS.
 - If both dimensions are within 128 macroblocks, the SPS passes. `recon_top` then drops every
   slice: a blank screen, with only `rc_ref_size` (status word 20) counting.
 - `REF_SIZE` (12) is raised only for a dimension past 128 macroblocks (`sps_pps.sv`).
@@ -165,7 +166,7 @@ lesson). Cues are drawn as plain text, at the bottom, up to four lines (`ui.c`).
   with the settings request and a scripted pad.
 - It is scored by `check_player.py` with `tools/ring_model.py`'s consumer and ffmpeg references.
 - Checks: (b) the list's order; (c) the folder plays on; (d) every AU byte-identical with its PTS;
-  (e) the refusals (a CAVLC 1344x720 refused for its size -- 3,780 macroblocks, over 0.11's 3,600;
+  (e) the refusals (a CAVLC 1344x784 refused for its size -- 4,116 macroblocks, over the core's 4,096;
   a 720p60 file refused as too fast, `g_fast`); (v) a CAVLC file plays (every PPS the
   core read is CABAC, and ffmpeg decodes what it read to the file's own pictures); (f) a folder
   entered; (g) the seek; (r1) / (r2) the refresh rate; (s1) / (s2) subtitles; (z1) / (z2) the

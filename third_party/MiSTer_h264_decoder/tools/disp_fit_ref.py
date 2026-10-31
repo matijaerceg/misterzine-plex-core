@@ -232,6 +232,10 @@ def selftest():
     # steps 1.5 rows (dv 1); letterboxed at 480i 720x405 -> the vertical step 1.78 (dv 1)
     f = fit(80, 45, mode='fill')
     assert (f['ow'], f['oh'], f['dh'], f['dv']) == (720, 480, 2, 1), f
+    # (2026-10-31) Quick Sync's 720p: coded 80 x 46, frame_crop_bottom_offset 8 (CropUnitY 2): the
+    # same 1280x720 from row 0 -- the fit never sees the 16 padded lines
+    f = fit(80, 46, crop=(0, 0, 0, 0, 8), mode='fill')
+    assert (f['wc'], f['hc'], f['lx'], f['ty'], f['crop_bad']) == (1280, 720, 0, 0, False), f
     f = fit(80, 45, il=True)
     assert f['ow'] == 720 and f['dh'] == 2, f
     # 704x480 at 10:11 on 480i: the snap, and NO vertical decimation (every line of each field)
@@ -415,7 +419,7 @@ def vectors(n, path, seed=1):
                 (3840, 2160), (1366, 768), (2560, 1080), (640, 480), (0, 1080), (4095, 1)]
     while len(cases) < n:
         w = rnd.randint(1, 128)
-        h = rnd.randint(1, max(1, min(128, 3600 // w)))   # 0.11: pictures to 3,600 macroblocks
+        h = rnd.randint(1, max(1, min(128, 4096 // w)))   # pictures to 4,096 macroblocks (3,600 until 2026-10-31)
         cuy4 = rnd.randint(0, 1)
         cr = (cuy4, rnd.randint(0, 8 * w), rnd.randint(0, 8 * w), rnd.randint(0, 4 * h), rnd.randint(0, 4 * h)) \
             if rnd.random() < 0.5 else (0, 0, 0, 0, 0)

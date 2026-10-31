@@ -66,7 +66,8 @@ never reads a PPS** (CABAC is invisible to it), so:
   source's transcode at `MaxWidth=720` (a 16:9 film at 720x404); "width >= 721 -> height <= 480"
   admits the same files and gives a 1920-wide source `MaxWidth 854 / MaxHeight 480`, measured.
 - **(Interface 0.11, 2026-10-02: 720p; roadmap Phase 5c.)** The core decodes up to 3,600
-  macroblocks (1280x720) and is designed for 108,000 a second (word 81, `h264ring_caps()`), so
+  macroblocks (1280x720; 4,096 since 2026-10-31, so a transcode an Intel encoder codes as
+  1280x736 decodes too) and is designed for 108,000 a second (word 81, `h264ring_caps()`), so
   direct play grows to **1280x720 at <= 30 frames/s** -- 720p24 / 720p30 files play without a
   transcode -- by the base conditions (`Width` <= 1280, `Height` <= 720, both required) and THREE
   bands, every one keyed on the width: width <= 720 -> height <= 576; width 721-864 -> height <=
@@ -105,8 +106,8 @@ the profile's (9.6 Mbit/s of video).
 
 Before the first access unit reaches the ring the client parses the SPS / PPS itself:
 `entropy_coding_mode_flag` 0 (CAVLC), `frame_mbs_only_flag` 0 with
-`mb_adaptive_frame_field_flag` 1 (MBAFF), `profile_idc` 66, a picture over the core's bound (0.11:
-3,600 macroblocks, word 81; 1,620 before), or (0.11) a stream above its macroblock rate (108,000 a
+`mb_adaptive_frame_field_flag` 1 (MBAFF), `profile_idc` 66, a picture over the core's bound (4,096
+macroblocks, word 81; 3,600 from 0.11 until 2026-10-31, 1,620 before), or (0.11) a stream above its macroblock rate (108,000 a
 second, from the container's frame rate: a 720p60 file).
 On any of them it asks `PlaybackInfo` again with direct play, direct stream and stream copy all
 off -- a transcode the server's own encoder makes, which is CABAC unless the admin chose x264's

@@ -137,19 +137,27 @@
 #   T6  recon_inter: a claimed bank's row count not reset (the last item's count) (bsp) -> [pre] / [hang]
 #       (the stale count reads ahead, or wraps its 5 bits below the rows still owed: a hang)
 #
-# Interface 0.11, 720p (2 MiB stores, Level 3.1's MaxFS: docs/h264_recon.md S2.2): hd -- 1280x720,
+# Interface 0.11, 720p (2 MiB stores: docs/h264_recon.md S2.2): hd -- 1280x720,
 #   3 pictures (I, P, B with temporal direct; High: the 8x8 transform), 3,600 macroblocks a
-#   picture: neighbouring stores overlap at 1 MiB; big -- 1344x720 (3,780 macroblocks), one
-#   picture, refused (+expect_refused: every slice counted in ref_size, nothing written or shown).
+#   picture: neighbouring stores overlap at 1 MiB; qsv -- (2026-10-31) Intel Quick Sync's 720p,
+#   coded 1280x736 with frame_crop_bottom_offset 8 (h264_metadata), the same 3 pictures, 3,680
+#   macroblocks: above Level 3.1's MaxFS, inside a store; edge -- 1024x1024, I / P / B (temporal
+#   direct), 4,096 macroblocks: the side words end on the store's last word; big -- 1312x800 (4,100 macroblocks),
+#   one picture, refused (+expect_refused: every slice counted in ref_size, nothing written or shown).
 #   S1  recon_mb: the current picture's store at << 17 (1 MiB stores)   (hd)  -> [pre] / [post]
 #   S2  recon_inter: a reference read at << 17                          (hd)  -> [pre]
 #   S3  recon_mb: the co-located (direct) side words read at << 17      (hd)  -> [pre]
 #   S4  recon_top: the bound back at 1,620 (0.10's)                     (hd)  -> [count] / [hang]
-#   S5  recon_top: no bound (a 3,780-macroblock picture decoded into a 2 MiB store) (big) -> [refuse]
+#   S5  recon_top: no bound (a 4,100-macroblock picture decoded into a 2 MiB store) (big) -> [refuse]
 #   S6  recon_top: the refused slice still handed to recon_dpb (a store opened, the unwritten
 #       store emitted to the display: the defect found 2026-10-02, the 1,620 bound had it) (big) -> [refuse]
 #   S7  recon_top: (perf/retime) the slice handed to recon_dpb a cycle before the registered compare
 #       settles (sr_d2: the previous slice's verdict -- reset's 0 for the first)          (big) -> [refuse]
+#   S8  recon_top: the bound back at Level 3.1's 3,600 (2026-10-31: Quick Sync's 1280x736 refused) (qsv)
+#       -> [count] / [hang] / [out]
+#   S9  recon_mb: the side words 8 W HF higher (at 56 W HF, not 48): harmless while a picture leaves the
+#       store slack (hd: 72 x 3,600 words < 2^18), at 4,096 macroblocks they run into the next store,
+#       where the B picture's own rows overwrite them before its direct read (edge) -> [pre] / [post]
 #
 # Interface 0.16, the colour (docs/colour.md): twenty clips of two IDR pictures, the VUI written by ffmpeg's
 #   h264_metadata (every Table E-5 class, both ranges, the size rule at 1,280 wide / 576 and 592 high / a
@@ -205,10 +213,11 @@ verdict() {     # label name
     echo "  PASS $1: $(grep -m1 '^recon_top_tb:' "$W/$2.log" | sed 's/^recon_top_tb: //')"; STEMS+=("$2")
   else echo "  FAIL $1"; grep -m3 "FAIL" "$W/$2.log" | sed 's/^/    /'; fail=1; fi
 }
-x264() {        # name size frames params [filter] -> .264 + fixture
+x264() {        # name size frames params [filter [h264_metadata options]] -> .264 + fixture
   local f="testsrc2=size=$2:rate=24"; [ -n "${5:-}" ] && f="$f,$5"
+  local bsf="h264_mp4toannexb"; [ -n "${6:-}" ] && bsf="$bsf,h264_metadata=$6"
   ffmpeg -v error -f lavfi -i "$f" -frames:v "$3" -c:v libx264 -pix_fmt yuv420p -x264-params "$4" \
-    -bsf:v h264_mp4toannexb -f h264 -y "$W/$1.264" && fx "$1" python3 tools/recon_top_golden.py "$W/$1.264"
+    -bsf:v "$bsf" -f h264 -y "$W/$1.264" && fx "$1" python3 tools/recon_top_golden.py "$W/$1.264"
 }
 
 echo "== GREEN: x264 clips (refs-free) =="
@@ -249,16 +258,24 @@ else
   echo "  SKIP: ffmpeg with libx264 not found"
 fi
 
-echo "== GREEN: 720p (interface 0.11: 2 MiB stores, the 3,600-macroblock bound) =="
+echo "== GREEN: 720p (interface 0.11: 2 MiB stores; the bound a store's 4,096 macroblocks) =="
 if ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libx264; then
   x264 hd 1280x720 3 "cabac=1:8x8dct=1:bframes=1:b-pyramid=0:ref=2:keyint=3:crf=30:weightp=0:direct=temporal" &
-  x264 big 1344x720 1 "cabac=1:keyint=1:crf=36" &
+  # (2026-10-31) the shape Intel Quick Sync sends for 720p: 46 macroblock rows, the last 16 lines cropped
+  x264 qsv 1280x736 3 "cabac=1:8x8dct=1:bframes=1:b-pyramid=0:ref=2:keyint=3:crf=30:weightp=0:direct=temporal" "" "crop_bottom=16" &
+  # exactly a store: luma, chroma and the co-located side words fill its 2^18 words
+  x264 edge 1024x1024 3 "cabac=1:8x8dct=1:bframes=1:b-pyramid=0:ref=2:keyint=3:crf=30:weightp=0:direct=temporal" &
+  x264 big 1312x800 1 "cabac=1:keyint=1:crf=36" &
   wait
   run $W/sim hd &
+  run $W/sim qsv &
+  run $W/sim edge &
   run $W/sim big big +expect_refused &
   wait
   verdict "1280x720 I / P / B (temporal direct), 3,600 macroblocks a picture (hd)" hd
-  verdict "1344x720 (3,780 macroblocks): refused, nothing written (big)" big
+  verdict "1280x736 cropped to 720 (Quick Sync's shape), I / P / B, 3,680 macroblocks a picture (qsv)" qsv
+  verdict "1024x1024 I / P / B (temporal direct), 4,096 macroblocks: a store exactly (edge)" edge
+  verdict "1312x800 (4,100 macroblocks): refused, nothing written (big)" big
 else
   echo "  SKIP: ffmpeg with libx264 not found"
 fi
@@ -597,11 +614,15 @@ PYEOF
          "base_q <= dpb_base + {7'd0, gcode_q[6:2], 17'd0} + plane_off;" hd pre &
   mut S3 h264/dec/recon_mb_fsm.svh "wire  [28:0] col_base_w = dpb_base + {6'd0, col_store, 18'd0} + off_side;" \
          "wire  [28:0] col_base_w = dpb_base + {7'd0, col_store, 17'd0} + off_side;" hd pre &
-  mut S4 h264/dec/recon_top.sv "sz_over <= (sz_prod > 21'd3600);" "sz_over <= (sz_prod > 21'd1620);" hd "count|hang|out" &
-  mut S5 h264/dec/recon_top.sv "sz_over <= (sz_prod > 21'd3600);" "sz_over <= 1'b0;" big refuse +expect_refused &
+  mut S4 h264/dec/recon_top.sv "sz_over <= (sz_prod > 21'd4096);" "sz_over <= (sz_prod > 21'd1620);" hd "count|hang|out" &
+  mut S5 h264/dec/recon_top.sv "sz_over <= (sz_prod > 21'd4096);" "sz_over <= 1'b0;" big refuse +expect_refused &
   mut S6 h264/dec/recon_top.sv "wire         dpb_slice_ready = sr_d3 && !sz_over;" "wire         dpb_slice_ready = sr_d3;" big refuse +expect_refused &
   # (perf/retime) the size's register stages: the hand-off a cycle before the compare has settled
   mut S7 h264/dec/recon_top.sv "wire         dpb_slice_ready = sr_d3 && !sz_over;" "wire         dpb_slice_ready = sr_d2 && !sz_over;" big refuse +expect_refused &
+  # (2026-10-31) the bound a store's, not Level 3.1's: Quick Sync's 1280x736 must decode
+  mut S8 h264/dec/recon_top.sv "sz_over <= (sz_prod > 21'd4096);" "sz_over <= (sz_prod > 21'd3600);" qsv "count|hang|out" &
+  mut S9 h264/dec/recon_mb.sv "wire  [28:0] off_side = {3'd0, plane_mbs, 5'd0} + {4'd0, plane_mbs, 4'd0};" \
+         "wire  [28:0] off_side = {3'd0, plane_mbs, 5'd0} + {4'd0, plane_mbs, 4'd0} + {5'd0, plane_mbs, 3'd0};" edge "pre|post" &
   wait
   # P5d, the output process (sequenced: memory)
   mut O1 h264/dec/recon_dpb.sv "(!best_found || sq_poc < best_poc)" "(!best_found || sq_poc > best_poc)" c44b out &

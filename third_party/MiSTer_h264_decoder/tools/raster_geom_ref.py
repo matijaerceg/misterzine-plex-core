@@ -31,8 +31,9 @@ active lines end by 3 Ae (1,261,260 / 1,529,280):
   fits iff 1 <= Rw <= 2,048 (the reader's line slots, its 11-bit column; hd_raster), 1 <= Rh <= 2,048
            (a 128-macroblock-tall picture; then L >= 615 and NT <= 2,635: v_pos's 12 bits hold it),
            L - Rw >= HBL (20: ascal's 17 dots of DE low + margin), 16 W <= 2,048 (coded: the decoder's
-           own 128-macroblock side bound). Every picture the decoder accepts (<= 3,600 macroblocks)
-           then fits picture-sized: Rh (Rw + 20) <= 962,560 <= 3 Ae.
+           own 128-macroblock side bound). Every picture the decoder accepts (<= 4,096 macroblocks)
+           then fits picture-sized: Rh (Rw + 20) <= 1,089,536 <= 3 Ae (962,560 at the 3,600 before
+           2026-10-31).
 THE FRAME: N = floor(F / L) lines of L dots, R = F - N L; R >= 32: one more (short) line of R dots;
   else one line is L + R long. That odd line is the FIRST BLANK LINE (line Rh): the reader fetches
   nothing there (the frame's last line commands the next frame's first rows: a short one there left
@@ -142,7 +143,7 @@ def selftest():
     assert g['mode'] == 1 and g['l'] == 4000 and frame_dots(g) == 1351350 and g['nt'] <= 4095, g
     for std in (0, 1, 2, 3):
         for _ in range(2000):
-            w = random.randint(1, 128); h = random.randint(1, max(1, min(128, 3600 // w)))   # 0.11: 3,600
+            w = random.randint(1, 128); h = random.randint(1, max(1, min(128, 4096 // w)))   # the decoder's 4,096
             g = geom(16 * w - random.randint(0, 15), 16 * h - random.randint(0, 15), random.randint(1, 300),
                      random.randint(1, 300), w, random.choice([1920, 1280, 1024, 640, 3840]),
                      random.choice([1080, 720, 768, 480, 2160]), std, 1)
@@ -164,7 +165,7 @@ def vectors(n, path, seed=1):
              (2000, 300, 1, 1, 129), (1000, 200, 1, 1, 130), (900, 300, 1, 1, 66),
              (1280, 720, 1, 1, 80), (2048, 448, 1, 1, 128), (448, 2048, 1, 1, 28), (1920, 480, 1, 1, 120)]
     while len(cases) < n:
-        w = rnd.randint(1, 130); h = rnd.randint(1, max(1, min(128, 3600 // w)))   # 0.11: 3,600
+        w = rnd.randint(1, 130); h = rnd.randint(1, max(1, min(128, 4096 // w)))   # the decoder's 4,096
         sar = rnd.choice([(1, 1), (10, 11), (40, 33), (16, 11), (4, 3), (8, 9), (640, 639), (8100, 8113)]) \
             if rnd.random() < 0.8 else (rnd.randint(1, 65535), rnd.randint(1, 65535))
         cases.append((16 * w - rnd.randint(0, 15), 16 * h - rnd.randint(0, 15), sar[0], sar[1], w))

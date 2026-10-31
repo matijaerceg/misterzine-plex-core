@@ -699,7 +699,7 @@ module ring_rd_tb;
                 img[47] !== {32'hB0B0_0004, 8'd0, 12'h456, 12'h123})
                 fail("words", $sformatf("words 46-47 (0.9): %h %h", img[46], img[47]));
             // 0.10: word 80, the raster (written under the same seqlock); 0.11: word 81, the
-            // capabilities (constants: 3,600 macroblocks, 720 lines native, 108,000 a second); 0.13: 82-83
+            // capabilities (constants: 4,096 macroblocks, 720 lines native, 108,000 a second); 0.13: 82-83
             // the rumble (no scenario but R27 writes it: 0, nothing counted); 0.15: word 84's constant
             // (the rest by the scenario's final fields); 85 the bench's 0; 86 (0.16) its constants but the
             // stream's own bits (colour_override [26], colour_mismatch [63:48]: the final fields); 87 reserved 0
@@ -707,7 +707,7 @@ module ring_rd_tb;
                 fail("words", $sformatf("word 80 (0.10): %h", img[80]));
             if ((img[86] & 64'h0000_FFFF_FBFF_FFFF) !== 64'h0000_D004_01D3_D2D1)
                 fail("words", $sformatf("word 86 (0.16, the colour): %h", img[86]));
-            if (img[81] !== {32'd108000, 4'd0, 12'd720, 16'd3600})   // 0.12: cap_native_h 720
+            if (img[81] !== {32'd108000, 4'd0, 12'd720, 16'd4096})   // 0.12: cap_native_h 720; 2026-10-31: 4,096
                 fail("words", $sformatf("word 81 (0.11, the capabilities): %h", img[81]));
             if (arm != "R27" && (img[82] !== 64'd0 || img[83] !== 64'd0))
                 fail("words", $sformatf("words 82-83 (0.13, the rumble) = %h %h with nothing written", img[82], img[83]));

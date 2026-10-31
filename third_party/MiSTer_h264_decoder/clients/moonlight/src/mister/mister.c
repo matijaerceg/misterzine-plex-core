@@ -315,7 +315,8 @@ static int mister_setup(int videoFormat, int width, int height, int redrawRate, 
         fprintf(stderr, "mister: not attached (mister_start)\n");
         return -1;
     }
-    /* (interface 0.11) the core's limits, word 81: 3,600 macroblocks a picture (1280x720) and
+    /* (interface 0.11) the core's limits, word 81: 4,096 macroblocks a picture (1280x720 and a
+     * padded 1280x736; 3,600 before 2026-10-31) and
      * 108,000 a second (720p30, 480p60: Level 3.1). Past the rate the core would show about every
      * other picture (low latency skips, counted): refused, as the size is (docs/moonlight.md) */
     struct h264ring_status st;

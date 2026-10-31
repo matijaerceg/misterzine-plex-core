@@ -200,8 +200,8 @@ PYEOF
   # interface 0.2: word 30's fields where the layout puts them (the generated mux)
   mut S4 h264/ring_words_sys.sv "w[17:17] = f_fit_clamp; w[18:18] = f_fit_snap;" "w[17:17] = f_fit_snap; w[18:18] = f_fit_clamp;" R12 "words" &
   mut S7 h264/ring_words_sys.sv "w[11:0] = f_raster_w; w[23:12] = f_raster_h;" "w[11:0] = f_raster_h; w[23:12] = f_raster_w;" R12 "words" &
-  # interface 0.11: word 81's constants (the largest picture still 0.10's 1,620)
-  mut S8 h264/ring_words_sys.sv "7'd81: begin w[15:0] = 16'hE10;" "7'd81: begin w[15:0] = 16'h654;" R12 "words" &
+  # interface 0.11: word 81's constants (the largest picture still 3,600, the bound before 2026-10-31)
+  mut S8 h264/ring_words_sys.sv "7'd81: begin w[15:0] = 16'h1000;" "7'd81: begin w[15:0] = 16'hE10;" R12 "words" &
   wait
   # interface 0.13: the rumble (R27)
   mut U1 $R "wire  [95:0] rum_out_m = sess_m ? rum_m : 96'd0;" "wire  [95:0] rum_out_m = rum_m;" R27 "hang|final" &

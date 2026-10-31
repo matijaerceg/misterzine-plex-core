@@ -78,7 +78,7 @@ h264ring_close(r);
   record error and the decoder's refusal (`FE_REFUSED_CODE`: why it will not decode a stream --
   CAVLC, MBAFF, a picture over 128 macroblocks a side...) into words for your log or your screen.
 - `h264ring_caps(&st, &caps)` decodes what the core can play (word 81): `caps.max_mbs`,
-  the largest picture in macroblocks (3,600: 1280x720), `caps.mb_rate`, the macroblocks a second
+  the largest picture in macroblocks (4,096: 1280x720 and its padded 1280x736), `caps.mb_rate`, the macroblocks a second
   it is designed for (108,000), and `caps.native_h`, the tallest 16:9 picture Native (HDMI) shows
   at its own size (720: choose a transcode no taller). A picture past `max_mbs` is not refused
   at its SPS: its slices are dropped and counted (`RC_REF_SIZE`), so check before you send.

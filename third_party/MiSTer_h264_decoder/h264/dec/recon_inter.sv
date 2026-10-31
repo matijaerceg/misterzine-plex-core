@@ -53,7 +53,7 @@ module recon_inter (
     input  wire         field_pic,
     input  wire         bottom,            // the current field's parity
     input  wire  [28:0] dpb_base,          // word address of store 0
-    input  wire  [20:0] plane_mbs,         // W * FrameHeightInMbs (<= 3600)
+    input  wire  [20:0] plane_mbs,         // W * FrameHeightInMbs (<= 4096, recon_top's bound)
 
     // the motion of the 16 blocks: recon_mb's motion RAM, one block per read (registered:
     // the record of mot_ra's block the cycle after). Record: {mvy1, mvx1, code1, ref1, pred1,

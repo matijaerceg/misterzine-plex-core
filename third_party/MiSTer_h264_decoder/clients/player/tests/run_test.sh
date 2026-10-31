@@ -36,7 +36,7 @@ mkdir -p "$work"
 #   a_dir/inner.mkv  120 s of one colour, 25 frames/s (50 Hz), an IDR a second, no audio: the seek
 #   b_pal.mp4        3 s, 352x288 at 25 frames/s (50 Hz), MP4 (avcC), AAC
 #   c_ok.mkv         8 s, 640x360 at 30 frames/s, AAC, an SRT track (default) and an ASS track
-#   d_big.mkv        1344x720 (3,780 macroblocks: over 0.11's 3,600) at 24 frames/s (under the rate:
+#   d_big.mkv        1344x784 (4,116 macroblocks: over the core's 4,096) at 24 frames/s (under the rate:
 #                    only the size can refuse it), CAVLC: refused for its size
 #                    (CAVLC alone would now play: the size must be found first -- h264check's order)
 #   e_cavlc.mkv      1 s Baseline (CAVLC) 320x240: plays, the library's write call rewriting it (P6)
@@ -88,7 +88,7 @@ EOF
   "${ff[@]}" -f lavfi -i "testsrc2=size=640x360:rate=30" -f lavfi -i "$snd" -i "$media/c.srt" -i "$media/c.ass" \
       -t 8 -map 0:v -map 1:a -map 2:s -map 3:s "${x264[@]}" -x264-params keyint=30:min-keyint=30:scenecut=0 \
       -c:a aac -b:a 128k -c:s:0 srt -c:s:1 ass -disposition:s:0 default -disposition:s:1 0 "$R/c_ok.mkv" || return 1
-  "${ff[@]}" -f lavfi -i "testsrc2=size=1344x720:rate=24" -t 1 "${x264[@]}" -x264-params cabac=0 "$R/d_big.mkv" || return 1
+  "${ff[@]}" -f lavfi -i "testsrc2=size=1344x784:rate=24" -t 1 "${x264[@]}" -x264-params cabac=0 "$R/d_big.mkv" || return 1
   "${ff[@]}" -f lavfi -i "testsrc2=size=320x240:rate=30" -t 1 -c:v libx264 -profile:v baseline -preset veryfast \
       -pix_fmt yuv420p "$R/e_cavlc.mkv" || return 1
   # its pictures, decoded: what the rewritten stream must decode to as well (lossless)

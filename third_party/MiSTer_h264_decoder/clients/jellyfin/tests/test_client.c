@@ -192,7 +192,7 @@ static void core_status(void)                       /* the seqlock: head first, 
     PUT(ATTEN, (core.w34 >> H264RING_CTL_ATTEN_LSB) & 0xFFu);
     PUT(OVL_GEN, core.ovl_gen);
     PUT(OVL_STATE, core.ovl_state);
-    PUT(CAP_MAX_MBS, 3600);                       /* (0.11) word 81: the real core's constants */
+    PUT(CAP_MAX_MBS, 4096);                       /* (0.11) word 81: the real core's constants */
     PUT(CAP_NATIVE_H, 720);                       /* (0.12) the HD raster's: Video Output still not Native here */
     PUT(CAP_MB_RATE, 108000);
     /* (0.10) the raster as A' leaves it on a 1920x1080 display: shown 16:9 (word 47), letterboxed

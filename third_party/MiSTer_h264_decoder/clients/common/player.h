@@ -33,7 +33,7 @@ struct player_cfg {
                                  player_error() saying why. 0: CAVLC is PL_UNDECODABLE (Jellyfin:
                                  the server transcodes instead) */
     unsigned max_mbs, mb_rate; /* (0.11) the core's largest picture and macroblock rate (h264ring_caps;
-                                 0: the 0.11 core's 3,600 / 108,000): a stream past either is
+                                 0: the core's 4,096 / 108,000): a stream past either is
                                  PL_UNDECODABLE (H264C_SIZE / H264C_RATE) before the ring */
     int arm_video;            /* (0.15) 1: video the core does not decode is decoded on the ARM (vdec.h:
                                  MPEG-1/2, MPEG-4 Part 2, DivX 3, WMV7/8, Theora, MJPEG, H.263 at SD) and

@@ -92,7 +92,7 @@ static void core_status(void) {                    /* the seqlock: head first, t
     PUT(FE_REFUSED_CODE, core.refused_code);
     PUT(RASTER_IL, core.il);
     PUT(OSD_ASPECT, core.aspect);
-    PUT(CAP_MAX_MBS, 3600);                         /* (0.11) word 81: the real core's constants */
+    PUT(CAP_MAX_MBS, 4096);                         /* (0.11) word 81: the real core's constants */
     PUT(CAP_NATIVE_H, 480);
     PUT(CAP_MB_RATE, 108000);
     __sync_synchronize();
@@ -287,9 +287,9 @@ int main(int argc, char **argv) {
     CHECK("setup accepts 720x480 H.264",
           decoder_callbacks_mister.setup(VIDEO_FORMAT_H264, 720, 480, 60, NULL, 0) == 0);
     CHECK("setup refuses HEVC", decoder_callbacks_mister.setup(VIDEO_FORMAT_H265, 720, 480, 60, NULL, 0) != 0);
-    CHECK("setup accepts 1280x720 at 30 frames/s (0.11: 3,600 macroblocks, 108,000 a second)",
+    CHECK("setup accepts 1280x720 at 30 frames/s (3,600 macroblocks, 108,000 a second)",
           decoder_callbacks_mister.setup(VIDEO_FORMAT_H264, 1280, 720, 30, NULL, 0) == 0);
-    CHECK("setup refuses a picture over the core's 3,600 macroblocks (1920x1080 at 10: under the rate)",
+    CHECK("setup refuses a picture over the core's 4,096 macroblocks (1920x1080 at 10: under the rate)",
           decoder_callbacks_mister.setup(VIDEO_FORMAT_H264, 1920, 1080, 10, NULL, 0) != 0);
     CHECK("setup refuses 1280x720 at 60 frames/s (over the core's 108,000 macroblocks a second)",
           decoder_callbacks_mister.setup(VIDEO_FORMAT_H264, 1280, 720, 60, NULL, 0) != 0);

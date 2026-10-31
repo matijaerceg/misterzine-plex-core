@@ -110,10 +110,14 @@ static void test_check(void)
     expect("4:2:2", c422, cabac, 1, 25, -1);
     struct sps d10 = hd; d10.profile = 110; d10.depth = 10;
     expect("10-bit", d10, cabac, 1, 25, -1);
-    struct sps big = hd; big.h_units = 46;
-    expect("1280x736", big, cabac, 1, 25, -1);
+    /* Intel Quick Sync's coded 720p: 80 x 46 = 3,680 macroblocks, inside the core's 4,096 */
+    struct sps qsv = hd; qsv.h_units = 46;
+    expect("1280x736 (3,680 macroblocks)", qsv, cabac, 1, 25, 1);
+    expect("1280x736 at 29.97: over the macroblock rate", qsv, cabac, 1, 29.97, -1);
+    struct sps big = hd; big.h_units = 52;
+    expect("1280x832 (4,160 macroblocks)", big, cabac, 1, 24, -1);
     struct sps wide = hd; wide.w_mbs = 120; wide.h_units = 30;
-    expect("1920x480 (3600 macroblocks, too wide)", wide, cabac, 1, 25, -1);
+    expect("1920x480 (3,600 macroblocks, too wide)", wide, cabac, 1, 25, -1);
     expect("720p60", hd, cabac, 1, 59.94, -1);
     struct sps base = sd; base.profile = 66;
     expect("Baseline", base, cabac, 1, 25, -1);

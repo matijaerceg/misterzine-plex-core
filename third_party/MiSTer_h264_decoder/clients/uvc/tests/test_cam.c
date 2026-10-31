@@ -115,7 +115,7 @@ static void core_status(void)
     PUT(PAUSED, core.paused);
     PUT(OVL_GEN, core.ovl_gen);
     PUT(OVL_STATE, core.ovl_state);
-    PUT(CAP_MAX_MBS, 3600);
+    PUT(CAP_MAX_MBS, 4096);
     PUT(CAP_NATIVE_H, 720);
     PUT(CAP_MB_RATE, 108000);
     PUT(RASTER_W, 720u);

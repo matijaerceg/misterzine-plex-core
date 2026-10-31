@@ -33,10 +33,10 @@ MUTATIONS = {
         ("        else step_file(a, 1);                         /* the folder plays on */",
          "        else stop_playing(a);"),
     ], "(c) the folder plays on: c_ok follows b_pal by itself"),
-    # h264check never says SIZE: the 1344x720 file reaches the core
+    # h264check never says SIZE: the 1344x784 file reaches the core
     "M5_size": ("common/h264check.c", [
         ("    if (mbs > (s->max_mbs ? s->max_mbs : MAX_MBS)) return H264C_SIZE;\n", ""),
-    ], "(e) refused: a CAVLC 1344x720 (its size, CAVLC checked last), 720p60 (too fast), FFV1 (not decoded), MPEG-4 1280x720 (over SD) -- none reached the core, each reason named"),
+    ], "(e) refused: a CAVLC 1344x784 (its size, CAVLC checked last), 720p60 (too fast), FFV1 (not decoded), MPEG-4 1280x720 (over SD) -- none reached the core, each reason named"),
     # the file's text subtitle tracks discarded (no cues)
     "M6_no_text_subs": ("src/main.c", [
         (".hold = 1, .text_subs = 1,", ".hold = 1, .text_subs = 0,"),
@@ -96,21 +96,21 @@ MUTATIONS = {
     "M14_no_cavlc": ("src/main.c", [
         (".text_subs = 1, .cavlc_ok = 1,", ".text_subs = 1, .cavlc_ok = 0,"),
     ], "(v) the CAVLC file plays: the core read CABAC (every PPS), decoding to the file's own pictures"),
-    # h264check says CAVLC before the size again: a CAVLC 1344x720 file let through to the core
+    # h264check says CAVLC before the size again: a CAVLC 1344x784 file let through to the core
     "M15_cavlc_first": ("common/h264check.c", [
         ("    if (s->bit_depth_luma != 8 || s->bit_depth_chroma != 8) return H264C_BITDEPTH;\n",
          "    if (s->bit_depth_luma != 8 || s->bit_depth_chroma != 8) return H264C_BITDEPTH;\n"
          "    if (!s->entropy) return H264C_CAVLC;\n"),
-    ], "(e) refused: a CAVLC 1344x720 (its size, CAVLC checked last), 720p60 (too fast), FFV1 (not decoded), MPEG-4 1280x720 (over SD) -- none reached the core, each reason named"),
+    ], "(e) refused: a CAVLC 1344x784 (its size, CAVLC checked last), 720p60 (too fast), FFV1 (not decoded), MPEG-4 1280x720 (over SD) -- none reached the core, each reason named"),
     # (0.11) no rate check: a 720p60 file reaches the core (decoded at half speed)
     "M18_no_rate": ("common/h264check.c", [
         ("    if (s->fps > 0 && (double)mbs * s->fps > 1.01 * (s->mb_rate ? s->mb_rate : MB_RATE)) return H264C_RATE;\n", ""),
-    ], "(e) refused: a CAVLC 1344x720 (its size, CAVLC checked last), 720p60 (too fast), FFV1 (not decoded), MPEG-4 1280x720 (over SD) -- none reached the core, each reason named"),
+    ], "(e) refused: a CAVLC 1344x784 (its size, CAVLC checked last), 720p60 (too fast), FFV1 (not decoded), MPEG-4 1280x720 (over SD) -- none reached the core, each reason named"),
     # (0.11) the player's limits not from the core (0.10's 1,620 fixed): g_fast refused by its size,
     # not named "too fast" (and every 720p file refused)
     "M19_caps_ignored": ("common/player.c", [
         ("    p->chk.max_mbs = cfg->max_mbs;\n", "    p->chk.max_mbs = 1620;\n"),
-    ], "(e) refused: a CAVLC 1344x720 (its size, CAVLC checked last), 720p60 (too fast), FFV1 (not decoded), MPEG-4 1280x720 (over SD) -- none reached the core, each reason named"),
+    ], "(e) refused: a CAVLC 1344x784 (its size, CAVLC checked last), 720p60 (too fast), FFV1 (not decoded), MPEG-4 1280x720 (over SD) -- none reached the core, each reason named"),
     # (0.15) other codecs decoded on the ARM, sent as pictures (docs/player.md "Other codecs")
     # the player not asking for it: f_mpeg4 refused again
     "M22_no_arm_video": ("src/main.c", [
@@ -128,7 +128,7 @@ MUTATIONS = {
     # the SD budget gone: an HD MPEG-4 decoded on the ARM (behind, every picture late)
     "M25_no_sd_budget": ("common/vdec.c", [
         ("    if (par->width > SD_W || par->height > SD_H) {", "    if (0) {"),
-    ], "(e) refused: a CAVLC 1344x720 (its size, CAVLC checked last), 720p60 (too fast), FFV1 (not decoded), MPEG-4 1280x720 (over SD) -- none reached the core, each reason named"),
+    ], "(e) refused: a CAVLC 1344x784 (its size, CAVLC checked last), 720p60 (too fast), FFV1 (not decoded), MPEG-4 1280x720 (over SD) -- none reached the core, each reason named"),
     # the last picture without END_OF_STREAM (the stream never ends on the core)
     "M26_last_no_eos": ("common/player.c", [
         ("last ? H264RING_F_END_OF_STREAM : 0u);", "0u);"),

@@ -30,8 +30,8 @@
 // +frozen (the same build; Phase 4's pause, UMD P6b3i's disp_frz): the display frozen for the
 // whole run -- some wait must outlast STALL (else the arm proves nothing) and still no error
 // is counted: a pause's holds are no alarm. [frz].
-// +expect_refused (interface 0.11, the picture bound): every picture is above Level 3.1's MaxFS
-// (3,600 macroblocks) -- each slice refused (ref_size), no macroblock reconstructed, no DDR3
+// +expect_refused (interface 0.11, the picture bound): every picture is above what a 2 MiB store
+// holds (4,096 macroblocks; Level 3.1's 3,600 until 2026-10-31) -- each slice refused (ref_size), no macroblock reconstructed, no DDR3
 // write, no store emitted to the display, no error counted; the end of stream still taken.
 // [refuse].
 // +colour=N (0.16, docs/colour.md): every picture's colour code (pinfo_colour) must be N, and with
@@ -362,7 +362,7 @@ initial begin
         if (ref_size < n_pics || mb_count !== 32'd0 || wr_issued !== 0 || n_emit !== 0 || err_count !== 32'd0 || dut.u_mb.err_count !== 32'd0)
             `FAIL("refuse", $sformatf("%0d pictures of %0d macroblocks: ref_size %0d, %0d macroblocks reconstructed, %0d write bursts, %0d stores emitted, errors %0d / %0d -- want every slice refused, nothing decoded, written or shown",
                                       n_pics, n_mbs / n_pics, ref_size, mb_count, wr_issued, n_emit, err_count, dut.u_mb.err_count))
-        $display("recon_top_tb: refused: %0d slices of %0d pictures (%0d macroblocks each, above 3,600): nothing reconstructed, written or emitted",
+        $display("recon_top_tb: refused: %0d slices of %0d pictures (%0d macroblocks each, above 4,096): nothing reconstructed, written or emitted",
                  ref_size, n_pics, n_mbs / n_pics);
         $display("PASS: recon_top_tb");
         $finish;

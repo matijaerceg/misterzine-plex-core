@@ -130,11 +130,11 @@ mutate cavlc_refuse 's|kill(getpid(), SIGTERM);    /\* as a core refusal|;    /*
 mutate core_gone 's/} else if (now_ms() - beat_ms >= ALIVE_MS) {/} else if (0) {/' \
        "S6: the core unloaded ends the stream (SIGTERM), not a restart forever"
 mutate caps_size 's/if (mbs > (long)caps.max_mbs) {/if (0) {/' \
-       "setup refuses a picture over the core's 3,600 macroblocks (1920x1080 at 10: under the rate)"
+       "setup refuses a picture over the core's 4,096 macroblocks (1920x1080 at 10: under the rate)"
 mutate caps_rate 's|if (mbs \* redrawRate > (long)caps.mb_rate \* 101 / 100) {|if (0) {|' \
        "setup refuses 1280x720 at 60 frames/s (over the core's 108,000 macroblocks a second)"
 mutate caps_fixed 's/    h264ring_caps(&st, &caps);/    h264ring_caps(\&st, \&caps); caps.max_mbs = 1620;/' \
-       "setup accepts 1280x720 at 30 frames/s (0.11: 3,600 macroblocks, 108,000 a second)"
+       "setup accepts 1280x720 at 30 frames/s (3,600 macroblocks, 108,000 a second)"
 # the input: each mutation of mister_input.c caught by its own check
 mutate_in() {  # name, sed expression, the check's label (a fixed string)
   local name=$1 expr=$2 label=$3 m=$out/red_in_$1.c

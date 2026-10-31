@@ -2,7 +2,7 @@
  * (docs/jellyfin.md S2 "The device profile", which is its rationale; R1 measured the server's
  * answers to it). In short:
  *  - direct play: H.264 High / Main, 8-bit SDR, progressive, <= 10 Mbit/s, <= 60 frames/s, inside
- *    the core's picture bound and rate (interface 0.11: 3,600 macroblocks, 108,000 a second) by
+ *    the core's picture bound and rate (4,096 macroblocks, 108,000 a second) by
  *    bands KEYED ON THE WIDTH: width <= 720: height <= 576; width 721-864: height <= 480; wider,
  *    up to 1280x720 at <= 30 frames/s (720p24 / 720p30); wider above 30 frames/s: <= 864x480.
  *    A band's conditions become the transcode's limits whenever the source matches it (the
