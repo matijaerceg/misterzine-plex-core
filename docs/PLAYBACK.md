@@ -15,7 +15,7 @@ the server first, because a transcode follows the part's selected streams.
 Unless a subtitle must be burned in, or the **Direct play** setting is off
 (then everything is transcoded), the app then checks the file's video
 against the core's own limits: H.264 High or Main, level 4.1 or lower, 8-bit,
-CABAC entropy coding, at most 1280 pixels wide and 3,600 rounded-up 16x16
+CABAC entropy coding, at most 1280 pixels wide and 4,096 rounded-up 16x16
 blocks per picture, at most 30 frames per second above
 854 pixels wide (60 at or below), and an average bitrate of at most 6 Mbit/s
 above 854 pixels wide (8 Mbit/s at or below). It also checks the video bitrate
@@ -39,7 +39,7 @@ Otherwise the app asks the server's universal transcoder for a decision
 (`/video/:/transcode/universal/decision`) and plays its progressive Matroska
 stream (`start.mkv`) over HTTP. The request asks as the Plex Web client, with
 extra profile lines that hold the transcode to the core's limits: H.264 High
-or Main, level 3.1, 8-bit, at the **Video bitrate** setting (8 Mbit/s at
+or Main, level 4.1, 8-bit, at the **Video bitrate** setting (8 Mbit/s at
 most), and stereo AAC audio, so the server downmixes surround sound. The
 bitrate steps below 3 Mbit/s also make the transcode smaller, so a low bitrate
 is spent on fewer pixels: at most 854x480 below 3 Mbit/s and 640x360 below

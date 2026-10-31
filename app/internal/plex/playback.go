@@ -44,21 +44,17 @@ const (
 	directMaxKbpsSD = 8000
 	// directSDWidth is the widest picture the core decodes at 60 frames/s.
 	directSDWidth = 854
-	// Match the worker: at most 80 blocks wide and 3,600 16x16 blocks per picture.
-	// Cropped dimensions are rounded up; jfplay checks the actual SPS before decoding.
-	directMaxWidth, directMaxBlocks = 1280, 3600
+	// Match the worker: at most 80 blocks wide and 4,096 16x16 blocks per picture
+	// (what one of the core's 2 MiB picture stores holds; 3,600 before the core
+	// accepted Quick Sync's 1280x736 coding of 720p). Cropped dimensions are
+	// rounded up; jfplay checks the actual SPS before decoding.
+	directMaxWidth, directMaxBlocks = 1280, 4096
 	directMaxBlockRate              = 108000
 	// directMaxFPSSD / directMaxFPSHD are the frame-rate limits for the two
 	// size classes; directFPSSlack absorbs 29.97-style rounding in metadata.
 	directMaxFPSSD, directMaxFPSHD, directFPSSlack = 60.0, 30.0, 0.5
 	// directMaxLevel is H.264 level 4.1, as Plex reports it (41).
 	directMaxLevel = 41
-	// transcodeMaxLevel is the level a transcode is asked for: 1280x720 at
-	// 30 frames/s fits Level 3.1. The Intel hardware encoder behind a
-	// patron's server emitted Level 3.2 streams the core decoded but never
-	// showed, and a lower level also derives a larger decoded picture
-	// buffer in the core.
-	transcodeMaxLevel = 31
 )
 
 // smallTranscodeWidth and smallTranscodeHeight are the largest picture a
@@ -391,7 +387,7 @@ func ProfileExtra(videoKbps int, sourceFPS float64, small bool) string {
 	lines := []string{
 		"add-limitation(scope=videoAudioCodec&scopeName=aac&type=upperBound&name=audio.channels&value=2&isRequired=true)",
 		"add-limitation(scope=videoCodec&scopeName=h264&type=match&name=video.profile&list=high|main)",
-		limit("video.level", strconv.Itoa(transcodeMaxLevel)),
+		limit("video.level", strconv.Itoa(directMaxLevel)),
 		limit("video.bitDepth", "8"),
 		limit("video.width", strconv.Itoa(w)),
 		limit("video.height", strconv.Itoa(h)),
