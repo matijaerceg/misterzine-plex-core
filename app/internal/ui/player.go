@@ -87,6 +87,7 @@ type Session struct {
 	mu                       sync.Mutex
 	cmd                      *exec.Cmd
 	cmdDone                  chan struct{}
+	startedAt                time.Time // when cmd started
 	lf                       *os.File
 	state                    plex.PlayState
 	direct, started, closing bool
@@ -110,8 +111,10 @@ type Session struct {
 	// transcode; fellBack records that the one automatic fallback was used.
 	forceTranscode, fellBack bool
 	// smallTranscode caps every later transcode of this session at 854x480;
-	// set by the no-picture retry (noPictureFallbackLocked).
-	smallTranscode bool
+	// set by the no-picture retry (noPictureFallbackLocked). smallRetried
+	// records that the one re-open of a small transcode that did not open
+	// was used (smallOpenRetryLocked).
+	smallTranscode, smallRetried bool
 	// session is the playback's transcode session id (plex.NewSession),
 	// made at the first start: seeks, track changes and the fallback reuse
 	// it, and the stopped report ends it.
@@ -588,6 +591,7 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 		return err
 	}
 	s.cmd = cmd
+	s.startedAt = time.Now()
 	done := make(chan struct{})
 	s.cmdDone = done
 	s.mu.Unlock()
@@ -601,7 +605,7 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 		current, closing := s.cmd == cmd, s.closing
 		s.mu.Unlock()
 		if current && !closing {
-			if s.fallbackLocked(err) || s.noPictureFallbackLocked(err) {
+			if s.fallbackLocked(err) || s.noPictureFallbackLocked(err) || s.smallOpenRetryLocked(err) {
 				return
 			}
 			s.finishLocked(s.workerExitError(err))

@@ -63,7 +63,9 @@ several seconds, the app restarts the item once as a transcode at the current
 position. The switch is recorded in the playback log and is not shown as an
 error. When the core decodes a stream but shows no picture, the app likewise
 restarts the item once at the current position, as a transcode of at most
-854x480 for the rest of the playback.
+854x480 for the rest of the playback, after giving the server 1.5 s to end
+its previous transcode, and opens it once more if the server closes that
+first connection without sending anything.
 
 The app passes the token and its client identifier to `jfplay` as request
 headers; stream URLs never carry the token, and the playback log redacts it.

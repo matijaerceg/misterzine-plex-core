@@ -29,6 +29,11 @@ func workerNeedsTranscode(code int) bool {
 
 // jfplay exit codes the app acts on (arm/jfplay.md).
 const (
+	// workerExitOpenFailed: the stream could not be opened. A patron's
+	// server closed the small transcode's first connection without a byte
+	// while it was still tearing down the transcoder the core showed no
+	// picture of, so the app opens it once more (smallOpenRetryLocked).
+	workerExitOpenFailed     = 4
 	workerExitRefused        = 5 // the core refused the stream
 	workerExitNeedsTranscode = 7 // the pre-check or the watchdog said transcode
 	workerExitOpenTimeout    = 8 // the stream sent nothing while it was being opened
@@ -44,6 +49,23 @@ const (
 // hardware decoder never finishes) ends playback then (workerExitError)
 // rather than at the socket's own limit (60 s), which stays for the rest.
 const openTimeout = 20 * time.Second
+
+// noPictureRestartDelay is how long the app waits before it asks for the
+// small transcode, and again before it opens that once more: the server
+// replaces the session's transcoder on the new decision, and a patron's
+// server answered a request made 200 ms after the old worker was killed by
+// closing the connection with no bytes, its hardware transcoder most likely
+// still being torn down.
+const noPictureRestartDelay = 1500 * time.Millisecond
+
+// noPictureOpenRetryWindow is how soon after its start a small transcode's
+// worker must fail to open (jfplay exit 4) for the app to open it once more:
+// a failure later than that is not the server still busy with the old
+// transcoder.
+const noPictureOpenRetryWindow = 15 * time.Second
+
+// noPictureSleep waits before a small transcode starts; tests replace it.
+var noPictureSleep = time.Sleep
 
 // playbackInfo asks the server how to play the session's item. The request
 // lets internal/plex offer the file as stored unless a transcode is already
@@ -135,7 +157,7 @@ func (s *Session) fallbackLocked(err error) bool {
 	}
 	s.fellBack = true
 	s.mu.Unlock()
-	s.restartTranscodeLocked("direct stream needs a transcode (jfplay exit %d); restarting at %.3f s", code)
+	s.restartTranscodeLocked(0, "direct stream needs a transcode (jfplay exit %d); restarting at %.3f s", code)
 	return true
 }
 
@@ -159,14 +181,39 @@ func (s *Session) noPictureFallbackLocked(err error) bool {
 	}
 	s.smallTranscode = true
 	s.mu.Unlock()
-	s.restartTranscodeLocked("no picture shown (jfplay exit %d); restarting at %.3f s as a transcode of at most 854x480", code)
+	s.restartTranscodeLocked(noPictureRestartDelay, "no picture shown (jfplay exit %d); restarting at %.3f s as a transcode of at most 854x480", code)
+	return true
+}
+
+// smallOpenRetryLocked opens a small transcode once more when its worker
+// could not open the stream (jfplay exit 4) soon after it started: the
+// server that showed no picture took the new decision but closed the first
+// connection without a byte, still tearing down its old transcoder. It runs
+// at most once a session, after the same wait, so a second failure ends
+// playback with its error. It reports whether it took over the worker's
+// exit; opMu is held.
+func (s *Session) smallOpenRetryLocked(err error) bool {
+	code := workerExitCode(err)
+	if code != workerExitOpenFailed {
+		return false
+	}
+	s.mu.Lock()
+	ran := time.Since(s.startedAt)
+	if !s.smallTranscode || s.smallRetried || s.closing || s.stopRequested || ran > noPictureOpenRetryWindow {
+		s.mu.Unlock()
+		return false
+	}
+	s.smallRetried = true
+	s.mu.Unlock()
+	s.restartTranscodeLocked(noPictureRestartDelay, "small transcode did not open (jfplay exit %d) %.1f s after its start; starting it once more at %.3f s", code, ran.Seconds())
 	return true
 }
 
 // restartTranscodeLocked starts the session's item again as a transcode at
-// the finished worker's position, logging why (a format taking the exit code
-// and the position). opMu is held.
-func (s *Session) restartTranscodeLocked(why string, code int) {
+// the finished worker's position, logging why: a format taking args and
+// then the position. A wait above zero gives the server that long before the
+// new decision, unless playback is stopped meanwhile. opMu is held.
+func (s *Session) restartTranscodeLocked(wait time.Duration, why string, args ...any) {
 	s.updateLocked(false) // the worker's final position
 	s.mu.Lock()
 	ps, started := s.state, s.started
@@ -174,7 +221,7 @@ func (s *Session) restartTranscodeLocked(why string, code int) {
 	s.forceTranscode = true
 	s.cmd, s.cmdDone = nil, nil
 	s.mu.Unlock()
-	s.logf(why, code, ps.Position)
+	s.logf(why, append(args, ps.Position)...)
 	if started && ps.Session != "" {
 		// end the stream's play session; the transcode reports its own start
 		if s.async {
@@ -184,6 +231,23 @@ func (s *Session) restartTranscodeLocked(why string, code int) {
 		}
 	}
 	_ = os.Remove(s.p.Status)
+	if wait > 0 {
+		s.mu.Lock()
+		stopping := s.closing || s.stopRequested
+		s.mu.Unlock()
+		if stopping {
+			return
+		}
+		noPictureSleep(wait)
+		// a stop asked for during the wait ends the session without a restart:
+		// Stop finishes it once it has opMu
+		s.mu.Lock()
+		stopping = s.closing || s.stopRequested
+		s.mu.Unlock()
+		if stopping {
+			return
+		}
+	}
 	// startContext takes whole seconds: round to nearest rather than truncate
 	if err := s.startContext(int(math.Round(ps.Position)), false, s.sessionContext()); err != nil {
 		s.finishLocked(s.suppressStopCancellation(err))
