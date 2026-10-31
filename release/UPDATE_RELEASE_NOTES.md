@@ -1,3 +1,10 @@
+# MisterZine Plex Core 0.1.0-beta.37
+
+- A movie's edition (Director's Cut, Extended, Remastered) now shows after
+  the runtime on the movie page, the Home hero and the library band, on the
+  right of the playback controls, and in search results, so two editions of
+  one film can be told apart.
+
 # MisterZine Plex Core 0.1.0-beta.36
 
 - Video crop set to Fill applies when playback starts again. Since the
@@ -20,10 +27,6 @@
   the dot crawl that came with them.
 - The 4:3 filter now ignores season 0 specials when judging a show, and
   re-checks the TV libraries once a day while the menus sit dimmed.
-- A movie's edition (Director's Cut, Extended, Remastered) now shows after
-  the runtime on the movie page, the Home hero and the library band, on the
-  right of the playback controls, and in search results, so two editions of
-  one film can be told apart.
 
 Ships a new qualified FPGA core (the Direct Video fix is in the core) with an
 updated playback worker. Existing settings, calibration and saved access are
