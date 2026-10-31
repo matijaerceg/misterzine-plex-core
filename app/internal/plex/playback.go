@@ -53,7 +53,27 @@ const (
 	directMaxFPSSD, directMaxFPSHD, directFPSSlack = 60.0, 30.0, 0.5
 	// directMaxLevel is H.264 level 4.1, as Plex reports it (41).
 	directMaxLevel = 41
+	// transcodeMaxLevel is the level a transcode is asked for: 1280x720 at
+	// 30 frames/s fits Level 3.1. The Intel hardware encoder behind a
+	// patron's server emitted Level 3.2 streams the core decoded but never
+	// showed, and a lower level also derives a larger decoded picture
+	// buffer in the core.
+	transcodeMaxLevel = 31
 )
+
+// smallTranscodeWidth and smallTranscodeHeight are the largest picture a
+// small transcode (PlaybackRequest.SmallTranscode) is made at.
+const smallTranscodeWidth, smallTranscodeHeight = 854, 480
+
+// transcodeSize is TranscodeSize at a cap, capped at 854x480 for a small
+// transcode.
+func transcodeSize(videoKbps int, small bool) (w, h int) {
+	w, h = TranscodeSize(videoKbps)
+	if small && w > smallTranscodeWidth {
+		w, h = smallTranscodeWidth, smallTranscodeHeight
+	}
+	return w, h
+}
 
 // TranscodeSize is the largest picture a transcode at a video cap in kbit/s
 // is made at. The CRT shows at most 576 lines, so a low cap spends its bits
@@ -359,18 +379,19 @@ func videoCap(videoKbps int) int {
 // ProfileExtra is the X-Plex-Client-Profile-Extra value for a transcode at
 // a video cap in kbit/s from a source at sourceFPS frames/s (0 unknown):
 // stereo audio (so the server downmixes and boosts rather than the board),
-// the core's limits at TranscodeSize (a source of 45 frames/s or more
-// halved when that size is wider than directSDWidth), and the progressive
-// H.264/AAC Matroska target over HTTP that start.mkv serves.
-func ProfileExtra(videoKbps int, sourceFPS float64) string {
-	w, h := TranscodeSize(videoCap(videoKbps))
+// the core's limits at TranscodeSize, or at most 854x480 when small (a
+// source of 45 frames/s or more halved when that size is wider than
+// directSDWidth), and the progressive H.264/AAC Matroska target over HTTP
+// that start.mkv serves.
+func ProfileExtra(videoKbps int, sourceFPS float64, small bool) string {
+	w, h := transcodeSize(videoCap(videoKbps), small)
 	limit := func(name, value string) string {
 		return "add-limitation(scope=videoCodec&scopeName=h264&type=upperBound&name=" + name + "&value=" + value + ")"
 	}
 	lines := []string{
 		"add-limitation(scope=videoAudioCodec&scopeName=aac&type=upperBound&name=audio.channels&value=2&isRequired=true)",
 		"add-limitation(scope=videoCodec&scopeName=h264&type=match&name=video.profile&list=high|main)",
-		limit("video.level", strconv.Itoa(directMaxLevel)),
+		limit("video.level", strconv.Itoa(transcodeMaxLevel)),
 		limit("video.bitDepth", "8"),
 		limit("video.width", strconv.Itoa(w)),
 		limit("video.height", strconv.Itoa(h)),
@@ -456,6 +477,10 @@ type PlaybackRequest struct {
 	// ForceReason is the conversion reason Playback info gives for a forced
 	// transcode; "" is "Decoder compatibility" (the fallback's).
 	ForceReason string
+	// SmallTranscode has the transcode made at most 854x480 whatever the
+	// cap: a 720p transcode the core decoded but never showed is retried
+	// this way.
+	SmallTranscode bool
 	// MediaID is the version to play (Version.ID), "" for the first.
 	MediaID string
 	// Part is that version's media part as just fetched (ItemAndPart),
@@ -668,7 +693,7 @@ func (c *Client) playbackDecision(ctx context.Context, q url.Values) (*playbackD
 // shared by the decision and the start.
 func (c *Client) transcodeQuery(r PlaybackRequest, session string, part MediaPart) url.Values {
 	cap := videoCap(r.VideoKbps)
-	w, h := TranscodeSize(cap)
+	w, h := transcodeSize(cap, r.SmallTranscode)
 	size, boost := r.SubtitleSize, r.AudioBoost
 	if size <= 0 {
 		size = 100
@@ -685,7 +710,7 @@ func (c *Client) transcodeQuery(r PlaybackRequest, session string, part MediaPar
 		"protocol": {"http"}, "directPlay": {"0"}, "directStream": {"0"},
 		"videoResolution": {fmt.Sprintf("%dx%d", w, h)}, "maxVideoBitrate": {strconv.Itoa(cap)}, "videoQuality": {"100"},
 		"audioBoost": {strconv.Itoa(boost)}, "subtitles": {"burn"}, "subtitleSize": {strconv.Itoa(size)},
-		"X-Plex-Client-Profile-Extra": {ProfileExtra(cap, part.fps())},
+		"X-Plex-Client-Profile-Extra": {ProfileExtra(cap, part.fps(), r.SmallTranscode)},
 		"session":                     {session}, "X-Plex-Session-Identifier": {session},
 		"copyts": {"1"}, "offset": {strconv.Itoa(offset)}, "fastSeek": {"1"},
 		"location": {"wan"}, "mediaBufferSize": {"12288"}, "hasMDE": {"1"},

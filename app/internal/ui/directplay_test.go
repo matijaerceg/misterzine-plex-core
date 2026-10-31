@@ -245,6 +245,61 @@ func TestDirectFallsBackToTranscodeOnce(t *testing.T) {
 	}
 }
 
+// A stream the core decoded but never showed (exit 9) is played again at the
+// same position as a transcode of at most 854x480, once: the second exit 9
+// ends playback with the no-picture error, which carries the worker's exit.
+// After the direct fallback the small retry is still available.
+func TestNoPictureRetriesSmallTranscodeOnce(t *testing.T) {
+	for name, tc := range map[string]struct {
+		video string
+		codes []int
+		sizes []string // each decision's videoResolution
+	}{
+		"transcode": {playVideoTranscode, []int{workerExitNoPicture, workerExitNoPicture}, []string{"1280x720", "854x480"}},
+		"direct":    {playVideoDirect, []int{workerExitNeedsTranscode, workerExitNoPicture, workerExitNoPicture}, []string{"1280x720", "854x480"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newPlayServer(t, tc.video)
+			p, launches := fallbackPlayer(t, f, tc.codes, "42")
+			s, err := p.Start(playItem(), 10)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = waitDone(t, s)
+			if err == nil || !strings.Contains(err.Error(), "showed no picture") {
+				t.Fatalf("playback ended with %v, want the no-picture error", err)
+			}
+			var ee *exec.ExitError
+			if !errors.As(err, &ee) || ee.ExitCode() != workerExitNoPicture {
+				t.Fatalf("error %v does not carry the worker's exit", err)
+			}
+			if l := launches(); len(l) != len(tc.codes) || !containsArgPair(l[len(l)-1], "--base", "42") {
+				t.Fatalf("launches %v", l)
+			}
+			d := f.requests("/video/:/transcode/universal/decision")
+			if len(d) != len(tc.sizes) {
+				t.Fatalf("decisions %+v", d)
+			}
+			for i, want := range tc.sizes {
+				if got := d[i].q.Get("videoResolution"); got != want {
+					t.Errorf("decision %d at %s, want %s", i, got, want)
+				}
+			}
+			last := d[len(d)-1].q
+			if last.Get("offset") != "42" || last.Get("session") != d[0].q.Get("session") {
+				t.Fatalf("small transcode decision %v", last)
+			}
+			if extra := last.Get("X-Plex-Client-Profile-Extra"); !strings.Contains(extra, "name=video.height&value=480") {
+				t.Fatalf("small transcode profile: %s", extra)
+			}
+			log, _ := os.ReadFile(p.LogTo)
+			if !strings.Contains(string(log), "restarting at 42.000 s as a transcode of at most 854x480") || !strings.Contains(string(log), "small_transcode=true") {
+				t.Fatalf("log does not say so: %s", log)
+			}
+		})
+	}
+}
+
 func TestOtherWorkerErrorsDoNotFallBack(t *testing.T) {
 	f := newPlayServer(t, playVideoDirect)
 	p, launches := fallbackPlayer(t, f, []int{6}, "42")

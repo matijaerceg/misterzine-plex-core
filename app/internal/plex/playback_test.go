@@ -240,11 +240,11 @@ func TestTranscodeSizeAndProfileExtra(t *testing.T) {
 			t.Errorf("cap %d: %dx%d, want %dx%d", tc.kbps, w, h, tc.w, tc.h)
 		}
 	}
-	extra := ProfileExtra(4000, 23.976)
+	extra := ProfileExtra(4000, 23.976, false)
 	for _, want := range []string{
 		"add-limitation(scope=videoAudioCodec&scopeName=aac&type=upperBound&name=audio.channels&value=2&isRequired=true)",
 		"type=match&name=video.profile&list=high|main)",
-		"name=video.level&value=41)", "name=video.bitDepth&value=8)",
+		"name=video.level&value=31)", "name=video.bitDepth&value=8)",
 		"name=video.width&value=1280)", "name=video.height&value=720)", "name=video.frameRate&value=60)",
 		"add-transcode-target(type=videoProfile&context=streaming&protocol=http&container=mkv&videoCodec=h264&audioCodec=aac&replace=true)",
 	} {
@@ -256,11 +256,29 @@ func TestTranscodeSizeAndProfileExtra(t *testing.T) {
 		t.Fatalf("profile lines are not joined with +: %s", extra)
 	}
 	// a 60 frames/s source is halved at 720p, kept at 480p
-	if e := ProfileExtra(4000, 59.94); !strings.Contains(e, "name=video.frameRate&value=29.970)") {
+	if e := ProfileExtra(4000, 59.94, false); !strings.Contains(e, "name=video.frameRate&value=29.970)") {
 		t.Fatalf("720p from 60p: %s", e)
 	}
-	if e := ProfileExtra(2000, 59.94); !strings.Contains(e, "name=video.frameRate&value=60)") || !strings.Contains(e, "name=video.width&value=854)") {
+	if e := ProfileExtra(2000, 59.94, false); !strings.Contains(e, "name=video.frameRate&value=60)") || !strings.Contains(e, "name=video.width&value=854)") {
 		t.Fatalf("480p from 60p: %s", e)
+	}
+	// a small transcode is 854x480 at the full cap, so 60 frames/s stays 60
+	e := ProfileExtra(8000, 59.94, true)
+	for _, want := range []string{"name=video.width&value=854)", "name=video.height&value=480)", "name=video.frameRate&value=60)"} {
+		if !strings.Contains(e, want) {
+			t.Errorf("small transcode profile lacks %q: %s", want, e)
+		}
+	}
+	// a small transcode never grows a picture TranscodeSize already shrank
+	if e := ProfileExtra(500, 23.976, true); !strings.Contains(e, "name=video.width&value=640)") {
+		t.Errorf("small transcode at 500 kbit/s: %s", e)
+	}
+	q := (&Client{}).transcodeQuery(PlaybackRequest{RatingKey: "101", VideoKbps: 8000, SmallTranscode: true}, "s", MediaPart{})
+	if q.Get("videoResolution") != "854x480" || q.Get("maxVideoBitrate") != "8000" {
+		t.Errorf("small transcode query: resolution %q, cap %q", q.Get("videoResolution"), q.Get("maxVideoBitrate"))
+	}
+	if extra := q.Get("X-Plex-Client-Profile-Extra"); !strings.Contains(extra, "name=video.width&value=854)") || !strings.Contains(extra, "name=video.height&value=480)") {
+		t.Errorf("small transcode query profile: %s", extra)
 	}
 }
 
