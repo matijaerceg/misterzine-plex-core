@@ -9,7 +9,8 @@ import (
 
 // A page past the end of a listing comes back empty with the listing's
 // size, which it keeps; a hub listing counts its own items, an empty one
-// none. Synthetic fixtures only.
+// none. A film's second edition lists as its own item, named by its
+// caption. Synthetic fixtures only.
 func TestPageSizes(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -17,7 +18,7 @@ func TestPageSizes(t *testing.T) {
 			if r.URL.Query().Get("X-Plex-Container-Start") == "0" {
 				io.WriteString(w, `<MediaContainer size="2" totalSize="2">`+
 					`<Video ratingKey="11" key="/library/metadata/11" type="movie" title="One"/>`+
-					`<Video ratingKey="12" key="/library/metadata/12" type="movie" title="Two"/>`+
+					`<Video ratingKey="12" key="/library/metadata/12" type="movie" title="One" editionTitle="Director&#8217;s Cut"/>`+
 					`</MediaContainer>`)
 				return
 			}
@@ -50,6 +51,12 @@ func TestPageSizes(t *testing.T) {
 		}
 		if len(items) != tc.items || total != tc.total {
 			t.Fatalf("%s from %d: %d items of %d, want %d of %d", tc.path, tc.start, len(items), total, tc.items, tc.total)
+		}
+		if tc.path == "/library/sections/1/all" && tc.start == 0 {
+			if one, cut := items[0], items[1]; one.Edition != "" || one.Caption() != "One" ||
+				cut.Edition != "Director's Cut" || cut.Caption() != "One - Director's Cut" {
+				t.Fatalf("editions decoded as %q (%q) and %q (%q)", one.Caption(), one.Edition, cut.Caption(), cut.Edition)
+			}
 		}
 	}
 }

@@ -148,6 +148,7 @@ type Item struct {
 	Parent     int     // season number
 	Rating     float64
 	Tagline    string
+	Edition    string // a movie edition's name ("Director's Cut"); each edition is its own item
 	Genres     []string
 	Colors     [4]uint32 // the server's poster palette (top-left, top-right, bottom-right, bottom-left), 0 if none
 	Markers    []Marker  // intro and credits, when the server has found them
@@ -256,6 +257,15 @@ func (it *Item) Label() string {
 	return it.Title
 }
 
+// Caption is the title with the edition, if any: "Film - Director's Cut".
+// The glyph atlases are ASCII, so a hyphen rather than a middle dot.
+func (it *Item) Caption() string {
+	if it.Edition == "" {
+		return it.Title
+	}
+	return it.Title + " - " + it.Edition
+}
+
 // Hub is a home-screen row.
 type Hub struct {
 	Title string
@@ -303,12 +313,13 @@ type xmlItem struct {
 		Type string `xml:"type,attr"`
 		URL  string `xml:"url,attr"`
 	} `xml:"Image"`
-	Medias      []xmlMedia `xml:"Media"`
-	Index       int        `xml:"index,attr"`
-	ParentIndex int        `xml:"parentIndex,attr"`
-	Rating      float64    `xml:"rating,attr"`
-	Tagline     string     `xml:"tagline,attr"`
-	Genres      []struct {
+	Medias       []xmlMedia `xml:"Media"`
+	Index        int        `xml:"index,attr"`
+	ParentIndex  int        `xml:"parentIndex,attr"`
+	Rating       float64    `xml:"rating,attr"`
+	Tagline      string     `xml:"tagline,attr"`
+	EditionTitle string     `xml:"editionTitle,attr"`
+	Genres       []struct {
 		Tag string `xml:"tag,attr"`
 	} `xml:"Genre"`
 	Markers []struct {
@@ -415,7 +426,7 @@ func (x *xmlItem) item() *Item {
 	it := &Item{RatingKey: x.RatingKey, Key: x.Key, Type: x.Type, Subtype: x.Subtype, Title: Fold(x.Title), SortTitle: Fold(x.SortTitle), Year: x.Year,
 		Duration: int(x.Duration / 1000), ViewOffset: int(x.ViewOffset / 1000), ViewCount: x.ViewCount,
 		Summary: Fold(x.Summary), Thumb: x.Thumb, Art: x.Art, Theme: x.Theme, GrandTitle: Fold(x.GrandparentTitle),
-		Index: x.Index, Parent: x.ParentIndex, Rating: x.Rating, Tagline: Fold(x.Tagline), GrandKey: x.GrandparentKey,
+		Index: x.Index, Parent: x.ParentIndex, Rating: x.Rating, Tagline: Fold(x.Tagline), Edition: strings.TrimSpace(Fold(x.EditionTitle)), GrandKey: x.GrandparentKey,
 		ParentKey: x.ParentKey, Children: x.ChildCount, Leaves: x.LeafCount, Viewed: x.ViewedLeafCount, Library: x.LibrarySectionID}
 	if it.Type == "episode" && x.GrandparentThumb != "" {
 		it.Still = x.Thumb

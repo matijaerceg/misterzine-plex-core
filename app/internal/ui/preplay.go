@@ -128,7 +128,7 @@ func (p *Preplay) Key(ev input.Event, now time.Time) {
 		}
 	case input.Enter:
 		if p.cur < 0 {
-			p.app.Push(NewFullText(p.app, p.item.Title, p.item.Summary))
+			p.app.Push(NewFullText(p.app, p.item.Caption(), p.item.Summary))
 			return
 		}
 		a := p.actions[p.cur]

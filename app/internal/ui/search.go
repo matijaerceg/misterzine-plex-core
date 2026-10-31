@@ -341,6 +341,9 @@ func (s *Search) Draw(c *gfx.Canvas, now time.Time) bool {
 			if it.Year > 0 {
 				detail += "  " + itoa(it.Year)
 			}
+			if it.Edition != "" {
+				detail += "  " + it.Edition
+			}
 		}
 		if s.results && s.cur == i {
 			c.Fill(338, y, 4, f.Body.Height(), gfx.Amber)

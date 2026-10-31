@@ -126,6 +126,26 @@ func TestHomeHeroLateArtComposesAgain(t *testing.T) {
 	}
 }
 
+// A movie's edition follows its running time in the hero's facts; on its
+// page the genres follow the edition.
+func TestHeroFactsEdition(t *testing.T) {
+	it := &plex.Item{RatingKey: "e1", Type: "movie", Title: "Film", Year: 1982, Duration: 7020,
+		Edition: "Director's Cut", Genres: []string{"Drama"}}
+	if got, want := strings.Join(heroFacts(it), "|"), "1982|1h 57m|Director's Cut"; got != want {
+		t.Fatalf("hero facts %q, want %q", got, want)
+	}
+	a := betaTestApp(t)
+	a.Art = NewArt(nil, 0, nil)
+	p := &Preplay{app: a, item: it}
+	if got, want := strings.Join(p.still(720, 480).facts, "|"), "1982|1h 57m|Director's Cut|Drama"; got != want {
+		t.Fatalf("page facts %q, want %q", got, want)
+	}
+	it.Edition = ""
+	if got, want := strings.Join(heroFacts(it), "|"), "1982|1h 57m"; got != want {
+		t.Fatalf("facts without an edition %q, want %q", got, want)
+	}
+}
+
 // The logos of the heroes around the cursor are fetched with their backdrops.
 func TestHomePrefetchesHeroLogos(t *testing.T) {
 	h, _ := heroTestHome(t)

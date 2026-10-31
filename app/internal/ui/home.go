@@ -686,7 +686,7 @@ func (h *Home) drawPage(c *gfx.Canvas, now time.Time) bool {
 			}
 			x := SafeX + j*PosterPitch - ox
 			f := h.app.F.Body
-			h.app.textOver(c, show, x, StripY, f, gfx.White, f.Fit(it.Title, PosterW))
+			h.app.textOver(c, show, x, StripY, f, gfx.White, f.Fit(it.Caption(), PosterW))
 		}
 	}
 	return fading || moving
@@ -832,6 +832,9 @@ func heroFacts(it *plex.Item) []string {
 	if it.Duration > 0 {
 		t = append(t, hm(it.Duration))
 	}
+	if it.Edition != "" {
+		t = append(t, it.Edition)
+	}
 	if it.Playable() && it.ViewCount > 0 && it.ViewOffset == 0 {
 		t = append(t, "Watched")
 	}
@@ -857,11 +860,11 @@ func dots(c *gfx.Canvas, x, y int, f *gfx.Font, col gfx.Color, tokens []string, 
 	right := x + maxW
 	for i, t := range tokens {
 		if i > 0 {
+			if x+20 >= right {
+				return
+			}
 			c.Fill(x+8, (y+f.Height()/2)&^1-1, 4, 4, col)
 			x += 20
-		}
-		if x >= right {
-			return
 		}
 		t = f.Fit(t, right-x)
 		x = c.Text(x, y, f, col, t)
@@ -1023,7 +1026,7 @@ func (h *Home) drawTile(c *gfx.Canvas, it *plex.Item, x, y int, focus bool, rowT
 		c.Fill(x, y, w, ht, gfx.Bar)
 		if whole {
 			f := h.app.F.SmallBold
-			lines := wrapped(f, it.Title, w-16, 4)
+			lines := wrapped(f, it.Caption(), w-16, 4)
 			ty := y + ht/2 - len(lines)*f.Height()/2
 			for _, l := range lines {
 				h.app.textCenterOn(c, x+w/2, ty, f, gfx.GreyLo, gfx.Bar, l)

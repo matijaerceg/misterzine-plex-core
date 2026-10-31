@@ -28,6 +28,7 @@ func TestPanelKeyFollowsEveryChange(t *testing.T) {
 		func() { it.Index = 3 },
 		func() { it.Title = "Other" },
 		func() { p.item = &plex.Item{Title: "Film", Year: 1999} },
+		func() { p.item.Edition = "Extended" },
 	} {
 		change()
 		if got, want := p.panelKey(), fresh(); got != want {

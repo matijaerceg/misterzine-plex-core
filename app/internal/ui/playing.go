@@ -157,6 +157,7 @@ type Playing struct {
 type panelState struct {
 	item                 *plex.Item
 	kind, title, series  string
+	edition              string
 	season, index, year  int
 	pos, focus, scrubTo  int
 	paused, scrub        bool
@@ -1307,15 +1308,20 @@ func (p *Playing) dimmed(i int) bool {
 
 // heading is the overlay's title line: the show on the left with the
 // season, episode and episode title on the right, or the film with its
-// year on the right.
+// year and edition on the right (the title's fit would cut the edition
+// off a long name).
 func heading(it *plex.Item) (title, sub string) {
 	if it.Type == "episode" {
 		return it.GrandTitle, "S" + itoa(it.Parent) + " E" + itoa(it.Index) + "  " + it.Title
 	}
+	var parts []string
 	if it.Year > 0 {
-		return it.Title, itoa(it.Year)
+		parts = append(parts, itoa(it.Year))
 	}
-	return it.Title, ""
+	if it.Edition != "" {
+		parts = append(parts, it.Edition)
+	}
+	return it.Title, strings.Join(parts, "  ")
 }
 
 // panelKey describes what the panel would show, without drawing it. Tick
@@ -1323,7 +1329,7 @@ func heading(it *plex.Item) (title, sub string) {
 func (p *Playing) panelKey() string {
 	it := p.item
 	a, b := p.bufferPixels()
-	s := panelState{it, it.Type, it.Title, it.GrandTitle, it.Parent, it.Index, it.Year,
+	s := panelState{it, it.Type, it.Title, it.GrandTitle, it.Edition, it.Parent, it.Index, it.Year,
 		int(p.pos), p.focus, int(p.scrubTo), p.paused, p.scrub, a, b}
 	if s == p.panelFor && p.panelText != "" {
 		return p.panelText
@@ -1451,7 +1457,7 @@ func (p *Playing) compose(peek bool) {
 // staticKey describes the static panel, without the running time.
 func (p *Playing) staticKey(peek, timed bool) string {
 	it := p.item
-	return it.Title + it.GrandTitle + "|" + itoa(int(p.pos)) + "|" + itoa(p.focus) + "|" + itoa(btoi(p.paused)) +
+	return it.Title + it.GrandTitle + it.Edition + "|" + itoa(int(p.pos)) + "|" + itoa(p.focus) + "|" + itoa(btoi(p.paused)) +
 		"|" + itoa(btoi(p.scrub)) + "|" + itoa(btoi(peek)) + "|" + itoa(btoi(timed)) + p.bufferKey()
 }
 
