@@ -148,7 +148,7 @@ module ring_words_sys (
             7'd46: begin w[31:0] = f_ovl_gen; w[33:32] = f_ovl_state; w[34:34] = f_ovl_at; w[35:35] = f_ovl_clip; w[39:36] = f_ovl_err; w[47:40] = f_ovl_torn; w[63:48] = f_ovl_late; end
             7'd47: begin w[11:0] = f_ar_x; w[23:12] = f_ar_y; w[63:32] = f_ovl_lines; end
             7'd80: begin w[11:0] = f_raster_w; w[23:12] = f_raster_h; w[25:24] = f_raster_mode; w[26:26] = f_raster_lb; w[28:27] = f_video_out; w[31:29] = f_colour; w[44:32] = f_pic_x0; w[60:48] = f_pic_y0; end
-            7'd81: begin w[15:0] = 16'hE10; w[27:16] = 12'h2D0; w[63:32] = 32'h1A5E0; end
+            7'd81: begin w[15:0] = 16'h1000; w[27:16] = 12'h2D0; w[63:32] = 32'h1A5E0; end
             7'd82: begin w[15:0] = f_rum_p0; w[31:16] = f_rum_p1; w[47:32] = f_rum_p2; w[63:48] = f_rum_p3; end
             7'd83: begin w[15:0] = f_rum_p4; w[31:16] = f_rum_p5; w[63:32] = f_rum_changes; end
             7'd84: begin w[19:0] = f_pic_held; w[20:20] = f_pic_mode; w[31:24] = 8'h14; w[63:32] = f_pic_emitted; end

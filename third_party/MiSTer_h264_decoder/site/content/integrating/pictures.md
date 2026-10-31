@@ -30,7 +30,7 @@ H.263 (`clients/player`, `clients/common/vdec.c` in the repository).
 - **The format: planar 8-bit 4:2:0** in the store. The library's copy also takes 8-bit 4:2:2 and
   full-range (`yuvj`) pictures and converts them as it copies, at a cost. Anything else -- 10-bit,
   4:4:4, RGB, packed formats -- your program converts first, on the same core.
-- **The size: up to 3,600 macroblocks** (1280x720, 720x576 and smaller, any shape) **and 2,048
+- **The size: up to 4,096 macroblocks** (1280x720, 720x576 and smaller, any shape) **and 2,048
   pixels a side** -- the same bound as the core's own decoding.
 - **One kind per stream:** a stream is your pictures or H.264 access units, never both
   ([below](#a-stream-is-pictures-or-access-units)).

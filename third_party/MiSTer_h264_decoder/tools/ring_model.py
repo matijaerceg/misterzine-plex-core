@@ -822,7 +822,7 @@ def _pictures(name, p, rng, nonce, ring):
             ("PIC_FIELD", dict(tv=1, nuit=0)), ("PIC_FIELD", dict(tv=1, ts=0)),
             ("PIC_STORE", dict(store=20)), ("PIC_STORE", dict(store=31)),
             ("PIC_SIZE", dict(w=0)), ("PIC_SIZE", dict(hf=0)), ("PIC_SIZE", dict(w=129, hf=2)),
-            ("PIC_SIZE", dict(w=2, hf=129)), ("PIC_SIZE", dict(st=2, hf=29)), ("PIC_SIZE", dict(w=80, hf=46)),
+            ("PIC_SIZE", dict(w=2, hf=129)), ("PIC_SIZE", dict(st=2, hf=29)), ("PIC_SIZE", dict(w=82, hf=50)),
             ("PIC_SIZE", dict(w=255, hf=255)),
             ("PIC_CROP", dict(w=10, cl=40, cr=40)), ("PIC_CROP", dict(hf=10, ct=79, cb=1)),
             ("PIC_BUSY", None), ("HDR_LENGTH", 31), ("HDR_LENGTH", 33), ("NEED_DISCONT", None),

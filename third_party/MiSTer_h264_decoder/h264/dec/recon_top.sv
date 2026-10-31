@@ -14,7 +14,7 @@
 // slice to be READY -- recon_dpb (a new picture: the previous one marked, a store, the
 // POC), recon_lists, recon_slice_tab -- before any macroblock word goes to the intake.
 //
-// A picture above Level 3.1's MaxFS (3,600 macroblocks: the DPB stores are 2 MiB each,
+// A picture above 4,096 macroblocks (what a 2 MiB DPB store holds at 512 B a macroblock,
 // docs/h264_recon.md S2.2) is refused: its macroblock words are discarded, `ref_size`
 // counts it (word 20's rc_ref_size), nothing is written -- and (2026-10-02) recon_dpb never
 // sees its slices, so no store is opened and nothing is emitted to the display (until then the
@@ -217,7 +217,7 @@ module recon_top
     logic        sr_d1, sr_d2, sr_d3;
     logic [7:0]  sz_w, sz_h;
     logic [20:0] sz_prod;
-    logic        sz_over;                       // Level 3.1's MaxFS (Table A-1): sz_prod > 3,600
+    logic        sz_over;                       // sz_prod > 4,096: more than a 2 MiB store holds
     wire         dpb_slice_ready = sr_d3 && !sz_over;
     wire        pipe_idle;
     wire        d_pic_start, d_pic_new, lists_go, lists_done, slice_go, dpb_busy;
@@ -473,7 +473,10 @@ module recon_top
             sr_d1 <= slice_ready; sr_d2 <= sr_d1; sr_d3 <= sr_d2;
             sz_w <= w_mbs; sz_h <= hf_mbs;
             sz_prod <= {13'd0, sz_w} * {13'd0, sz_h};
-            sz_over <= (sz_prod > 21'd3600);
+            // The store's bound, not Level 3.1's MaxFS (3,600 until 2026-10-31): Intel Quick Sync
+            // codes 1280x720 as 1280x736 cropped (80 x 46 = 3,680 macroblocks), and a 2 MiB store
+            // holds 4,096 (luma, chroma and the side words at 512 B each; 80 x 46 x 512 B = 1.80 MiB)
+            sz_over <= (sz_prod > 21'd4096);
             pinfo_we <= 1'b0;
             m_err_q <= m_err;
             idle_run <= !pipe_idle ? 2'd0 : (idle_run == 2'd3) ? 2'd3 : idle_run + 2'd1;
@@ -526,7 +529,7 @@ module recon_top
                     rs <= R_RUN;
                 end
                 R_SLICE_WAIT: if (sr_d3 && sz_over) begin
-                    // above Level 3.1's MaxFS: never handed to recon_dpb (no store, no output)
+                    // above what a store holds: never handed to recon_dpb (no store, no output)
                     ref_size <= ref_size + 1'b1;
                     rs <= R_DISCARD;
                 end else if (slice_go) begin

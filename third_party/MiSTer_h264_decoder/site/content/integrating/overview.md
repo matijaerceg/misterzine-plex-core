@@ -53,7 +53,7 @@ draws itself, into the Linux framebuffer; the core shows it over the video on ev
 ## What the core decodes today
 
 H.264 **Main** and **High** profile (High is what a stock Moonlight / Sunshine host always
-sends), 8-bit 4:2:0, CABAC, frame and field pictures, up to 3,600 macroblocks a picture
+sends), 8-bit 4:2:0, CABAC, frame and field pictures, up to 4,096 macroblocks a picture
 (1280x720; word 81 tells your program, [the interface](interface.md)). A stream the core does
 not decode (CAVLC, MBAFF, monochrome, 4:2:2 / 4:4:4, 10-bit) is refused, and the refusal
 is visible in the status block; a CAVLC stream is rewritten into CABAC by the library's

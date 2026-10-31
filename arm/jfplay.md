@@ -146,7 +146,7 @@ the core, the worker checks its SPS and PPS (from the container's extradata,
 or else the first IDR access unit) with the decoder project's
 `clients/common/h264check.c` plus `direct_check.h`: Main or High profile,
 4:2:0, 8-bit, CABAC, no MBAFF (field-coded PAFF is accepted), at most 1280
-pixels wide and 3,600 macroblocks, within the core's macroblock rate when the
+pixels wide and 4,096 macroblocks, within the core's macroblock rate when the
 container reports a frame rate, and no slice groups or redundant pictures. A failure,
 or no parameter sets before the first IDR, exits with code 7 and an `error`
 naming the reason. While a `--direct` stream plays, `lag_watch.h` samples

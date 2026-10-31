@@ -164,7 +164,8 @@ module recon_mb (
     wire  [7:0]  pic_h_mbs = field_pic ? {1'b0, frame_height_mbs[7:1]} : frame_height_mbs;
     logic [6:0]  mbx, mby;                 // the current macroblock
     wire  [1:0]  cur_struct = field_pic ? (bottom ? 2'd2 : 2'd1) : 2'd0;
-    // a store is 2 MiB (store << 18 words: 3,600 macroblocks x 512 B, docs/h264_recon.md S2.2)
+    // a store is 2 MiB (store << 18 words: up to 4,096 macroblocks x 512 B, docs/h264_recon.md S2.2;
+    // the side words end at 64 W HF words, 2^18 exactly at recon_top's 4,096 bound)
     wire  [28:0] cur_base = dpb_base + {6'd0, cur_store, 18'd0};
     wire  [28:0] off_cb = {3'd0, plane_mbs, 5'd0};                              // 32 * W * HF
     wire  [28:0] off_cr = {3'd0, plane_mbs, 5'd0} + {5'd0, plane_mbs, 3'd0};    // 40 * W * HF

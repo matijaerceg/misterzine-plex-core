@@ -112,12 +112,15 @@ OVL_WORDS = 8
 FB_BYTE = 0x2200_0000            # 0.9: the Linux framebuffer's region (MiSTer_fb, the device tree's reg)
 FB_SIZE = 0x0080_0000            # 8 MiB
 DPB_BYTE = 0x3200_0000           # 0.11: the core's DPB (h264/emu.sv DPB_BASE, word 0x0640_0000); 0.15: published --
-DPB_STORES = 20                  # 20 stores (h264_pkg NSTORE) of 2 MiB (a 3,600-macroblock picture is 1.84 MB
-DPB_STORE = 0x0020_0000          # with its side words; docs/h264_recon.md S2.2), above the ring. A picture stream's
+DPB_STORES = 20                  # 20 stores (h264_pkg NSTORE) of 2 MiB (a 4,096-macroblock picture is 2 MiB
+DPB_STORE = 0x0020_0000          # exactly with its side words; docs/h264_recon.md S2.2), above the ring. A picture stream's
                                  # program writes them (docs/architecture.md "Pictures from the program")
 PIC_PAYLOAD = 32                 # 0.15: a PICTURE's descriptor, bytes (exactly)
 PIC_MAX_SIDE = 128               # 0.15: a PICTURE's widest / tallest, macroblocks (disp_reader's 2,048-sample slots)
-CAP_MAX_MBS = 3600               # 0.11: Level 3.1's MaxFS (Table A-1): the largest picture the core decodes
+CAP_MAX_MBS = 4096               # the largest picture the core decodes: what a 2 MiB store holds (512 B a
+                                 # macroblock with its side words). 0.11-1.4 cores said 3,600 (Level 3.1's
+                                 # MaxFS); raised 2026-10-31 because hardware encoders pad 1280x720 to a
+                                 # coded 1280x736 (3,680 macroblocks) and crop it. Programs read word 81
 CAP_MB_RATE = 108000             # 0.11: Level 3.1's MaxMBPS: the macroblock rate the core is designed for
 CAP_NATIVE_H = 720               # 0.12: Native (HDMI)'s tallest 16:9 picture at its own size at 60 Hz (raster_geom; 0.11: 480)
 OVL_MAX_W = 2048                 # 0.12: the widest raster (the native raster's; 0.10: 1,024; 0.9: 720)
@@ -311,7 +314,7 @@ WORDS = [
                  ("out_rel_bad", 25, 1, "recon_out: a release of a store not held (sticky)"),
                  ("fe_sei_err", 32, 32, "malformed SEI NAL units")]),
     (19, "dec", [("rc_pic", 0, 32, "pictures reconstructed"), ("rc_mb", 32, 32, "macroblocks reconstructed")]),
-    (20, "dec", [("rc_err", 0, 32, "reconstruction errors"), ("rc_ref_size", 32, 32, "pictures refused by size (> 3,600 MBs: word 81's cap_max_mbs; 0.1-0.10: > 1,620)")]),
+    (20, "dec", [("rc_err", 0, 32, "reconstruction errors"), ("rc_ref_size", 32, 32, "pictures refused by size (> 4,096 MBs: word 81's cap_max_mbs; 0.11-1.4: > 3,600; 0.1-0.10: > 1,620)")]),
     (21, "dec", [("rc_out_dropped", 0, 32, "stores dropped without output (no_output_of_prior_pics)"),
                  ("rc_out_direct", 32, 32, "non-reference pictures output directly")]),
     (22, "dec", [("rc_out_over", 0, 32, "a DPB full of references (non-conforming)"), ("rc_stall", 32, 32, "reconstruction stall cycles")]),
@@ -391,7 +394,7 @@ WORDS = [
                  ("pic_x0", 32, 13, "(0.10) the shown picture's rectangle (word 30's fit_ow x fit_oh) on the raster: left, two's complement (negative under Crop); (0.17) 0 while word 30's fit_valid is 0"),
                  ("pic_y0", 48, 13, "(0.10) ... top, frame lines, two's complement")]),
     # 0.11: the core's capabilities, constants (a 0.10 core reads 0 here: 1,620 / 480 / 97,200)
-    (81, "sys", [("cap_max_mbs", 0, 16, "(0.11) the largest picture the core decodes, macroblocks (3,600: Level 3.1's MaxFS); a larger one is refused (rc_ref_size)"),
+    (81, "sys", [("cap_max_mbs", 0, 16, "(0.11) the largest picture the core decodes, macroblocks (4,096: a 2 MiB store; 3,600 until 2026-10-31); a larger one is refused (rc_ref_size)"),
                  ("cap_native_h", 16, 12, "(0.11) Native (HDMI): the tallest 16:9 picture shown at its own size at 60 Hz, frame lines (0.12: 720 -- every picture the core decodes; 0.11: 480)"),
                  ("cap_mb_rate", 32, 32, "(0.11) the macroblock rate the core is designed for, macroblocks a second (108,000: Level 3.1's MaxMBPS); real time below it depends on the bitrate")]),
     # 0.13: the rumble passed to Main (docs/architecture.md "Rumble (interface 0.13)")
@@ -490,6 +493,7 @@ def _check_tables():
     assert CORE3_WORD >= OVL_WORD + OVL_WORDS and CORE3_WORD % 8 == 0 and CORE3_WORDS == 8
     assert CTRL_BYTE + 8 * (CORE3_WORD + CORE3_WORDS) <= RING_BYTE and CTRL_BYTE >= 0x3000_0000
     # 0.11: the DPB above the ring, inside the FPGA's half, each store holding CAP_MAX_MBS x 512 B
+    # (luma 256, chroma 128 and the co-located side words 128: h264_recon.md S2.2)
     assert DPB_BYTE >= RING_BYTE + RING_SIZE and DPB_BYTE + DPB_STORES * DPB_STORE <= 0x4000_0000
     assert CAP_MAX_MBS * 512 <= DPB_STORE
     # 0.15: a PICTURE's largest picture fits a store; the store index fits P0 [4:0] and pic_held

@@ -74,7 +74,7 @@
 #define H264RING_DPB_STORE 0x200000U /* (0.15) a store's size in bytes */
 #define H264RING_PIC_PAYLOAD 0x20U /* (0.15) a PICTURE's payload: exactly this many bytes (four u64) */
 #define H264RING_PIC_MAX_SIDE 0x80U /* (0.15) a PICTURE's w_mbs / hf_mbs at most */
-#define H264RING_CAP_MAX_MBS 0xE10U /* (0.11) word 81's cap_max_mbs: (0.15) a PICTURE's w_mbs x hf_mbs at most */
+#define H264RING_CAP_MAX_MBS 0x1000U /* (0.11) word 81's cap_max_mbs: (0.15) a PICTURE's w_mbs x hf_mbs at most */
 #define H264RING_PIC_RSV0 0xFFFF00E0FC0000E0U /* (0.15) a PICTURE's P0: the bits that must be 0 */
 #define H264RING_PIC_RSV1 0xFFFFFFFE00000000U /* (0.15) ... P1's */
 #define H264RING_PIC_RSV3 0xFFFFFF0000000000U /* (0.15) ... P3's (P2 has none) */
@@ -309,7 +309,7 @@
 #define H264RING_RC_ERR_WIDTH 32 /* reconstruction errors */
 #define H264RING_RC_REF_SIZE_W 20
 #define H264RING_RC_REF_SIZE_LSB 32
-#define H264RING_RC_REF_SIZE_WIDTH 32 /* pictures refused by size (> 3,600 MBs: word 81's cap_max_mbs; 0.1-0.10: > 1,620) */
+#define H264RING_RC_REF_SIZE_WIDTH 32 /* pictures refused by size (> 4,096 MBs: word 81's cap_max_mbs; 0.11-1.4: > 3,600; 0.1-0.10: > 1,620) */
 #define H264RING_RC_OUT_DROPPED_W 21
 #define H264RING_RC_OUT_DROPPED_LSB 0
 #define H264RING_RC_OUT_DROPPED_WIDTH 32 /* stores dropped without output (no_output_of_prior_pics) */
@@ -552,7 +552,7 @@
 #define H264RING_PIC_Y0_WIDTH 13 /* (0.10) ... top, frame lines, two's complement */
 #define H264RING_CAP_MAX_MBS_W 81
 #define H264RING_CAP_MAX_MBS_LSB 0
-#define H264RING_CAP_MAX_MBS_WIDTH 16 /* (0.11) the largest picture the core decodes, macroblocks (3,600: Level 3.1's MaxFS); a larger one is refused (rc_ref_size) */
+#define H264RING_CAP_MAX_MBS_WIDTH 16 /* (0.11) the largest picture the core decodes, macroblocks (4,096: a 2 MiB store; 3,600 until 2026-10-31); a larger one is refused (rc_ref_size) */
 #define H264RING_CAP_NATIVE_H_W 81
 #define H264RING_CAP_NATIVE_H_LSB 16
 #define H264RING_CAP_NATIVE_H_WIDTH 12 /* (0.11) Native (HDMI): the tallest 16:9 picture shown at its own size at 60 Hz, frame lines (0.12: 720 -- every picture the core decodes; 0.11: 480) */

@@ -212,7 +212,7 @@ static void core_status(void)                       /* the seqlock: head first, 
     PUT(ATTEN, (core.w34 >> H264RING_CTL_ATTEN_LSB) & 0xFFu);
     PUT(OVL_GEN, core.ovl_gen);
     PUT(OVL_STATE, core.ovl_state);
-    PUT(CAP_MAX_MBS, 3600);                       /* (0.11) word 81: the real core's constants */
+    PUT(CAP_MAX_MBS, 4096);                       /* (0.11) word 81: the real core's constants */
     PUT(CAP_NATIVE_H, 480);
     PUT(CAP_MB_RATE, 108000);
     PUT(OSD_ASPECT, core.osd[H264RING_OPT_ASPECT]);

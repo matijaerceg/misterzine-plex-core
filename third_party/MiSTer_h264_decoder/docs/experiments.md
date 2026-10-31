@@ -215,7 +215,7 @@ decoder, like this core). Read from MiSTer_DVD's docs and fit report, not measur
   plausible but unproven. The natural shape is a sibling core: this core's shell (ring, audio,
   display, overlay, HD raster) with an MPEG-2 decoder in place of the H.264 one, loaded by the
   program per stream (`mgl_launch.md`); it does not fit beside H.264 at 88 % ALM.
-  1080i's 8,160-macroblock picture is also past this display path's 3,600 bound.
+  1080i's 8,160-macroblock picture is also past this display path's 4,096 bound (3,600 until 2026-10-31).
 
 A fabric MPEG-2 decoder (MiSTer_DVD has one) is not worth it: MPEG-2 is the cheapest codec on
 the ARM, and the fabric is at 88 % ALM.

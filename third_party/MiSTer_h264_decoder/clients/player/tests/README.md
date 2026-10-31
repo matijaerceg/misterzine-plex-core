@@ -37,7 +37,7 @@ The folder the player browses, in the order it lists them (folders first):
 | `a_dir/inner.mkv` | 120 s of one colour, 25 frames/s, an IDR a second, no audio: the folder, the seek, 50 Hz |
 | `b_pal.mp4` | 3 s, 352x288, 25 frames/s, MP4 (avcC), AAC: 50 Hz |
 | `c_ok.mkv` | 8 s, 640x360, 30 frames/s, AAC, an SRT track (default) and an ASS track: a dialogue line with `{\i1}` tags and a `\N` break, overlapped by a vector drawing (`{\p1}`) that must not show |
-| `d_big.mkv` | 1344x720 (3,780 macroblocks, over interface 0.11's 3,600) at 24 frames/s (90,720 a second: only the size refuses it), CAVLC: refused for its size (the core would not refuse it at the SPS: §2). CAVLC alone would now play, so the size must be found first (`h264check` names CAVLC last) |
+| `d_big.mkv` | 1344x784 (4,116 macroblocks, over the core's 4,096; 1344x720 until the bound was raised from 3,600) at 24 frames/s (98,784 a second: only the size refuses it), CAVLC: refused for its size (the core would not refuse it at the SPS: §2). CAVLC alone would now play, so the size must be found first (`h264check` names CAVLC last) |
 | `e_cavlc.mkv` | 1 s of Baseline (CAVLC) 320x240: plays, rewritten into CABAC by the library's write call (`docs/player.md` P6) |
 | `f_mpeg4.mkv` | (0.15) 1 s of MPEG-4 Part 2 320x240 at 30: decoded on the ARM, sent as pictures (frames) |
 | `g_fast.mkv` | (0.11) 1 s of 1280x720 at 60 frames/s: inside the picture bound but 216,000 macroblocks a second -- refused as too fast (the core's 108,000) |
@@ -85,7 +85,7 @@ the fitted 720 x 576 at 50 Hz, so the canvas is drawn for two widths.
 | (b) | The first file the player opened (its log) is b_pal, and the first session's AUs are b_pal's: the list's order (folders first; hidden files and non-videos left out -- a hidden file opened first is refused before the ring, so the sessions alone cannot tell). |
 | (d) | b_pal (MP4: avcC to Annex B) and c_ok: every access unit byte-identical with `ffmpeg -c copy -bsf:v h264_mp4toannexb`, each with its PTS. c_ok's last AU has END_OF_STREAM; its audio records carry PTS. |
 | (c) | The folder plays on: c_ok's session follows b_pal's and starts before any press made after b_pal's started (a later press would also play it). |
-| (e) | No access unit of d_big, g_fast, j_ffv1 or k_hd ever reached the core (by MD5), and exactly three sessions of pictures exist (f, h, i: no refused file decoded on the ARM). The log's "cannot play" names "1344x720 is larger", "too fast", "cannot decode" (FFV1) and "larger than SD" (k_hd). |
+| (e) | No access unit of d_big, g_fast, j_ffv1 or k_hd ever reached the core (by MD5), and exactly three sessions of pictures exist (f, h, i: no refused file decoded on the ARM). The log's "cannot play" names "1344x784 is larger", "too fast", "cannot decode" (FFV1) and "larger than SD" (k_hd). |
 | (v) | The CAVLC file plays: the third session's every PPS has entropy_coding_mode_flag 1 (the scorer's own parse), and ffmpeg decodes the AUs the core read to exactly the pictures (frame MD5s) it decodes `e_cavlc.mkv` to: the rewrite lossless, judged by a decoder that shares nothing with it. |
 | (p1) | (0.15) f_mpeg4 (MPEG-4 Part 2 320x240) decoded on the ARM: every picture's visible planes, read from the fake core's snapshot of its store by `docs/architecture.md`'s layout, MD5-equal to ffmpeg's decode (yuv420p), in order and all of them; its PTS the decoder's `best_effort_timestamp` (ffprobe); a frame; the rate 30; END_OF_STREAM on the last only. |
 | (p2) | (0.15) h_mpeg2i (MPEG-2 352x240 interlaced, top first, B-pictures, a program stream): every picture a woven field pair, top first (structure 1), MD5-equal to ffmpeg's decode, with its PTS; the rate 29.97. |
@@ -121,7 +121,7 @@ the fitted 720 x 576 at 50 Hz, so the canvas is drawn for two widths.
 | M12 the press that wakes the screensaver also acts | (z2) |
 | M13 playing never counts as busy (the saver dims a playing film) | (z1) |
 | M14 CAVLC refused again (`cavlc_ok` 0) | (v) |
-| M15 `h264check` names CAVLC before the size (the CAVLC 1344x720 let through) | (e) |
+| M15 `h264check` names CAVLC before the size (the CAVLC 1344x784 let through) | (e) |
 | M16 the canvas 720 wide whatever the raster | T7 |
 | M20 the canvas's rows a fixed 2,048 pixels apart (450 lines on a 1280x720 mode) | T8 |
 | M21 the pages spaced for the tallest canvas (2,048 lines): page 1 past the framebuffer | T9 |
@@ -142,5 +142,5 @@ the fitted 720 x 576 at 50 Hz, so the canvas is drawn for two widths.
 | M33 (§12) a frame without a time sent untimed | (y) |
 
 A mutation caught only by another check is a failure of the runner. Other checks may also go RED
-on a mutant (M5 lets the 1344x720 file play, so the sessions after it shift); only the named one is
+on a mutant (M5 lets the 1344x784 file play, so the sessions after it shift); only the named one is
 required.

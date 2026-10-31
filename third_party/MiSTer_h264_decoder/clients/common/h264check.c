@@ -3,7 +3,8 @@
 #include <string.h>
 #include "h264check.h"
 
-#define MAX_MBS 3600u   /* the 0.11 core's picture bound (Level 3.1's MaxFS), when the caller sets none */
+#define MAX_MBS 4096u   /* the core's picture bound (a 2 MiB store), when the caller sets none: 3,600 (Level
+                         * 3.1's MaxFS) until 2026-10-31, raised for encoders that pad 1280x720 to 1280x736 */
 #define MB_RATE 108000u /* ... and its macroblock rate (Level 3.1's MaxMBPS) */
 
 struct bits {

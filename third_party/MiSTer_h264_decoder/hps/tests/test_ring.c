@@ -836,10 +836,11 @@ int main(int argc, char **argv)
               found == sizeof kw / sizeof kw[0] && named == found);
         CHECK("refusal names: a code past the table is \"?\"", strcmp(h264ring_refusal_name(15), "?") == 0);
         /* REF_SIZE is raised at the SPS for a DIMENSION past 128 macroblocks (sps_pps.sv), not for
-         * the picture bound (0.11: 3,600 macroblocks, word 81; recon_top drops those slices, no
+         * the picture bound (4,096 macroblocks, word 81; recon_top drops those slices, no
          * refusal: a program checks the SPS itself -- docs/player.md); REF_MBAFF only for MBAFF */
         CHECK("refusal names: REF_SIZE names the dimension, not the picture bound; MBAFF not \"field pictures\"",
               !strstr(h264ring_refusal_name(12), "1,620") && !strstr(h264ring_refusal_name(12), "3,600") &&
+              !strstr(h264ring_refusal_name(12), "4,096") &&
               !strstr(h264ring_refusal_name(4), "/ field"));
     }
 
@@ -957,8 +958,15 @@ int main(int argc, char **argv)
                   l.hf_mbs == 1 && l.crop_r == 7 && l.crop_b == 7 && l.cb_off == 256 && l.cr_off == 320);
             q.width = 1280; q.height = 720;
             CHECK("layout: 1280x720 -> 80 x 45 (3,600)", h264ring_picture_layout(&q, &l) == 0 && l.w_mbs == 80 && l.hf_mbs == 45);
-            q.width = 1296;
-            CHECK("layout: 1296x720 (3,645 MBs) -> EINVAL", h264ring_picture_layout(&q, &l) == -EINVAL);
+            q.height = 736;     /* Quick Sync's coded 720p: past Level 3.1's 3,600, inside a store */
+            CHECK("layout: 1280x736 -> 80 x 46 (3,680)", h264ring_picture_layout(&q, &l) == 0 && l.w_mbs == 80 &&
+                  l.hf_mbs == 46 && l.bytes == 384u * 3680u);
+            q.width = 1024; q.height = 1024;
+            CHECK("layout: 1024x1024 (4,096 MBs, a store exactly) -> 64 x 64", h264ring_picture_layout(&q, &l) == 0 &&
+                  l.w_mbs == 64 && l.hf_mbs == 64);
+            q.width = 1312; q.height = 800;
+            CHECK("layout: 1312x800 (4,100 MBs) -> EINVAL", h264ring_picture_layout(&q, &l) == -EINVAL);
+            q.height = 720;
             q.width = 720; q.height = 490; q.structure = H264RING_PIC_STRUCT_PAIR_TOP;
             CHECK("layout: a 720x490 pair -> 32 frame MBs (whole field macroblocks), crop 11",
                   h264ring_picture_layout(&q, &l) == 0 && l.hf_mbs == 32 && l.crop_b == 11);

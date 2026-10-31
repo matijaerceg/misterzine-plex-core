@@ -25,7 +25,7 @@ module ring_words_dec (
     input  wire  [31:0] f_rc_pic,            // w19: pictures reconstructed
     input  wire  [31:0] f_rc_mb,             // w19: macroblocks reconstructed
     input  wire  [31:0] f_rc_err,            // w20: reconstruction errors
-    input  wire  [31:0] f_rc_ref_size,       // w20: pictures refused by size (> 3,600 MBs: word 81's cap_max_mbs; 0.1-0.10: > 1,620)
+    input  wire  [31:0] f_rc_ref_size,       // w20: pictures refused by size (> 4,096 MBs: word 81's cap_max_mbs; 0.11-1.4: > 3,600; 0.1-0.10: > 1,620)
     input  wire  [31:0] f_rc_out_dropped,    // w21: stores dropped without output (no_output_of_prior_pics)
     input  wire  [31:0] f_rc_out_direct,     // w21: non-reference pictures output directly
     input  wire  [31:0] f_rc_out_over,       // w22: a DPB full of references (non-conforming)

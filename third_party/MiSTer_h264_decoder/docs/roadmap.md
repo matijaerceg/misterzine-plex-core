@@ -80,7 +80,7 @@ after P5b's throughput.
 
 | | this core's target | the decoder as forked from UMD |
 |---|---|---|
-| picture | 720x480 progressive at 60 frames/s (Moonlight); up to 720x576; film and TV rates. (2026-10-02, Phase 5c: any picture to 3,600 macroblocks -- 1280x720 at 30, 720p24 films) | 720x480, up to 30 frames/s (Level 3.0) |
+| picture | 720x480 progressive at 60 frames/s (Moonlight); up to 720x576; film and TV rates. (2026-10-02, Phase 5c: any picture to 3,600 macroblocks -- 1280x720 at 30, 720p24 films; 2026-10-31: to 4,096, a 2 MiB store, for hardware encoders' 1280x736) | 720x480, up to 30 frames/s (Level 3.0) |
 | level | 3.1 (81,000 MB/s is exactly 2x Level 3.0's 40,500) | 3.0; the fabric's limit is MaxFS / DPB, not `level_idc` |
 | profile | **High (D1, decided)** -- a stock Sunshine host always sends it, with the 8x8 tools on ~3-4 % of coded macroblocks; decoded since Phase 5 (`high_profile.md`) | Main; High refused (`REF_T8X8`), CAVLC and MBAFF refused |
 | bitrate | **real time at 10 Mbit/s requested** (~7.7 at the encoder; D1, decided); up to Level 3.1's maximum decoded correctly | tuned on ~2 Mbit/s film |
@@ -152,7 +152,8 @@ phase (`H264.qsf` SEED LEDGER), not on these estimates.
     not sharpness (every raster is still 720 wide):
     - **frame size: any picture up to 3,600 macroblocks** (Level 3.1's MaxFS: 1280x720, or any
       shape inside it up to 128 macroblocks a side) -- 2 MiB stores (`h264_recon.md` §2.2), the
-      bound told to programs in interface 0.11's word 81;
+      bound told to programs in interface 0.11's word 81 (2026-10-31: 4,096, what a store
+      holds -- Intel Quick Sync codes 720p as 1280x736);
     - **decode rate: designed for 108,000 macroblocks a second** (Level 3.1's MaxMBPS: 720p30,
       854x480p60); **real time promised** for game streams (854x480p60, 720p30 at a 10 Mbit/s
       request: ~1.2x estimated at 720p30, `mb_pipeline.md` §4g) and **720p24 films** at typical

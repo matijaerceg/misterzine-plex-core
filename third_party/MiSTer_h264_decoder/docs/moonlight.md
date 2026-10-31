@@ -273,7 +273,8 @@ menu. User page: the manual's `using/moonlight.md`.
 - H.264 only (the core decodes nothing else); stereo only.
 - No reference frame invalidation (an IDR per loss).
 - The ini's resolution is checked by the client against the core's own bounds (interface 0.11,
-  word 81 via `h264ring_caps()`, 2026-10-02): a picture above 3,600 macroblocks or a rate above
+  word 81 via `h264ring_caps()`, 2026-10-02): a picture above 4,096 macroblocks (3,600 until
+  2026-10-31) or a rate above
   108,000 macroblocks a second is **refused** at setup (it warned above 97,200 before). So
   `width=1280` / `height=720` works with `fps=30` (720p30: a light game stream decodes at ~1.2x,
   `mb_pipeline.md` §4f); 1280x720 at 60 is refused with the advice to ask for 30. The automatic

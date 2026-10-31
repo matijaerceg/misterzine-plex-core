@@ -144,15 +144,31 @@ does the same (`parse_*_records`): the stream is the whole contract.
   (2^18 words)** and the store index is the address's top bits (`store << 18` in
   `recon_mb`, `recon_inter`, `recon_mb_fsm.svh`'s co-located read and `disp_reader`: four
   sites, each pinned by a `--red` arm -- `run_recon_top.sh` S1-S3, `run_disp_reader.sh` H1).
-  A picture above 3,600 macroblocks is a stream above Level 3.1 and is refused loudly
-  (`recon_top`'s `ref_size`, word 20's `rc_ref_size`; word 81's `cap_max_mbs` tells programs
-  the bound) before a sample is written. **The refusal is decided before `recon_dpb` sees the
+  **H264: the bound is the store's, 4,096 macroblocks (2026-10-31).** Until then a picture
+  above 3,600 macroblocks was taken as a stream above Level 3.1 and refused. Intel Quick Sync
+  codes 1280x720 as a 1280x736 picture with `frame_crop_bottom_offset` 8 (80 x 46 = 3,680
+  macroblocks), so every picture of a Plex / Jellyfin hardware transcode at 720p was decoded
+  by the front end and dropped by `recon_top` (`rc_ref_size` climbing, nothing shown; proven on
+  the rig 2026-10-30). The store holds 4,096: the layout depends only on `W x HF` (luma at 0,
+  Cb at 32 W HF, Cr at 40 W HF, the side words at 48 W HF to 64 W HF words, 2^18 exactly at
+  4,096), every reference fetch is clamped to the picture's own `16 FrameHeightInMbs` rows,
+  the co-located reads address macroblocks inside the coded picture (Frm_To_Fld's second
+  row is 2y + 1 of a field's y, still a frame row), and nothing reads or writes past the side
+  words, so a 4,096-macroblock picture uses the store to its last word and no further.
+  The per-side bound stays 128 macroblocks (`sps_pps`). A picture above 4,096 macroblocks is
+  refused loudly (`recon_top`'s `ref_size`, word 20's `rc_ref_size`; word 81's `cap_max_mbs`
+  tells programs the bound) before a sample is written. Level 3.1's MaxDpbMbs is unchanged by
+  this: `recon_dpb` derives the DPB size from the stream's level and the picture size, and 16
+  references + the current picture + the display's two fit the 20 stores at any size.
+  `run_recon_top.sh`'s `qsv` (1280x736 cropped to 720) and `edge` (1024x1024, a store exactly)
+  clips decode bit-exact; S8 (the 3,600 bound back) is caught on `qsv`, S9 (the side words
+  moved 8 W HF up, harmless while a picture leaves the store slack) on `edge`. **The refusal is decided before `recon_dpb` sees the
   slice** (2026-10-02: `recon_top` delays `recon_dpb`'s `slice_ready` one cycle and gates it
   with the size, registered from the SPS `recon_hdr` activates on that pulse): until then the
   picture was opened in a store before `R_SIZE` refused its slices, and at the end of stream
   the never-written store was emitted -- the display showed whatever that store held last.
   Found by `run_recon_top.sh`'s refusal arm (`big`, +expect_refused), pinned by S6. A 2 MiB
-  store would hold 4,096 macroblocks; the bound is the level's, not the store's. (1 MB stores and Level 3.0's 1,620 until 0.11.)
+  store holds 4,096 macroblocks; since 2026-10-31 that is the bound (above). (1 MB stores and Level 3.0's 1,620 until 0.11.)
 - **Twenty stores = 40 MB** at word `0x0640_0000` (byte `0x3200_0000`), `h264_pkg`
   `NSTORE`: above the HPS interface's ring (`0x3180_0000`, 8 MB), so the control block
   (`0x3140_0000`, where the 1 MB stores used to end) and the ring kept their addresses
@@ -235,7 +251,7 @@ a missing co-located field, a store exhausted (never on a conforming stream: §2
 macroblock is left as its prediction and the count moves.
 
 The HUD's `P4` row (`tools/diag_layout.py`): `PIC` pictures opened, `MB` macroblocks
-reconstructed, `ERR count/code`, `SZ` pictures refused above MaxFS (§2.2). The code is
+reconstructed, `ERR count/code`, `SZ` pictures refused by size (above 4,096 macroblocks, §2.2). The code is
 the last error's:
 
 | code | meaning | from |

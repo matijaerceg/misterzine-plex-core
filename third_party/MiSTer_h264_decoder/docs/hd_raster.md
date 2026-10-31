@@ -154,7 +154,10 @@ exactly **3F** (1,351,350 / 1,350,000 / 1,620,000) and the active lines end by *
 | 448x2048 (the tallest) | L 615, blank 167 | fits |
 
 **Every picture the decoder accepts fits picture-sized.** Rw x Rh <= 921,600 and Rh <= 2,048
-give Rh (Rw + 20) <= 962,560 <= Ae'. The display-shaped raster (`hdmi_raster.md` §9 (a)) is used
+give Rh (Rw + 20) <= 962,560 <= Ae'. (2026-10-31: the decoder's bound is 4,096 macroblocks, so
+Rw x Rh <= 1,048,576 and Rh (Rw + 20) <= 1,089,536, still under Ae' = 1,261,260. A cropped
+1280x736 shows as 1280x720, the case measured below; only shapes past 1280x720's area, such as
+1024x1024, move more than it: up to 14 % more of the reader's `ram2` traffic.) The display-shaped raster (`hdmi_raster.md` §9 (a)) is used
 whenever it fits, picture-sized otherwise (flagged, as today). §4's fallbacks at 59.94 disappear
 along with the "skip one line later" follow-up noted there.
 

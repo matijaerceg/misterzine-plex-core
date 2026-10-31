@@ -70,7 +70,7 @@ at ~89 MHz in UMD against the 86 MHz gate; `p1_measurements.md`).
 | the control block | `0x0628_0000` | `0x3140_0000` | 4 KB | the HPS interface (below); words 0-31, 40-47, 48-71 and 80-87 the core's (status, input), 32-39 and 72-79 the program's (0.9: the overlay's descriptor) |
 | (reserved) | `0x0628_0200` | `0x3140_1000` | to the ring | |
 | the ring | `0x0630_0000` | `0x3180_0000` | 8 MB | the HPS interface's records |
-| DPB: 20 stores | `0x0640_0000` + store << 18 | `0x3200_0000` | 40 MB (2 MiB a store) | (0.11, 720p) `h264_pkg` `NSTORE`; the decoder writes (ram1), the display reads (ram2); `recon_top` and `disp_reader` take the same `DPB_BASE`, the layout's `DPB_BYTE` (pinned by `check_emu_wiring.py`; `ring_layout.py` asserts it above the ring and below `0x4000_0000`). A store holds a picture up to 3,600 macroblocks (Level 3.1's MaxFS: 1.84 MB with its side words; `h264_recon.md` §2.2). Above the ring so the control block and the ring kept their addresses: no program changes for it. Ends at `0x3480_0000`. (0.15) **In a picture stream the program writes them** (the decoder is idle): "Pictures from the program" |
+| DPB: 20 stores | `0x0640_0000` + store << 18 | `0x3200_0000` | 40 MB (2 MiB a store) | (0.11, 720p) `h264_pkg` `NSTORE`; the decoder writes (ram1), the display reads (ram2); `recon_top` and `disp_reader` take the same `DPB_BASE`, the layout's `DPB_BYTE` (pinned by `check_emu_wiring.py`; `ring_layout.py` asserts it above the ring and below `0x4000_0000`). A store holds a picture up to 4,096 macroblocks (512 B each with its side words: 2 MiB exactly; `h264_recon.md` §2.2; the bound was Level 3.1's 3,600 until 2026-10-31). Above the ring so the control block and the ring kept their addresses: no program changes for it. Ends at `0x3480_0000`. (0.15) **In a picture stream the program writes them** (the decoder is idle): "Pictures from the program" |
 
 The framework's ALSA reader (`ddr_svc`) is detached from ram2 and compiled out
 (`MISTER_DISABLE_ALSA`): audio arrives through the ring instead (`roadmap.md` "Guiding
@@ -437,7 +437,7 @@ then word 1's sync / zero bits, then the stream's state:
 | 11 | STREAM_KIND | (0.15) a PICTURE in a stream whose first video record was a VIDEO_AU, or a VIDEO_AU in one whose first was a PICTURE (a stream is one or the other: DISCONTINUITY, or a new session, starts a stream of either kind) |
 | 12 | PIC_FIELD | (0.15) a PICTURE's descriptor: a reserved bit set, structure 3, a `pic_struct` not allowed (below), an `aspect_ratio_idc` of 17-254 or 255 with a zero SAR, or `timing_valid` with a zero `num_units_in_tick` / `time_scale` |
 | 13 | PIC_STORE | (0.15) a store at or above `cap_pic_stores` (20) |
-| 14 | PIC_SIZE | (0.15) a side of 0 or above 128 macroblocks, an odd `hf_mbs` on a field pair, or `w_mbs x hf_mbs` above `cap_max_mbs` (3,600) |
+| 14 | PIC_SIZE | (0.15) a side of 0 or above 128 macroblocks, an odd `hf_mbs` on a field pair, or `w_mbs x hf_mbs` above `cap_max_mbs` (4,096; 3,600 until 2026-10-31) |
 | 15 | PIC_CROP | (0.15) a crop leaving nothing (`left + right >= 8 w_mbs` or `top + bottom >= 8 hf_mbs`) |
 | 16 | PIC_BUSY | (0.15) the store is still held by the display when the PICTURE reaches it (the program broke the store rule) |
 | 17 | HDR_COLOUR | (0.16) header word 1's `colour` is 7, or non-zero on a PAD or an AUDIO record |
@@ -1434,7 +1434,7 @@ reserved 0 in the sixth burst; `H264RING_STATUS_WORDS` (88) already copied it.
 
 | bits | field |
 |---|---|
-| [15:0] | `cap_max_mbs`: the largest picture the core decodes, macroblocks -- 3,600 (Level 3.1's MaxFS: 1280x720, or any shape inside it up to 128 macroblocks a side). A larger picture's slices are discarded and counted in `rc_ref_size` (word 20) |
+| [15:0] | `cap_max_mbs`: the largest picture the core decodes, macroblocks -- 4,096 (what a 2 MiB store holds: 1280x720 and the 1280x736 hardware encoders code it as, or any shape inside it up to 128 macroblocks a side). A larger picture's slices are discarded and counted in `rc_ref_size` (word 20). 3,600 (Level 3.1's MaxFS) until 2026-10-31: the value grew, its meaning did not, so a program that reads it gains the larger pictures and one that hard-coded 3,600 refuses a few it could play |
 | [27:16] | `cap_native_h`: Video Output's Native (HDMI) -- the tallest 16:9 picture shown at its own size at 60 Hz, frame lines: **720 since 0.12** (`raster_geom`: an 81 MHz raster of 1,351,350 dots a frame -- every picture the core decodes is native; 0.11: 480, a 27 MHz raster). A taller one would be fitted to the 720-wide raster. A program choosing a transcode's size gains nothing above it (the Jellyfin client asks for 720p only when Native is chosen and this is at least 720) |
 | [63:32] | `cap_mb_rate`: the macroblock rate the core is designed for, macroblocks a second -- 108,000 (Level 3.1's MaxMBPS: 1280x720 at 30, 854x480 at 60). Real time below it also depends on the bitrate (`roadmap.md` D1: game streams to 10 Mbit/s and 720p24 films at typical bitrates promised; x264 720p30 above ~4 Mbit/s is visibly behind until the throughput branch); above it the decoding falls behind by design, so a program refuses such a stream (the file player names it "too fast") |
 
@@ -1445,7 +1445,8 @@ older minor or another major); the fallback guards only a read before the core's
 
 **The DPB moved** (not part of the interface, recorded here because it shares the region): 20
 stores of 2 MiB at `0x3200_0000` (above the ring) instead of 20 of 1 MB at `0x3000_0000` -- a
-3,600-macroblock picture is 1.84 MB with its side words (`h264_recon.md` §2.2). Twenty 2 MiB
+3,600-macroblock picture is 1.84 MB with its side words, a 4,096-macroblock one (the bound since
+2026-10-31) 2 MiB exactly (`h264_recon.md` §2.2). Twenty 2 MiB
 stores from `0x3000_0000` would have run over the control block (store 10) and the ring.
 
 ## Pictures from the program (interface 0.15)
