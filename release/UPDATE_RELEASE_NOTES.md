@@ -4,6 +4,16 @@
   the runtime on the movie page, the Home hero and the library band, on the
   right of the playback controls, and in search results, so two editions of
   one film can be told apart.
+- Composite and S-Video colour: the core now reports its video clock count
+  over a whole frame to MiSTer main (words 19/20 of the current framework),
+  so main computes the subcarrier exactly on every start instead of from a
+  one-line measurement that landed on 80.99 or 81.01 MHz. The yc.txt lines
+  added in beta.36 stay as a fallback for MiSTer releases before August 2026.
+  The core also picks up the framework's Y/C chroma and NTSC timing fixes,
+  registered analog audio pins and a scaler state reset at VSync.
+
+Ships a new qualified FPGA core. Existing settings, calibration and saved
+access are preserved. Rollback restores the previous release.
 
 # MisterZine Plex Core 0.1.0-beta.36
 

@@ -933,7 +933,7 @@ always @(posedge clk_sys) begin
 	  // repetition of the HDMI stream (a RetroTINK 4K decimates by it), so report the
 	  // transmitter's: 2 at 480i / 576i, 1 at 480p / 576p. Divided here on clk_sys (37 ns;
 	  // on the clk_vid side it cost the raster clock its 86 MHz gate). The clock count (ctime)
-	  // stays clk_vid's: main's Y/C subcarrier increment is computed from it and yc_out still
+	  // stays clk_vid's, as does the whole-frame count in words 19/20: main's Y/C subcarrier increment is computed from them and yc_out still
 	  // runs on clk_vid.
 	  16: dout <= direct_video ? (vid_pixrep / 8'd3) : vid_pixrep;
 	  17: dout <= vid_de_h;
