@@ -18,6 +18,8 @@
   yc.txt, as the other cores have, so it applies from the first start. This
   fixes the occasional wrong colours after an OSD Reset or a new start, and
   the dot crawl that came with them.
+- The 4:3 filter now ignores season 0 specials when judging a show, and
+  re-checks the TV libraries once a day while the menus sit dimmed.
 
 Ships a new qualified FPGA core (the Direct Video fix is in the core) with an
 updated playback worker. Existing settings, calibration and saved access are
