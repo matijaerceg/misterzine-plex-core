@@ -24,23 +24,23 @@
   },
   "current": {
     "beta": {
-      "id": "beta-0.1.0-beta.35",
-      "version": "0.1.0-beta.35",
+      "id": "beta-0.1.0-beta.36",
+      "version": "0.1.0-beta.36",
       "channel": "beta",
-      "notes": "# MisterZine Plex Core 0.1.0-beta.35\n\n- A resume, a seek or Skip intro that the server never answers now fails\n  after 20 seconds instead of a minute, and says what happened: the server\n  accepted the request but sent no video. The playback log carries the same\n  line for Send a report. Playing from the start is unaffected. (Seen with a\n  server whose hardware-accelerated conversion stalls on a seek into 10-bit\n  HEVC; turning off the server's hardware acceleration avoids it.)\n\nUses the same qualified FPGA core as beta.33, with an updated playback worker. Existing\nsettings, calibration and saved access are preserved. Rollback restores the\nprevious release.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.35/MisterZine-Plex-Core-beta-0.1.0-beta.35.zip",
+      "notes": "# MisterZine Plex Core 0.1.0-beta.36\n\n- Video crop set to Fill applies when playback starts again. Since the\n  decoder-core release it only took effect after changing Crop under More\n  during playback; a saved Video geometry calibration hid the fault.\n- Theme music fades out over its last seconds instead of stopping dead.\n  The clips servers hold are mostly 30 s long and cut hard at the end,\n  which sounded like the app cutting the music off.\n- Direct Video works again through HDMI-to-VGA adapters, such as a DAC\n  feeding a 15 kHz CRT. Since the decoder-core release the core clocked the\n  HDMI transmitter at 81 MHz on Direct Video and put a broadcast-style\n  composite sync with equalizing pulses on the sync line; adapters dropped\n  lock and the screen stayed black. The transmitter now runs at 27 MHz there\n  and sends the plain composite sync the other cores use. Confirmed on the\n  reporter's adapter with test build 0.1.0-beta.35.2.\n- Composite and S-Video colour (MiSTer.ini vga_mode=svideo or cvbs) is now\n  pinned: the installer and the app add this core's lines to the SD card's\n  yc.txt, as the other cores have, so it applies from the first start. This\n  fixes the occasional wrong colours after an OSD Reset or a new start, and\n  the dot crawl that came with them.\n- The 4:3 filter now ignores season 0 specials when judging a show, and\n  re-checks the TV libraries once a day while the menus sit dimmed.\n\nShips a new qualified FPGA core (the Direct Video fix is in the core) with an\nupdated playback worker. Existing settings, calibration and saved access are\npreserved. Rollback restores the previous release.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.36/MisterZine-Plex-Core-beta-0.1.0-beta.36.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 14186908,
-      "sha256": "64c7e73f86b06f6a73c17da70082c65bcc7dcecc26f976a5639b62b194815215",
+      "size": 14192732,
+      "sha256": "d60330e1ce7f088039b2d50d479bd7c55d2532c4a3fbf3170c3fa5a7e92b5448",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
       },
       "source": {
-        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.35.zip",
-        "size": 140150869,
-        "sha256": "8c0b7eafafcddecd9dc5a9c2910b7ca03aed417e6980a7fe5ac3a5d9215319da",
-        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.35/MisterZine-Plex-Core-Source-beta-0.1.0-beta.35.zip"
+        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.36.zip",
+        "size": 140164421,
+        "sha256": "525c66a7ae7808f2a7338af03d10814b18f13cc8b40b7364e259e538b9825360",
+        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.36/MisterZine-Plex-Core-Source-beta-0.1.0-beta.36.zip"
       }
     }
   },
