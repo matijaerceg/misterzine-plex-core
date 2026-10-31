@@ -12,6 +12,12 @@
 # tools/seed_sweep.sh restores its own snapshot).
 #
 # SEED LEDGER (append one line per fit that ships or teaches something; never delete):
+#   2026-10-30 (Plex 0.1.0-beta.36, released from 454e71b; fitted at the label commit bce51e6,
+#     whose core tree is identical, CORE_VERSION plex-0.1.0-beta.36): SEED 42, clk_dec
+#     102.79/102.71 MHz, clk_vid 90.84/90.07 MHz; both gates PASS; ALM 41,104 (98 %), M10K 421,
+#     DSP 107, PlexH264_plex-0.1.0-beta.36_20261031_0041.rbf (shipped). Same sweep: seed 13 PASS
+#     (clk_dec 101.57 MHz at 100C, thin), seed 29 FAIL clk_vid 84.93 MHz at -40C, seed 3 FAIL
+#     clk_dec 92.27 MHz, seeds 1 and 11 timed out.
 #   2026-10-29 (main e49c62f: the Direct Video fix with the clk_sys pixel-repetition report,
 #     CORE_VERSION plex-0.1.0-beta.31): SEED 7 first roll, clk_dec 103.1/104.09 MHz, clk_vid
 #     89.03/88.35 MHz; both gates PASS, hdmi_pll_check PASS (X0_Y5_N1); ALM 40,945 (98 %),
