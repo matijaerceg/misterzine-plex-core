@@ -32,8 +32,10 @@ AAC two-channel capability limit. It verifies Plex's video-copy decision;
 if Plex instead proposes video encoding, it requests the normal bounded
 transcode. Video copy retains the worker's parameter-set check and fallback.
 The audio conversion is triggered by capabilities, not a low bitrate target.
-The picture block budget permits shapes such as 968x722, but not 1280x722 or
-1920x1080; the block-rate limit is 108,000 per second with 1% rounding slack.
+The picture block budget permits shapes such as 968x722 and 1280x736 (how
+some hardware encoders code 720p), but not 1280x832 or 1920x1080; the
+block-rate limit is 108,000 per second with 1% rounding slack, so 1280x736
+plays as stored up to about 29.6 frames/s.
 
 Otherwise the app asks the server's universal transcoder for a decision
 (`/video/:/transcode/universal/decision`) and plays its progressive Matroska
