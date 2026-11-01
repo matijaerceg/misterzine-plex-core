@@ -310,6 +310,7 @@ and fractional seconds use three decimal places.
 | 7 | `--direct` only: the stream needs a server transcode (pre-check failed, or the core could not keep up). |
 | 8 | The stream gave no data while the media was being opened: `--open-timeout` ran out before the open and the stream probe finished, or the socket's read timeout did. The app ends playback with a line saying the server accepted the request but sent no video. |
 | 9 | The core decoded pictures but showed none for two seconds after the first access unit, four seconds in: the app retries the item as a smaller transcode. With `JFPLAY_NOPIC_CAPTURE` set to a path the first 6 MiB of the video sent, as raw Annex-B, is saved there first. |
+| 10 | The core is dropping the pictures as larger than its macroblock bound (status word 81): its size-refusal counter (word 20) rose on two status polls in a row, about half a second. Such a picture raises no refusal code. Direct streams and transcodes alike: the app restarts a direct stream as a transcode and a transcode as a smaller one. The `--direct` pre-check takes its size and rate bounds from word 81 too, when the core has published it. |
 
 On natural EOF the final held video access unit carries
 `H264RING_F_END_OF_STREAM` after queued audio. On stop, a session reset discards

@@ -59,15 +59,19 @@ Plex's metadata cannot report every property the core depends on (CAVLC
 versus CABAC when the server does not know, MBAFF versus field-coded
 interlace). MBAFF is refused and field-coded interlace is accepted; the app
 logs an interlaced direct stream and lets `jfplay` decide. `jfplay` checks a
-direct stream's parameter sets before the first picture is shown. If the check
-fails, the core refuses the stream, or the core keeps falling behind for
-several seconds, the app restarts the item once as a transcode at the current
-position. The switch is recorded in the playback log and is not shown as an
-error. When the core decodes a stream but shows no picture, the app likewise
-restarts the item once at the current position, as a transcode of at most
-854x480 for the rest of the playback, after giving the server 1.5 s to end
-its previous transcode, and opens it once more if the server closes that
-first connection without sending anything.
+direct stream's parameter sets before the first picture is shown, against the
+size and rate bounds the running core reports. If the check fails, the core
+refuses the stream, the core drops its pictures as too large, or the core
+keeps falling behind for several seconds, the app restarts the item once as a
+transcode at the current position. The switch is recorded in the playback log
+and is not shown as an error. When the core decodes a stream but shows no
+picture, or drops a transcode's pictures as too large (the core counts such
+pictures without refusing the stream, and `jfplay` stops within about half a
+second of the count rising), the app likewise restarts the item once at the
+current position, as a transcode of at most 854x480 for the rest of the
+playback, after giving the server 1.5 s to end its previous transcode, and
+opens it once more if the server closes that first connection without sending
+anything.
 
 The app passes the token and its client identifier to `jfplay` as request
 headers; stream URLs never carry the token, and the playback log redacts it.

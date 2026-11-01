@@ -24,7 +24,7 @@ import (
 // workerNeedsTranscode reports whether a jfplay exit status asks for the same
 // item to be played again as a server transcode.
 func workerNeedsTranscode(code int) bool {
-	return code == workerExitNeedsTranscode || code == workerExitRefused
+	return code == workerExitNeedsTranscode || code == workerExitRefused || code == workerExitTooLarge
 }
 
 // jfplay exit codes the app acts on (arm/jfplay.md).
@@ -42,6 +42,12 @@ const (
 	// server's 854x480 ones played, so the app retries at that size once
 	// (noPictureFallbackLocked).
 	workerExitNoPicture = 9
+	// workerExitTooLarge: the core is dropping the pictures as larger than
+	// it decodes, which it shows nowhere but a counter jfplay watches. A
+	// direct stream is replaced by a transcode (fallbackLocked) and a
+	// transcode by the small one (noPictureFallbackLocked): an Intel hardware
+	// encoder codes 1280x720 as 1280x736, above an older core's bound.
+	workerExitTooLarge = 10
 )
 
 // A transcode started at an offset is given openTimeout to send its first
@@ -141,8 +147,8 @@ func (s *Session) logf(format string, args ...any) {
 }
 
 // fallbackLocked replaces a direct stream whose worker asked for a transcode
-// (the pre-check failed, the core refused it, or it could not keep up) with a
-// server transcode at the same position. It runs at most once a session, so
+// (the pre-check failed, the core refused it, dropped its pictures as too
+// large, or could not keep up) with a server transcode at the same position. It runs at most once a session, so
 // a transcode that fails in turn ends playback with its error. It reports
 // whether it took over the worker's exit; opMu is held.
 func (s *Session) fallbackLocked(err error) bool {
@@ -162,7 +168,8 @@ func (s *Session) fallbackLocked(err error) bool {
 }
 
 // noPictureFallbackLocked replaces a stream the core decoded but never
-// showed (jfplay exit 9) with a transcode of at most 854x480 at the same
+// showed (jfplay exit 9), or a transcode whose pictures it dropped as too
+// large (exit 10), with a transcode of at most 854x480 at the same
 // position: a patron's server made 1280x720 transcodes with an Intel
 // hardware encoder that the core never showed, while its 854x480 ones
 // played. Every later start of the session stays at that size, so it runs
@@ -171,7 +178,12 @@ func (s *Session) fallbackLocked(err error) bool {
 // exit; opMu is held.
 func (s *Session) noPictureFallbackLocked(err error) bool {
 	code := workerExitCode(err)
-	if code != workerExitNoPicture {
+	why := "no picture shown"
+	switch code {
+	case workerExitNoPicture:
+	case workerExitTooLarge:
+		why = "pictures too large for the core"
+	default:
 		return false
 	}
 	s.mu.Lock()
@@ -181,7 +193,7 @@ func (s *Session) noPictureFallbackLocked(err error) bool {
 	}
 	s.smallTranscode = true
 	s.mu.Unlock()
-	s.restartTranscodeLocked(noPictureRestartDelay, "no picture shown (jfplay exit %d); restarting at %.3f s as a transcode of at most 854x480", code)
+	s.restartTranscodeLocked(noPictureRestartDelay, "%s (jfplay exit %d); restarting at %.3f s as a transcode of at most 854x480", why, code)
 	return true
 }
 
@@ -266,9 +278,10 @@ func workerExitCode(err error) int {
 // workerExitError words a worker exit that ends the session. jfplay exit 8
 // is a stream that sent nothing while it was being opened: the server took
 // the request and answered with no video. Exit 9 is a stream the core
-// decoded but never showed, after the small transcode retry was used. The
-// playback log says so for the report; the error carries the worker's exit.
-// Other errors pass through unchanged.
+// decoded but never showed, and exit 10 one whose pictures it dropped as too
+// large, after the small transcode retry was used. The playback log says so
+// for the report; the error carries the worker's exit. Other errors pass
+// through unchanged.
 func (s *Session) workerExitError(err error) error {
 	switch code := workerExitCode(err); code {
 	case workerExitOpenTimeout:
@@ -277,6 +290,9 @@ func (s *Session) workerExitError(err error) error {
 	case workerExitNoPicture:
 		s.logf("no picture shown (jfplay exit %d): the core decoded the video but showed none", code)
 		return noPictureError{err}
+	case workerExitTooLarge:
+		s.logf("pictures too large (jfplay exit %d): the core dropped them as larger than it decodes", code)
+		return tooLargeError{err}
 	}
 	return err
 }
@@ -296,3 +312,11 @@ func (e noPictureError) Error() string {
 	return "The video was received but the decoder showed no picture"
 }
 func (e noPictureError) Unwrap() error { return e.err }
+
+// tooLargeError is the failure line for a stream whose pictures the core dropped.
+type tooLargeError struct{ err error }
+
+func (e tooLargeError) Error() string {
+	return "The video is larger than the decoder can show"
+}
+func (e tooLargeError) Unwrap() error { return e.err }

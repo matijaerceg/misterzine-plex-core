@@ -41,6 +41,7 @@
 #include "packet_pacing.h"
 #include "video_bitrate.h"
 #include "lag_watch.h"
+#include "size_watch.h"
 #include "vui_timing.h"
 #include "pal_diagnostic.h"
 
@@ -77,7 +78,10 @@ enum exit_code { EX_OK = 0, EX_ARGS = 2, EX_CORE = 3, EX_OPEN = 4,
                   * socket timed out, while the media was being opened */
                  EX_OPEN_TIMEOUT = 8,
                  /* the core decoded pictures but showed none */
-                 EX_NO_PICTURE = 9 };
+                 EX_NO_PICTURE = 9,
+                 /* the core is dropping the pictures as larger than its
+                  * bound (RC_REF_SIZE climbing: size_watch.h) */
+                 EX_TOO_LARGE = 10 };
 enum playback_state { STATE_OPENING, STATE_PLAYING, STATE_PAUSED,
                       STATE_ENDED, STATE_ERROR };
 
@@ -170,6 +174,8 @@ struct player {
     struct direct_check dcheck;   /* --direct: the SPS / PPS pre-check */
     int direct_ok;                /* --direct: the pre-check passed */
     struct lag_watch lag;         /* --direct: the keep-up watchdog */
+    struct size_watch size;       /* the core dropping pictures as too large */
+    int caps_read;                /* --direct: the pre-check took the core's bounds (word 81) */
     unsigned vui_rewrites;        /* access units whose SPS VUI timing was rewritten */
     unsigned lag_reanchor;        /* last DISP_REANCHOR the watchdog saw */
     int lag_reanchor_seen;
@@ -1464,6 +1470,14 @@ static void write_status(struct player *p, int force)
     }
     if (refused && !atomic_load(&p->exit_code))
         fail(p, EX_REFUSED, "core refused stream: %u %s", refused, h264ring_refusal_name(refused));
+    if (have && p->opened && !atomic_load(&p->exit_code)) {
+        /* Transcodes as well as --direct: the server's encoder chooses the
+         * coded size, and the pre-check sees only direct streams. */
+        unsigned ref_size = (unsigned)H264RING_ST(&st, RC_REF_SIZE);
+        if (size_watch_sample(&p->size, ref_size))
+            fail(p, EX_TOO_LARGE, "the core dropped %u pictures as larger than its %u macroblocks",
+                 ref_size, (unsigned)H264RING_ST(&st, CAP_MAX_MBS));
+    }
     if (have && p->cfg.direct && !atomic_load(&p->exit_code)) {
         /* A source stall that starved the ring leaves the display clock
          * re-anchored, and the pictures then arrive late with a large lag
@@ -1896,6 +1910,17 @@ static int direct_precheck(struct player *p, const uint8_t *data, size_t len, in
     const char *why = "no SPS / PPS before the first picture";
     AVRational fr = p->nominal_video_rate;
     double fps = fr.num > 0 && fr.den > 0 ? av_q2d(fr) : 0.0;
+    struct h264ring_status st;
+    if (!p->caps_read && p->ring && !h264ring_status(p->ring, &st) &&
+        H264RING_ST(&st, CAP_MAX_MBS) && H264RING_ST(&st, CAP_MB_RATE)) {
+        /* The running core's bounds rather than the check's built-in ones,
+         * so an older core (3,600 macroblocks) still refuses 1280x736 here.
+         * Without a status frame the built-in 4,096 stands and the size
+         * watch is the net. */
+        p->dcheck.chk.max_mbs = (unsigned)H264RING_ST(&st, CAP_MAX_MBS);
+        p->dcheck.chk.mb_rate = (unsigned)H264RING_ST(&st, CAP_MB_RATE);
+        p->caps_read = 1;
+    }
     int rc = data && len ? direct_check_au(&p->dcheck, data, len, fps, &why) : 0;
     if (rc > 0) {
         p->direct_ok = 1;

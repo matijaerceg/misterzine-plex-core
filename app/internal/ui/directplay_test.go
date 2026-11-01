@@ -274,16 +274,21 @@ func TestDirectFallsBackToTranscodeOnce(t *testing.T) {
 // ends playback with the no-picture error, which carries the worker's exit.
 // After the direct fallback the small retry is still available. The server
 // is given noPictureRestartDelay before the small transcode, and the direct
-// fallback no wait.
+// fallback no wait. Pictures dropped as too large (exit 10) take the same
+// path: a direct stream falls back to a transcode first, a transcode goes
+// small, and a second exit 10 ends playback with the too-large error.
 func TestNoPictureRetriesSmallTranscodeOnce(t *testing.T) {
+	big := workerExitTooLarge
 	for name, tc := range map[string]struct {
 		video  string
 		codes  []int
 		sizes  []string // each decision's videoResolution
 		sleeps []string
 	}{
-		"transcode": {playVideoTranscode, []int{workerExitNoPicture, workerExitNoPicture}, []string{"1280x720", "854x480"}, []string{"1.5s before launch 2"}},
-		"direct":    {playVideoDirect, []int{workerExitNeedsTranscode, workerExitNoPicture, workerExitNoPicture}, []string{"1280x720", "854x480"}, []string{"1.5s before launch 3"}},
+		"transcode":           {playVideoTranscode, []int{workerExitNoPicture, workerExitNoPicture}, []string{"1280x720", "854x480"}, []string{"1.5s before launch 2"}},
+		"direct":              {playVideoDirect, []int{workerExitNeedsTranscode, workerExitNoPicture, workerExitNoPicture}, []string{"1280x720", "854x480"}, []string{"1.5s before launch 3"}},
+		"too large transcode": {playVideoTranscode, []int{big, big}, []string{"1280x720", "854x480"}, []string{"1.5s before launch 2"}},
+		"too large direct":    {playVideoDirect, []int{big, big, big}, []string{"1280x720", "854x480"}, []string{"1.5s before launch 3"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newPlayServer(t, tc.video)
@@ -294,12 +299,19 @@ func TestNoPictureRetriesSmallTranscodeOnce(t *testing.T) {
 				t.Fatal(err)
 			}
 			err = waitDone(t, s)
-			if err == nil || !strings.Contains(err.Error(), "showed no picture") {
-				t.Fatalf("playback ended with %v, want the no-picture error", err)
+			code, failure := tc.codes[len(tc.codes)-1], "showed no picture"
+			if code == big {
+				failure = "larger than the decoder can show"
+			}
+			if err == nil || !strings.Contains(err.Error(), failure) {
+				t.Fatalf("playback ended with %v, want %q", err, failure)
 			}
 			var ee *exec.ExitError
-			if !errors.As(err, &ee) || ee.ExitCode() != workerExitNoPicture {
+			if !errors.As(err, &ee) || ee.ExitCode() != code {
 				t.Fatalf("error %v does not carry the worker's exit", err)
+			}
+			if hasArg(launches()[0], "--direct") != (tc.video == playVideoDirect) {
+				t.Fatalf("first launch %v", launches()[0])
 			}
 			if l := launches(); len(l) != len(tc.codes) || !containsArgPair(l[len(l)-1], "--base", "42") {
 				t.Fatalf("launches %v", l)
