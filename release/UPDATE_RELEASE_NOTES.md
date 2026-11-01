@@ -11,6 +11,9 @@
   added in beta.36 stay as a fallback for MiSTer releases before August 2026.
   The core also picks up the framework's Y/C chroma and NTSC timing fixes,
   registered analog audio pins and a scaler state reset at VSync.
+- 720p transcodes from Plex servers that use Intel Quick Sync hardware encoding now show a picture; before, the screen stayed black while the sound played. Intel's encoder codes 720p as 1280x736 with a note to show only 720 lines, and the core silently refused anything larger than 1280x720. It now accepts pictures up to 4,096 blocks of 16x16 pixels, which its frame memory always had room for, so hardware encoding can stay on.
+- If the core still decodes a stream but shows none of it, or drops its pictures as too large, the app now notices (within a second for pictures that are too large, a few seconds otherwise) and restarts the item once at the same point as a transcode of at most 854x480, instead of leaving the spinner up over the sound. A file played as stored falls back to an ordinary transcode first.
+- Files coded at 1280x736 and similar sizes just over 720 lines can now play as stored, at up to 29.6 frames per second.
 
 Ships a new qualified FPGA core. Existing settings, calibration and saved
 access are preserved. Rollback restores the previous release.
