@@ -71,7 +71,7 @@ uses it, since the headers carry the token and a process's command line is
 readable by every other process.  `JFPLAY_NOPIC_CAPTURE`, when it names a
 path, is where a worker that exits 9 (the core decoded pictures but showed
 none) first saves the first 6 MiB of the video it sent, as raw Annex-B, for
-replay on the bench.  `--cafile` enables
+replay on the bench; the app leaves it unset.  `--cafile` enables
 TLS peer verification using that CA bundle.  The URL is never logged unless
 `JFPLAY_LOG_URLS=1` is in the environment.
 

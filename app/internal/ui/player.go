@@ -46,7 +46,7 @@ type Player struct {
 	// without its tracks; the session fetches them and marks these.
 	SavedStreams func(item *plex.Item) (audio, subtitle string)
 	// Capture is where jfplay saves the video of a playback that showed no
-	// picture; "" saves nothing.
+	// picture; "" saves nothing, and the app leaves it so (a test build sets it).
 	Capture   string
 	Hide      func()
 	exec      func(string, ...string) *exec.Cmd
