@@ -12,6 +12,11 @@
 # tools/seed_sweep.sh restores its own snapshot).
 #
 # SEED LEDGER (append one line per fit that ships or teaches something; never delete):
+#   2026-11-01 (Plex 0.1.0-beta.37, fitted at the release commit 5f0d94e: pictures up to 4,096
+#     macroblocks for Quick Sync's 1280x736, CORE_VERSION plex-0.1.0-beta.37): SEED 1, clk_dec
+#     102.7/102.19 MHz, clk_vid 93.34/90.57 MHz; both gates PASS; ALM 40,906 (98 %), M10K 421,
+#     DSP 107, PlexH264_plex-0.1.0-beta.37_20261101_2036.rbf (shipped). Same netlist: the QSF's
+#     seed 7 FAIL clk_dec 98.02/99.83 MHz; seed 13 did not fit (Error 11802, after 74 min).
 #   2026-10-30 (Plex 0.1.0-beta.36, released from 454e71b; fitted at the label commit bce51e6,
 #     whose core tree is identical, CORE_VERSION plex-0.1.0-beta.36): SEED 42, clk_dec
 #     102.79/102.71 MHz, clk_vid 90.84/90.07 MHz; both gates PASS; ALM 41,104 (98 %), M10K 421,
