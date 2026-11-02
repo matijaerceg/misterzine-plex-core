@@ -115,26 +115,37 @@ func (l *Login) newCode() {
 			l.stat = "Signed in. Finding Plex users..."
 			l.mu.Unlock()
 			l.wake()
-			l.app.Later(func() {
-				l.mu.Lock()
-				valid := l.gen == gen
-				l.mu.Unlock()
-				stillOpen := false
-				for _, screen := range l.app.stack {
-					if screen == l {
-						stillOpen = true
-						break
-					}
-				}
-				if !valid || !stillOpen {
-					return
-				}
-				l.app.stack = nil
-				l.app.Push(NewHomeUsers(l.app, tok))
-			})
+			l.app.Later(func() { l.finishLink(gen, tok) })
 			return
 		}
 	}()
+}
+
+// finishLink runs on the UI thread; stale link responses cannot restore sign-in.
+func (l *Login) finishLink(gen int, tok string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.gen != gen {
+		return
+	}
+	open := false
+	for _, screen := range l.app.stack {
+		if screen == l {
+			open = true
+			break
+		}
+	}
+	if !open {
+		return
+	}
+	if err := l.app.Cfg.LinkAccount(tok); err != nil {
+		l.app.Log.Printf("config: %v", err)
+		l.err, l.stat = "Could not save sign-in. Check free space and retry.", ""
+		return
+	}
+	l.gen++
+	l.app.stack = nil
+	l.app.Push(NewHomeUsers(l.app, tok))
 }
 
 func (l *Login) findServers(gen int, tok string) {
@@ -240,6 +251,7 @@ func (l *Login) Key(ev input.Event, now time.Time) {
 	}
 	l.mu.Lock()
 	busy, nsrv, hasErr := l.busy, len(l.srvs), l.err != ""
+	tok, gen := l.tok, l.gen
 	l.mu.Unlock()
 	if busy {
 		return
@@ -262,7 +274,9 @@ func (l *Login) Key(ev input.Event, now time.Time) {
 			l.mu.Unlock()
 			go l.connect(gen, s)
 		} else if hasErr {
-			if l.picker {
+			if !l.picker && tok != "" {
+				l.finishLink(gen, tok)
+			} else if l.picker {
 				l.refreshServers()
 			} else {
 				l.newCode()

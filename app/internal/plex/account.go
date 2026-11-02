@@ -1,6 +1,7 @@
 package plex
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"plexcrt/internal/netdiag"
 )
 
 // The plex.tv side: signing in with a link code, and finding the
@@ -91,6 +94,18 @@ func AccountName(clientID, token string) (string, error) {
 	return strings.TrimSpace(user.Title), nil
 }
 
+// TVError distinguishes a rejected account token from a network outage.
+type TVError struct {
+	Path   string
+	Status int
+}
+
+func (e *TVError) Error() string { return fmt.Sprintf("plex.tv %s: HTTP %d", e.Path, e.Status) }
+func AccountTokenRejected(err error) bool {
+	var e *TVError
+	return errors.As(err, &e) && e.Path == "/api/v2/user" && (e.Status == 401 || e.Status == 403)
+}
+
 func tvDo(r *http.Request) ([]byte, error) {
 	resp, err := tvClient.Do(r)
 	if err != nil {
@@ -102,7 +117,7 @@ func tvDo(r *http.Request) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("plex.tv %s: HTTP %d", r.URL.Path, resp.StatusCode)
+		return nil, &TVError{Path: r.URL.Path, Status: resp.StatusCode}
 	}
 	return body, nil
 }
@@ -335,11 +350,17 @@ func probeRound(s Server, idx []int, probe *http.Client, logf func(string, ...an
 	for _, i := range idx {
 		go func(i int, c Connection) {
 			started := time.Now()
+			ctx, diagnostic := netdiag.Observe(context.Background(), c.URI)
 			finish := func(err error, status int) {
 				logf("server connection: candidate %d %s: %s (%d ms)", i+1, connectionKind(c), connectionOutcome(err, status), time.Since(started).Milliseconds())
+				if err != nil {
+					diagnostic.Log(func(format string, args ...any) {
+						logf("server connection: candidate %d: %s", i+1, fmt.Sprintf(format, args...))
+					})
+				}
 				ch <- result{i, err}
 			}
-			r, err := http.NewRequest("GET", c.URI+"/identity", nil)
+			r, err := http.NewRequestWithContext(ctx, "GET", c.URI+"/identity", nil)
 			if err != nil {
 				finish(err, 0)
 				return

@@ -311,19 +311,38 @@ func (c *Config) ResumeWithoutPicker() bool {
 	return c.SignedIn() && (c.Token == "" || (c.AutoSignIn && c.HomeUserID != "" && c.HomeToken != ""))
 }
 
-// SignOut forgets the account and the server.
+// clearAccount leaves device preferences alone, but removes account/server data.
+func (c *Config) clearAccount() {
+	c.RecentSearches, c.HiddenLibraries = nil, nil
+	c.Streams, c.Versions = nil, nil
+	c.AccountName = ""
+	c.HomeUserID, c.HomeUserTitle, c.HomeToken = "", "", ""
+	c.HomeRestricted, c.AutoSignIn, c.HomeEnabled, c.HomePickerNeeded = false, false, false, false
+	c.Token, c.ServerURL, c.ServerToken, c.ServerName, c.ServerID = "", "", "", "", ""
+}
+
+// LinkAccount saves a completed code link before any server can be reached.
+func (c *Config) LinkAccount(token string) error {
+	if token == c.Token {
+		return nil
+	}
+	next := c.snapshot()
+	next.clearAccount()
+	next.Token = token
+	return c.saveAccount(next)
+}
+
+// SignOut forgets the account and the server, including recovery credentials.
 func (c *Config) SignOut() error {
 	next := c.snapshot()
-	next.RecentSearches = nil
-	next.HiddenLibraries = nil // the keys belong to the server forgotten here
-	next.Streams = nil         // so do the rating keys
-	next.AccountName = ""
-	next.HomeUserID, next.HomeUserTitle, next.HomeToken = "", "", ""
-	next.HomeRestricted, next.AutoSignIn, next.HomeEnabled, next.HomePickerNeeded = false, false, false, false
-	next.Token, next.ServerURL, next.ServerToken, next.ServerName, next.ServerID = "", "", "", "", ""
+	next.clearAccount()
+	return c.saveAccount(next)
+}
+
+func (c *Config) saveAccount(next Config) error {
 	data, _ := json.MarshalIndent(&next, "", "  ")
 	err := c.saves().now(func() error {
-		// Clear recovery credentials first so a later corrupt primary cannot undo sign-out.
+		// Replace recovery credentials first: corruption cannot revive an old account.
 		if err := atomicConfig(c.path+".bak", data); err != nil {
 			return err
 		}

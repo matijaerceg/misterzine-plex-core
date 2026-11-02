@@ -1568,10 +1568,98 @@ def mount_facts(mountpoint, mounts=Path('/proc/mounts')):
     return None
 
 
+def network_facts(run=None, etc=Path('/etc')):
+    """Read-only, allowlisted network facts. Never copy raw command/config text."""
+    import ipaddress
+    def command(args):
+        return subprocess.run(['ip'] + args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              timeout=3, check=True).stdout.decode('utf-8', errors='replace')
+    run = run or command
+    def read_command(args):
+        try:
+            return run(args).splitlines()
+        except (OSError, subprocess.SubprocessError):
+            return None
+    def address(value):
+        try:
+            ip = ipaddress.ip_address(value)
+        except ValueError:
+            return 'unknown'
+        # is_private also includes reserved/documentation ranges: use an explicit allowlist.
+        octets = ip.packed
+        allowed = ip.version == 4 and (octets[0] in (10, 127)
+                  or tuple(octets[:2]) in ((192, 168), (169, 254))
+                  or (octets[0] == 172 and 16 <= octets[1] <= 31))
+        return str(ip) if allowed else '[address removed]'
+    labels, interfaces, networks = {}, [], {}
+    def label(name):
+        if name not in labels:
+            labels[name] = name if re.fullmatch(r'(lo|eth[0-9]+|wlan[0-9]+)', name) else 'interface%d' % (len(labels) + 1)
+        return labels[name]
+    links = read_command(['-o', 'link', 'show'])
+    addrs = read_command(['-o', '-4', 'addr', 'show'])
+    routes = read_command(['-4', 'route', 'show', 'default'])
+    for line in links or []:
+        match = re.match(r'\d+: ([^:]+): <([^>]*)>.*?\bstate (\w+)', line)
+        if not match:
+            continue
+        name, flags, state = match.groups()
+        name = name.split('@', 1)[0]
+        interfaces.append({'interface': label(name), 'up': 'UP' in flags.split(','),
+                           'link': state if state in ('UP', 'DOWN', 'UNKNOWN', 'DORMANT', 'LOWERLAYERDOWN', 'NOTPRESENT', 'TESTING') else 'unknown',
+                           'ipv4': [] if addrs is not None else 'unknown'})
+    for line in addrs or []:
+        parts = line.split()
+        if len(parts) < 4 or parts[2] != 'inet':
+            continue
+        name = parts[1].split('@', 1)[0]
+        try:
+            addr = ipaddress.IPv4Interface(parts[3])
+        except ValueError:
+            continue
+        networks.setdefault(name, []).append(addr.network)
+        row = next((r for r in interfaces if r['interface'] == label(name)), None)
+        if row is None:
+            row = {'interface': label(name), 'up': 'unknown', 'link': 'unknown', 'ipv4': []}
+            interfaces.append(row)
+        row['ipv4'].append('%s/%d' % (address(str(addr.ip)), addr.network.prefixlen))
+    gateways = []
+    for line in routes or []:
+        parts = line.split()
+        if not parts or parts[0] != 'default':
+            continue
+        try:
+            name = parts[parts.index('dev') + 1]
+            gateway = parts[parts.index('via') + 1] if 'via' in parts else None
+            ip = ipaddress.IPv4Address(gateway) if gateway else None
+        except (ValueError, IndexError):
+            continue
+        gateways.append({'interface': label(name), 'gateway': address(gateway) if gateway else 'direct',
+                         'on_link': (any(ip in n for n in networks.get(name, [])) if ip else True) if addrs is not None else 'unknown'})
+    try:
+        dns = []
+        for line in (etc / 'resolv.conf').read_text(errors='replace').splitlines():
+            parts = line.split('#', 1)[0].split()
+            if len(parts) >= 2 and parts[0] == 'nameserver':
+                dns.append(address(parts[1]))
+    except OSError:
+        dns = 'unknown'
+    static = {}
+    for name in ('dhcpcd.conf', 'network/interfaces'):
+        try:
+            lines = (etc / name).read_text(errors='replace').splitlines()
+            static[name] = any(re.match(r'\s*(?:static\s+ip_address\s*=|iface\s+\S+\s+inet\s+static\b|address\s+)', line.split('#', 1)[0]) for line in lines)
+        except OSError:
+            static[name] = 'unknown'
+    return {'interfaces': interfaces if links is not None or addrs is not None else 'unknown',
+            'default_routes': gateways if routes is not None else 'unknown',
+            'nameservers': dns, 'static_ipv4_configured': static}
+
+
 def system_facts(root, secrets, proc_root=Path('/proc'), altcfg=read_altcfg, dmesg=None):
     """Facts about the board that decide whether a launch or a picture can
     work, gathered read-only. Each is best-effort and absent when unreadable."""
-    facts = {}
+    facts = {'network': network_facts()}
     card = root.parent
     # The INI main read, by number only: an alternative's file name is the
     # player's own. MiSTer.ini stands in when main's choice is unreadable.

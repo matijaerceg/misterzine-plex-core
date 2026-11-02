@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -27,6 +29,9 @@ type flowFixture struct {
 	t               *testing.T
 	mu              sync.Mutex
 	account         string
+	accountStatus   int
+	serverFails     bool
+	noServers       bool
 	users           string
 	selectedToken   string
 	validPIN        string
@@ -57,10 +62,17 @@ func (f *flowFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 			if f.identityRelease != nil {
 				<-f.identityRelease
 			}
-			return flowResponse(200, f.account), nil
+			status := f.accountStatus
+			if status == 0 {
+				status = 200
+			}
+			return flowResponse(status, f.account), nil
 		case "/api/home/users":
 			return flowResponse(200, f.users), nil
 		case "/api/v2/resources":
+			if f.noServers {
+				return flowResponse(200, `[]`), nil
+			}
 			return flowResponse(200, `[{"name":"Test Server","clientIdentifier":"server-id","provides":"server","accessToken":"server-token","owned":true,"connections":[{"uri":"http://server.test","local":true}]}]`), nil
 		default:
 			if strings.HasSuffix(r.URL.Path, "/switch") {
@@ -74,6 +86,9 @@ func (f *flowFixture) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 	}
 	if r.URL.Host == "server.test" && r.URL.Path == "/identity" {
+		if f.serverFails {
+			return nil, errors.New("test connection failure")
+		}
 		return flowResponse(200, `<MediaContainer machineIdentifier="server-id"/>`), nil
 	}
 	// Empty but valid server responses let App.Connect build its home page.
@@ -323,5 +338,105 @@ func TestHomeStartupGateAutoSignInAndLegacyConfig(t *testing.T) {
 				waitHomeCallback(t, a)
 			}
 		})
+	}
+}
+
+func TestLinkedAccountSurvivesUnreachableOrMissingServerAndRestart(t *testing.T) {
+	for _, noServers := range []bool{false, true} {
+		t.Run(fmt.Sprint(noServers), func(t *testing.T) {
+			f := &flowFixture{t: t, account: `{"id":7,"title":"Alice","home":false}`, serverFails: true, noServers: noServers}
+			useFlowFixture(t, f)
+			cfg := LoadConfig(filepath.Join(t.TempDir(), "settings.json"))
+			a := newHomeFlowApp(t, cfg)
+			l := &Login{app: a, tok: "linked-token", gen: 1}
+			a.stack = []Screen{l}
+			l.finishLink(1, l.tok)
+			saved := LoadConfig(cfg.path)
+			if saved.Token != "linked-token" || saved.SignedIn() {
+				t.Fatal("link was not saved before server connection")
+			}
+			h := a.top().(*HomeUsers)
+			pumpHomeUntil(t, a, func() bool { return !h.busy && h.problem != "" })
+			h.Key(input.Event{Key: input.Enter}, time.Now())
+			pumpHomeUntil(t, a, func() bool { return !h.busy && h.problem != "" })
+			b := newHomeFlowApp(t, LoadConfig(cfg.path))
+			b.Start()
+			h2, ok := b.top().(*HomeUsers)
+			if !ok {
+				t.Fatal("restart requested a new code")
+			}
+			pumpHomeUntil(t, b, func() bool { return !h2.busy && h2.problem != "" })
+			if f.count("/api/v2/pins") != 0 {
+				t.Fatal("server failure requested a new link code")
+			}
+		})
+	}
+}
+
+func TestRejectedSavedAccountReturnsToCodeAndClearsRecovery(t *testing.T) {
+	for _, status := range []int{401, 403} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			f := &flowFixture{t: t, accountStatus: status}
+			useFlowFixture(t, f)
+			cfg := LoadConfig(filepath.Join(t.TempDir(), "settings.json"))
+			if err := cfg.LinkAccount("revoked-token"); err != nil {
+				t.Fatal(err)
+			}
+			a := newHomeFlowApp(t, cfg)
+			a.Start()
+			pumpHomeUntil(t, a, func() bool {
+				l, ok := a.top().(*Login)
+				if !ok {
+					return false
+				}
+				l.mu.Lock()
+				defer l.mu.Unlock()
+				return l.err != ""
+			})
+			if cfg.Token != "" || LoadConfig(cfg.path).Token != "" || LoadConfig(cfg.path+".bak").Token != "" {
+				t.Fatal("rejected credentials survived")
+			}
+			if f.count("/api/v2/pins") != 1 {
+				t.Fatal("did not request exactly one fresh code")
+			}
+		})
+	}
+}
+
+func TestAccountServiceFailureKeepsSavedSignIn(t *testing.T) {
+	f := &flowFixture{t: t, accountStatus: 503}
+	useFlowFixture(t, f)
+	cfg := LoadConfig(filepath.Join(t.TempDir(), "settings.json"))
+	cfg.LinkAccount("keep-token")
+	a := newHomeFlowApp(t, cfg)
+	a.Start()
+	h := a.top().(*HomeUsers)
+	pumpHomeUntil(t, a, func() bool { return !h.busy && h.problem != "" })
+	if cfg.Token != "keep-token" || f.count("/api/v2/pins") != 0 {
+		t.Fatal("temporary outage discarded sign-in")
+	}
+}
+
+func TestLinkSaveFailureRetriesTokenAndIgnoresStaleCompletion(t *testing.T) {
+	f := &flowFixture{t: t, account: `{"id":7,"title":"Alice","home":false}`, noServers: true}
+	useFlowFixture(t, f)
+	cfg := &Config{path: t.TempDir(), Token: "old-token"}
+	a := newHomeFlowApp(t, cfg)
+	l := &Login{app: a, tok: "new-token", gen: 3}
+	a.stack = []Screen{l}
+	l.finishLink(2, l.tok)
+	if cfg.Token != "old-token" {
+		t.Fatal("stale response changed account")
+	}
+	l.finishLink(3, l.tok)
+	if cfg.Token != "old-token" || l.err == "" {
+		t.Fatal("failed save changed account or hid error")
+	}
+	cfg.path = filepath.Join(t.TempDir(), "settings.json")
+	l.Key(input.Event{Key: input.Enter}, time.Now())
+	h := a.top().(*HomeUsers)
+	pumpHomeUntil(t, a, func() bool { return !h.busy && h.problem != "" })
+	if cfg.Token != "new-token" || f.count("/api/v2/pins") != 0 {
+		t.Fatal("retry discarded completed link")
 	}
 }

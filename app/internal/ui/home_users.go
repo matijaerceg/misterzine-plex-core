@@ -71,6 +71,13 @@ func (h *HomeUsers) refresh() {
 				return
 			}
 			h.busy = false
+			if plex.AccountTokenRejected(err) {
+				h.app.SignOut()
+				if h.live(gen) {
+					h.phase, h.status, h.problem = "users", "", "Could not save sign-out. Check free space and retry."
+				}
+				return
+			}
 			if err != nil || (home && len(users) == 0) || (!home && identity.Protected) {
 				h.phase, h.status, h.problem = "users", "", "Could not load Plex users. Press OK to retry."
 				return
@@ -182,6 +189,9 @@ func (h *HomeUsers) connectServer(server plex.Server) {
 func (h *HomeUsers) finish(s plex.Server, uri string) {
 	cfg := h.app.Cfg
 	next := cfg.snapshot()
+	if next.Token != h.rootToken {
+		next.clearAccount()
+	}
 	changedUser := next.HomeUserID != h.user.ID || next.HomeToken == ""
 	if !h.home && next.Token == h.rootToken && next.HomeUserID == "" {
 		// Existing ordinary accounts were saved before Home identities existed.

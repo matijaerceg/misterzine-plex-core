@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -324,5 +325,26 @@ func TestReachLosersGoQuietOnceItReturns(t *testing.T) {
 	time.Sleep(50 * time.Millisecond) // the loser's log line would follow its answer
 	if after := buf.String(); after != before {
 		t.Fatalf("a losing probe logged after reach returned: %q", strings.TrimPrefix(after, before))
+	}
+}
+
+func TestFailedProbeIncludesNetworkFactsWithoutAddress(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := "http://" + listener.Addr().String()
+	listener.Close()
+	var output strings.Builder
+	_, err = reach(Server{Connections: []Connection{{URI: host, Local: true}}}, true, &http.Client{Timeout: time.Second}, func(format string, args ...any) { fmt.Fprintf(&output, format+"\n", args...) })
+	if err == nil {
+		t.Fatal("expected connection failure")
+	}
+	got := output.String()
+	if !strings.Contains(got, "candidate 1: probe network: destination 1 IPv4 same_subnet=yes") {
+		t.Fatal(got)
+	}
+	if strings.Contains(got, "127.0.0.1") || strings.Contains(got, host) {
+		t.Fatal("server address leaked")
 	}
 }

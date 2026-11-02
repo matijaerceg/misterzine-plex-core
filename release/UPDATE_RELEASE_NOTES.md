@@ -1,3 +1,11 @@
+# MisterZine Plex Core 0.1.0-beta.38 (unreleased)
+
+- Send a report now includes the board’s network setup and private IPv4 addresses,
+  plus subnet and ARP-cache clues from failed connection attempts. Server addresses,
+  hostnames, MAC addresses and public addresses are omitted from these new diagnostics.
+- A completed Plex link-code sign-in is saved even when no server answers.
+  Retrying or restarting keeps the sign-in; a rejected account token asks for a new code.
+
 # MisterZine Plex Core 0.1.0-beta.37
 
 - A movie's edition (Director's Cut, Extended, Remastered) now shows after

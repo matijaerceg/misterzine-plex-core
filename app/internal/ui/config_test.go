@@ -414,3 +414,27 @@ func TestBitrateResetToTop(t *testing.T) {
 		t.Fatalf("fresh file: %v", m)
 	}
 }
+
+func TestLinkAccountClearsPreviousAccountSettingsAndRecovery(t *testing.T) {
+	cfg := LoadConfig(filepath.Join(t.TempDir(), "settings.json"))
+	cfg.Token, cfg.HomeToken, cfg.HomeUserID = "old-token", "old-home", "old-user"
+	cfg.ServerURL, cfg.ServerToken, cfg.ServerID, cfg.ServerName = "http://old.test", "old-server-token", "old-server", "Old"
+	cfg.AccountName = "Old Account"
+	cfg.AutoSignIn = true
+	cfg.HiddenLibraries = []string{"1"}
+	cfg.RecentSearches = []string{"old search"}
+	cfg.Streams = map[string]StreamChoice{"1": {Audio: "old"}}
+	cfg.Versions = map[string]VersionChoice{"1": {Media: "old"}}
+	cfg.NoPlainHTTP = true
+	if err := cfg.LinkAccount("new-token"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []*Config{cfg, LoadConfig(cfg.path), LoadConfig(cfg.path + ".bak")} {
+		if c.Token != "new-token" || c.SignedIn() || c.ServerID != "" || c.ServerName != "" || c.HomeToken != "" || c.HomeUserID != "" || c.AccountName != "" || c.AutoSignIn || len(c.HiddenLibraries)+len(c.RecentSearches)+len(c.Streams)+len(c.Versions) != 0 {
+			t.Fatal("new account inherited previous account state")
+		}
+		if !c.NoPlainHTTP {
+			t.Fatal("device privacy preference lost")
+		}
+	}
+}

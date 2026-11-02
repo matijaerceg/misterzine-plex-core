@@ -980,7 +980,7 @@ func (a *App) Start() {
 		a.Push(NewHome(a))
 		return
 	}
-	if a.Cfg.Token != "" && a.Cfg.SignedIn() {
+	if a.Cfg.Token != "" {
 		a.Push(NewHomeUsers(a, a.Cfg.Token))
 		return
 	}
