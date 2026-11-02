@@ -61,7 +61,7 @@ This mode does not read or write the media worker's control FIFO or status file.
 ## Invocation
 
 ```
-jfplay [--rbf path] [--core-name NAME] [--base SECONDS] [--start-in-file SECONDS] [--audio INDEX] [--headers "K: v\r\n..."] [--cafile path] [--fifo /tmp/jfplay.ctl] [--status /tmp/jfplay.status] [--hold] [--direct] [--volume 0-100] [--audio-boost 100-300] [--surround-source] [--analog-aspect 0-4] [--anti-twitter 0-2] [--geometry LEFT,TOP,RIGHT,BOTTOM,WIDTH] [--open-timeout SECONDS] URL
+jfplay [--rbf path] [--core-name NAME] [--base SECONDS] [--start-in-file SECONDS] [--audio INDEX] [--headers "K: v\r\n..."] [--cafile path] [--fifo /tmp/jfplay.ctl] [--status /tmp/jfplay.status] [--hold] [--direct] [--volume 0-100] [--audio-boost 100-300] [--surround-source] [--analog-aspect 0-4] [--anti-twitter 0-2] [--geometry LEFT,TOP,RIGHT,BOTTOM,WIDTH] [--transcode-source WIDTH,HEIGHT,DAR] [--open-timeout SECONDS] URL
 ```
 
 `URL` is a direct-play file or an HLS master/media playlist.  `--headers` is
@@ -140,6 +140,21 @@ sends this option only when the running core advertises interface 1.2 or
 later, so older cores retain preview-only calibration. The core shipped with
 the app (interface 1.4) applies saved geometry. Visual confirmation on a CRT
 remains pending.
+
+`--transcode-source WIDTH,HEIGHT,DAR` supplies the original selected version's
+dimensions and display aspect for a Plex video transcode. The app sends it
+only when Plex explicitly reports video encoding, not direct play or video
+copy during audio conversion. If the resized output's dimensions already
+match that display aspect but its pixel aspect still matches the original
+non-square pixels, the worker corrects the pixel aspect to 1:1. Both the
+H.264 headers and the metadata used by calibrated geometry are corrected;
+the video is not re-encoded. A half-percent comparison tolerance accommodates
+rounded Plex aspect metadata. Missing metadata, unchanged dimensions, and
+other aspect mismatches are left alone. `--direct` disables this correction.
+
+`make -C arm transcode-aspect-ffmpeg-test` checks synthetic encoded streams,
+including their pixel aspect, display aspect, and unchanged decoded pixels.
+It requires a host C compiler, Python 3, FFmpeg with libx264, and ffprobe.
 
 `--direct` marks an untranscoded stream. Before anything of the stream reaches
 the core, the worker checks its SPS and PPS (from the container's extradata,

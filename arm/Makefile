@@ -18,10 +18,10 @@ LIBS := $(ROOT)/build/arm/libh264ring.a \
 all: jfplay
 
 # Every host test: none needs the ARM toolchain or a device.
-test: video-bitrate-test menu-click-test contract-test core-owner-test audio-boost-test seek-cache-test seek-protocol-test h264-idr-test \
+test: transcode-aspect-test video-bitrate-test menu-click-test contract-test core-owner-test audio-boost-test seek-cache-test seek-protocol-test h264-idr-test \
 	film-speed-test direct-check-test video-geometry-test packet-pacing-test vui-timing-test pal-diagnostic-test size-watch-test
 
-jfplay: jfplay.c video_bitrate.h menu_audio.h menu_click.h menu_tone.h audio_boost.h film_speed.h h264_idr.h seek_cache.h seek_protocol.h video_geometry.h core_owner.h \
+jfplay: jfplay.c transcode_aspect.h video_bitrate.h menu_audio.h menu_click.h menu_tone.h audio_boost.h film_speed.h h264_idr.h seek_cache.h seek_protocol.h video_geometry.h core_owner.h \
 		direct_check.h packet_pacing.h lag_watch.h size_watch.h vui_timing.h pal_diagnostic.h $(H264CHECK)/h264check.c $(H264CHECK)/h264check.h $(ROOT)/build/arm/libh264ring.a
 
 	$(CC) $(CFLAGS) -o $@ $< $(H264CHECK)/h264check.c $(LIBS)
@@ -30,6 +30,16 @@ direct-check-test:
 	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -O2 -I$(H264CHECK) -o /tmp/jfplay-direct-check-test \
 		test_direct_check.c $(H264CHECK)/h264check.c
 	/tmp/jfplay-direct-check-test
+
+.PHONY: transcode-aspect-test
+transcode-aspect-test:
+	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -O2 -o /tmp/jfplay-transcode-aspect-test test_transcode_aspect.c
+	/tmp/jfplay-transcode-aspect-test
+
+# Optional encoded-stream integration; requires ffmpeg/libx264 and ffprobe.
+.PHONY: transcode-aspect-ffmpeg-test
+transcode-aspect-ffmpeg-test:
+	CC=$(HOSTCC) python3 test_transcode_aspect_ffmpeg.py
 
 contract-test:
 	python3 test_jfplay_contract.py

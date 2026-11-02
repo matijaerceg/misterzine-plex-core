@@ -93,6 +93,7 @@ type MediaPart struct {
 	Container string
 	Duration  float64 // seconds
 	Bitrate   int     // the version's total, kbit/s
+	Aspect    float64 // original display aspect of this media version, 0 unknown
 	// FrameRateTag is the version's videoFrameRate: 24p, NTSC, PAL, 50p, 60p.
 	FrameRateTag string
 	Streams      []MediaStream
@@ -203,7 +204,7 @@ func (x *xmlItem) part(mediaID string) (*MediaPart, error) {
 func (x *xmlItem) mediaPart(i int) *MediaPart {
 	m, xp := x.Medias[i], x.Medias[i].Parts[0]
 	p := &MediaPart{ID: xp.ID, Key: xp.Key, Container: xp.Container, Duration: float64(xp.Duration) / 1000, Bitrate: m.Bitrate,
-		FrameRateTag: m.FrameRate, MediaID: m.ID, MediaIndex: i}
+		FrameRateTag: m.FrameRate, Aspect: m.Aspect, MediaID: m.ID, MediaIndex: i}
 	for _, st := range xp.Streams {
 		p.Streams = append(p.Streams, MediaStream{ID: st.ID, Type: st.Type, Index: st.Index, Codec: st.Codec,
 			Selected: st.Selected == 1, Default: st.Default == 1, Channels: st.Channels, Key: st.Key, Title: st.Title,

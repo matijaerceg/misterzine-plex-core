@@ -107,6 +107,7 @@ type Session struct {
 	stopRequested            bool
 	seekID                   uint64 // opMu owns the in-process seek sequence
 	surroundSource           bool
+	transcodeSource          string // original selected version's size and display aspect
 	// forceTranscode makes every later PlaybackInfo of this session ask for a
 	// transcode; fellBack records that the one automatic fallback was used.
 	forceTranscode, fellBack bool
@@ -484,6 +485,7 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 			return fmt.Errorf("the server offered no stream for this item")
 		}
 		s.surroundSource = info.Part.Surround(audio)
+		s.transcodeSource = info.TranscodeSourceGeometry()
 		s.mu.Lock()
 		// a transcode left behind for the file as stored (a track change that
 		// stopped burning a subtitle in) is ended rather than left to time out
@@ -546,6 +548,9 @@ func (s *Session) startContext(offset int, reuseDirect bool, ctx context.Context
 		args = append(args, "--open-timeout", strconv.Itoa(int(openTimeout/time.Second)))
 	}
 	args = append(args, "--fifo", p.Fifo, "--status", p.Status)
+	if !s.direct && !s.videoCopy && s.transcodeSource != "" {
+		args = append(args, "--transcode-source", s.transcodeSource)
+	}
 	// jfplay loads the app's own build of the core when another runs, and
 	// counts a core of that name as its own
 	args = append(args, "--rbf", ring.CoreFile(), "--core-name", ring.AppCoreName)

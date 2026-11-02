@@ -43,6 +43,7 @@
 #include "lag_watch.h"
 #include "size_watch.h"
 #include "vui_timing.h"
+#include "transcode_aspect.h"
 #include "pal_diagnostic.h"
 
 #define Q_PACKETS 8192
@@ -94,6 +95,7 @@ struct config {
     int anti_twitter, anti_twitter_set;
     struct video_geometry_config geometry;
     int geometry_set;
+    struct transcode_source transcode_source;
     double open_timeout; /* --open-timeout: seconds to open the media, 0 for the socket's */
 };
 
@@ -281,7 +283,8 @@ static void usage(void)
             "[--headers TEXT] [--cafile path] [--fifo path] [--status path] "
             "[--hold] [--direct] [--volume 0-100] [--audio-boost 100-300] [--surround-source] "
             "[--analog-aspect 0-4] [--anti-twitter 0-2] "
-            "[--geometry LEFT,TOP,RIGHT,BOTTOM,WIDTH] [--open-timeout SECONDS] URL\n");
+            "[--geometry LEFT,TOP,RIGHT,BOTTOM,WIDTH] [--transcode-source WIDTH,HEIGHT,DAR] "
+            "[--open-timeout SECONDS] URL\n");
 }
 
 static int parse_args(int argc, char **argv, struct config *c)
@@ -316,6 +319,11 @@ static int parse_args(int argc, char **argv, struct config *c)
             struct video_geometry_result check;
             if (video_geometry_compute(g, 4, 3, 480, 480, VIDEO_MODE_LETTERBOX, &check)) return -1;
             c->geometry_set = check.override_required;
+        } else if (!strcmp(argv[i], "--transcode-source") && ++i < argc) {
+            struct transcode_source *s = &c->transcode_source;
+            char extra;
+            if (sscanf(argv[i], "%d,%d,%lf%c", &s->width, &s->height, &s->dar, &extra) != 3 ||
+                !transcode_source_valid(*s)) return -1;
         } else if (!strcmp(argv[i], "--anti-twitter") && ++i < argc) {
             if (parse_int(argv[i], 0, 2, &c->anti_twitter)) return -1;
             c->anti_twitter_set = 1;
@@ -1704,14 +1712,29 @@ static int open_media(struct player *p)
            film_speed_audio_rate(p->film_speed, 48000));
     p->rd.ai = choose_audio(p->fmt, p->cfg.audio_index);
     AVCodecParameters *vp = p->fmt->streams[p->rd.vi]->codecpar;
-    char bsf_chain[128];
+    AVStream *video_stream = p->fmt->streams[p->rd.vi];
+    AVRational sar = av_guess_sample_aspect_ratio(p->fmt, video_stream, NULL);
+    AVRational coded_sar = vp->sample_aspect_ratio;
+    int repair_sar = !p->cfg.direct &&
+        (transcode_aspect_stale(p->cfg.transcode_source, vp->width, vp->height, sar.num, sar.den) ||
+         transcode_aspect_stale(p->cfg.transcode_source, vp->width, vp->height, coded_sar.num, coded_sar.den));
+    if (repair_sar) {
+        logmsg("transcode pixel shape corrected to 1:1: source=%dx%d DAR=%.6g output=%dx%d SAR=%d:%d coded=%d:%d",
+               p->cfg.transcode_source.width, p->cfg.transcode_source.height, p->cfg.transcode_source.dar,
+               vp->width, vp->height, sar.num, sar.den, coded_sar.num, coded_sar.den);
+        /* Calibrated geometry reads the demuxed SAR, while uncalibrated and
+         * Native HDMI output read the SPS. Repair both, without re-encoding. */
+        video_stream->sample_aspect_ratio = vp->sample_aspect_ratio = (AVRational){1, 1};
+    }
+    char bsf_chain[192];
+    const char *aspect_bsf = repair_sar ? ",h264_metadata=sample_aspect_ratio=1/1" : "";
     if (p->film_speed.enabled) {
         AVRational tick_rate = av_mul_q(nominal_rate,
             (AVRational){2 * p->film_speed.scale_den, p->film_speed.scale_num});
         snprintf(bsf_chain, sizeof bsf_chain,
-                 "h264_mp4toannexb,h264_metadata=tick_rate=%d/%d", tick_rate.num, tick_rate.den);
+                 "h264_mp4toannexb%s,h264_metadata=tick_rate=%d/%d", aspect_bsf, tick_rate.num, tick_rate.den);
     } else {
-        snprintf(bsf_chain, sizeof bsf_chain, "h264_mp4toannexb");
+        snprintf(bsf_chain, sizeof bsf_chain, "h264_mp4toannexb%s", aspect_bsf);
     }
     if ((rc = av_bsf_list_parse_str(bsf_chain, &p->bsf)) < 0 ||
         (rc = avcodec_parameters_copy(p->bsf->par_in, vp)) < 0)
