@@ -1994,6 +1994,7 @@ static int receive_video(struct player *p)
         while (p->held_video && !atomic_load(&p->exit_code) &&
                !atomic_load(&p->stop) &&
                (p->seek_state != SEEK_IN_PROGRESS || p->seek_reset_done == 2)) {
+            if (caught_signal) { atomic_store(&p->stop, 1); break; }
             rc = ring_result(p, write_au(p, p->held_video, 0), "video");
             if (!rc) { av_packet_free(&p->held_video); break; }
             if (rc != -EAGAIN) break;
