@@ -987,7 +987,11 @@ def safe_log(text, secrets):
 
 VIDEO_KEYS = ('main', 'direct_video', 'vga_scaler', 'forced_scandoubler', 'ypbpr', 'composite_sync', 'vga_sog',
               'vsync_adjust', 'vscale_mode', 'vscale_border', 'video_mode', 'video_mode_ntsc', 'video_mode_pal',
-              'menu_pal', 'hdmi_limited', 'vrr_mode', 'fb_terminal', 'dvi_mode')
+              'menu_pal', 'hdmi_limited', 'vrr_mode', 'fb_terminal', 'dvi_mode',
+              # analog output (vga_mode=svideo/cvbs is the Y/C encoder; ntsc_mode
+              # picks NTSC, PAL-60 or PAL-M colour) and the picture controls
+              'vga_mode', 'ntsc_mode', 'video_brightness', 'video_contrast', 'video_saturation', 'video_hue',
+              'video_gain_offset')
 
 
 def ini_video_settings(text):
@@ -1092,6 +1096,43 @@ def pin_yc(card, core=CORE_NAME):
     if added:
         print('yc.txt: added %d composite/S-Video colour lines for %s' % (added, core))
     return added
+
+
+YC_TABLE = 20   # entries main keeps (video.cpp yc_modes[20])
+
+
+def yc_state(data, core=CORE_NAME):
+    """What main makes of yc.txt bytes for core, as counts of our keys: found
+    with our value, found with another value, or not found. Main reads lines as
+    yc_keys describes, keeps only those starting with the core name that parse
+    (key up to '=', a nonzero number after it, read like strtoull base 0), stops
+    at YC_TABLE of them and uses the first entry whose key matches."""
+    ours = {}
+    for line in yc_lines(core):
+        key, _, value = line.partition('=')
+        ours[key.lower()] = int(value)
+    found, kept = {}, 0
+    prefix = core.lower().encode()
+    for line in data.split(b'\n'):
+        if kept >= YC_TABLE:
+            break
+        line = line.replace(b'\r', b'').split(b';', 1)[0].lstrip(b' \t')
+        if not line.lower().startswith(prefix):
+            continue
+        key, sep, value = line.partition(b'=')
+        number = re.match(rb'[=\s]*(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)', value) if sep else None
+        if not number:
+            continue
+        text = number.group(1).decode()
+        inc = int(text, 16) if text[:2].lower() == '0x' else int(text, 8) if text.startswith('0') else int(text)
+        if not inc:
+            continue
+        kept += 1
+        found.setdefault(key.decode(errors='replace').lower(), inc)
+    state = {'ours': 0, 'other_value': 0, 'missing': 0}
+    for key, inc in ours.items():
+        state['missing' if key not in found else 'ours' if found[key] == inc else 'other_value'] += 1
+    return state
 
 
 def alt_ini_names(card):
@@ -1676,6 +1717,13 @@ def system_facts(root, secrets, proc_root=Path('/proc'), altcfg=read_altcfg, dme
         facts['ini_video'] = {key: values[key][:40] for key in VIDEO_KEYS if key in values}
         elsewhere = '' if own else section_elsewhere(card, ini or card / 'MiSTer.ini')
         facts['ini_video'].update(findings, own_section=own, section_in=ini_label(card, elsewhere))
+    except OSError:
+        pass
+    # Composite/S-Video colour: whether main will find our subcarrier lines.
+    try:
+        facts['yc_txt'] = dict(yc_state((card / 'yc.txt').read_bytes()), file=True)
+    except FileNotFoundError:
+        facts['yc_txt'] = dict(yc_state(b''), file=False)
     except OSError:
         pass
     try:

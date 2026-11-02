@@ -495,6 +495,8 @@ log destination subnet relationships and ARP-cache status without destination ad
 A cached ARP entry is not proof of a fresh reply; missing entries are inconclusive.
 Unreadable facts are marked unknown. These diagnostics omit hostnames and MAC addresses.
 
+For composite and S-Video, the video settings include `vga_mode`, `ntsc_mode` and the picture controls (`video_brightness`, `video_contrast`, `video_saturation`, `video_hue`, `video_gain_offset`), and `yc_txt` counts how many of the app's subcarrier lines MiSTer main will use from `yc.txt`: with the app's value, overridden by an earlier line with another value, or not found (main reads only the first 20 lines naming the core).
+
 Player startup logs distinguish opening the stream, reading its track information,
 and seeking within a directly played file, with elapsed times for each stage.
 The last 64 KiB of the most recent failed playback log is kept separately until

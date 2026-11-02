@@ -5,6 +5,7 @@
   hostnames, MAC addresses and public addresses are omitted from these new diagnostics.
 - A completed Plex link-code sign-in is saved even when no server answers.
   Retrying or restarting keeps the sign-in; a rejected account token asks for a new code.
+- Send a report now includes the composite and S-Video setup: `vga_mode`, `ntsc_mode` and the picture controls from the MiSTer INI, and whether MiSTer main will use the app's colour subcarrier lines in `yc.txt`.
 
 # MisterZine Plex Core 0.1.0-beta.37
 

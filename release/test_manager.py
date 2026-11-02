@@ -472,6 +472,23 @@ class YCTests(unittest.TestCase):
         self.assertIn(manager.CORE_NAME + '_50.0=60182905787', added)
         self.assertNotIn(b'\n', data.replace(b'\r\n', b''))
 
+    def test_state_says_what_main_will_use(self):
+        core = manager.CORE_NAME
+        self.assertEqual(manager.yc_state(b''), {'ours': 0, 'other_value': 0, 'missing': 14})
+        manager.ensure_yc(self.path)
+        self.assertEqual(manager.yc_state(self.path.read_bytes()), {'ours': 14, 'other_value': 0, 'missing': 0})
+        # an earlier line of the player's wins over ours, whatever its case;
+        # hex counts by value; other cores' lines, comments and lines main
+        # rejects (no '=', zero, a space before '=') change nothing
+        mine = ('Genesis_59.9=1\n; ' + core + '_50.0=1\n' + core + '_60.0\n' + core + '_60.0i=0\n'
+                + core + '_50.0i =5\n  ' + core.upper() + '_59.9I=123 ; mine\n'
+                + core + '_59.9=0x' + format(manager.YC_NTSC, 'x') + '\n').encode()
+        self.assertEqual(manager.yc_state(mine + self.path.read_bytes()), {'ours': 13, 'other_value': 1, 'missing': 0})
+        # main keeps only the first 20 entries naming the core: ours after
+        # twenty others are never read
+        crowd = ''.join('%s_x%d=1\n' % (core, n) for n in range(manager.YC_TABLE)).encode()
+        self.assertEqual(manager.yc_state(crowd + self.path.read_bytes()), {'ours': 0, 'other_value': 0, 'missing': 14})
+
     def test_lf_file_gets_lf_lines(self):
         self.path.write_bytes(b'Genesis_59.9=1\n')
         manager.ensure_yc(self.path)
@@ -759,6 +776,20 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(facts['ini_video']['hdmi_hz'], 60.0)          # MiSTer.ini stands in
         self.assertEqual(facts['ini_video']['section_in'], 'alternative 1')
         self.assertNotIn('Bench', json.dumps(facts))
+
+    def test_report_states_the_analog_colour_setup(self):
+        (self.card / 'MiSTer.ini').write_text('[MiSTer]\nvga_mode=svideo\nntsc_mode=0\nvideo_saturation=100\n'
+                                              '[MisterZine Plex Core]\nvideo_saturation=0\n')
+        facts = manager.system_facts(self.root, [], self.proc.parent, altcfg=lambda: 0)
+        self.assertEqual(facts['video_settings'], {'MiSTer': {'vga_mode': 'svideo', 'ntsc_mode': '0', 'video_saturation': '100'},
+                                                   'MisterZine Plex Core': {'video_saturation': '0'}})
+        self.assertEqual((facts['ini_video']['vga_mode'], facts['ini_video']['ntsc_mode'],
+                          facts['ini_video']['video_saturation']), ('svideo', '0', '0'))
+        self.assertEqual(facts['yc_txt'], {'ours': 0, 'other_value': 0, 'missing': 14, 'file': False})
+        manager.ensure_yc(self.card / 'yc.txt')
+        facts = manager.system_facts(self.root, [], self.proc.parent, altcfg=lambda: 0)
+        self.assertEqual(facts['yc_txt'], {'ours': 14, 'other_value': 0, 'missing': 0, 'file': True})
+        self.assertIn('yc_txt: {"file": true, "missing": 0, "other_value": 0, "ours": 14}', self.report())
 
 
 class DisplayCheckTests(unittest.TestCase):
