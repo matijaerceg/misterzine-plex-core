@@ -6,6 +6,7 @@
 - A completed Plex link-code sign-in is saved even when no server answers.
   Retrying or restarting keeps the sign-in; a rejected account token asks for a new code.
 - Send a report now includes the composite and S-Video setup: `vga_mode`, `ntsc_mode` and the picture controls from the MiSTer INI, and whether MiSTer main will use the app's colour subcarrier lines in `yc.txt`.
+- An episode whose audio track runs on past its last picture by more than two seconds now ends. Before, the screen went black at the end and the time kept counting until Back was pressed: the player held that audio tail back waiting for video that never came, so the stream was never told it was over. The log now records the end of input, the end of stream and the core's end, so a report shows where a stuck ending waited.
 
 # MisterZine Plex Core 0.1.0-beta.37
 
