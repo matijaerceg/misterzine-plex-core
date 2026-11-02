@@ -144,6 +144,8 @@ struct player {
     int swr_rate;
     struct reader rd;
     int fifo_fd, paused, opened, saw_idr, input_done, reader_joined;
+    int video_done;            /* the demuxer is done and no video is queued: audio no longer paces to video (audio_record_due) */
+    int end_logged;            /* the end-of-input line was written for this stream */
     int core_owned;
     struct jfplay_core_owner core_owner;
     atomic_int stop, exit_code;
@@ -466,6 +468,7 @@ static int reader_handle_seek(struct reader *r)
 }
 
 static int packet_beyond_reader_horizon(struct reader *r, const AVPacket *pkt);
+static double item_position_from_pts90(const struct player *p, int64_t pts90);
 
 static void *reader_main(void *arg)
 {
@@ -1079,8 +1082,8 @@ static int write_pcm(struct player *p, int draining)
     pts = p->pcm.head->pts90;
     if (pts != AV_NOPTS_VALUE)
         pts += (int64_t)p->pcm.head->offset * 90000 / 48000;
-    if (!draining && p->newest_video90 != INT64_MIN &&
-        pts != AV_NOPTS_VALUE && pts > p->newest_video90 + AUDIO_LEAD) return 0;
+    if (!audio_record_due(draining, p->video_done, pts == AV_NOPTS_VALUE ? INT64_MIN : pts,
+                          p->newest_video90, AUDIO_LEAD)) return 0;
     copy_pcm(p, record, take);
     if (take < AUDIO_RECORD_FRAMES) {
         memset(record + take * 4u, 0, (AUDIO_RECORD_FRAMES - take) * 4u);
@@ -1124,8 +1127,16 @@ static AVPacket *take_packet(struct player *p, int *kind)
     if (a && audio_ok && (!v || a->seq < v->seq || !video_ok)) { pkt = q_pop(&r->aq); *kind = 1; }
     else if (v && video_ok) { pkt = q_pop(&r->vq); *kind = 0; }
     if (pkt) { r->bytes -= (size_t)pkt->size; pthread_cond_broadcast(&r->changed); }
-    p->input_done = r->done && !r->vq.head && !r->aq.head;
+    p->video_done = r->done && !r->vq.head;
+    p->input_done = p->video_done && !r->aq.head;
     pthread_mutex_unlock(&r->mutex);
+    if (p->video_done && !p->end_logged) {
+        p->end_logged = 1;
+        logmsg("input ended: last video %.3f s, last audio %.3f s, audio queued %d packets, %zu PCM frames",
+               p->newest_video90 == INT64_MIN ? 0.0 : item_position_from_pts90(p, p->newest_video90),
+               p->newest_audio90 == INT64_MIN ? 0.0 : item_position_from_pts90(p, p->newest_audio90),
+               r->aq.count, p->pcm.frames);
+    }
     return pkt;
 }
 
@@ -1861,6 +1872,8 @@ static int service_seek(struct player *p)
         p->audio_next90 = AV_NOPTS_VALUE;
         p->audio_ring_full = 0;
         p->input_done = 0;
+        p->video_done = 0;
+        p->end_logged = 0;
 
         /* Flush creates a new hardware session; restore session-scoped controls
          * and geometry before letting the decoder accept the new IDR. */
@@ -2092,6 +2105,8 @@ static int drain_natural_eof(struct player *p)
     if (atomic_load(&p->stop)) return AVERROR_EXIT;
     rc = submit_eos(p, 0, 0);
     if (rc < 0) return rc;
+    logmsg("end of stream sent: audio written to %.3f s; waiting for the core to end",
+           p->newest_audio90 == INT64_MIN ? 0.0 : item_position_from_pts90(p, p->newest_audio90));
 
     /* EOS only tells the core no more packets are coming. The display keeps
      * playing buffered video/audio until it reports ENDED. Keep FIFO/status
@@ -2110,7 +2125,10 @@ static int drain_natural_eof(struct player *p)
         if (h264ring_status(p->ring, &st)) return -EIO;
         if (H264RING_ST(&st, STATE) == H264RING_S_ENDED &&
             H264RING_ST(&st, AUD_STATE) == 0 &&
-            H264RING_ST(&st, AUD_Q_SAMPLES) == 0) return 0;
+            H264RING_ST(&st, AUD_Q_SAMPLES) == 0) {
+            logmsg("stream ended at %.3f s", playback_position(p, &st, 1));
+            return 0;
+        }
         if (H264RING_ST(&st, STATE) == H264RING_S_ERROR) return -EIO;
         usleep(1500);
     }

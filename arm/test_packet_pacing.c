@@ -25,5 +25,14 @@ int main(void) {
     assert(!packet_video_ready(s,960,9000)); /* audio is still due */
     s.has_audio=0;
     assert(packet_video_ready(s,960,9000));
+    /* audio holds to the lead past the newest video while video may still come */
+    assert(audio_record_due(0,0,90000+90000,90000,90000));
+    assert(!audio_record_due(0,0,90000+90001,90000,90000));
+    assert(audio_record_due(0,0,900000,INT64_MIN,90000)); /* no video clock yet */
+    assert(audio_record_due(0,0,INT64_MIN,90000,90000));  /* untimed audio */
+    /* the tail past the last picture goes out once the demuxer is done and
+       no video is queued: nothing is left to pace against */
+    assert(audio_record_due(0,1,90000+300000,90000,90000));
+    assert(audio_record_due(1,0,90000+300000,90000,90000));
     puts("packet pacing checks passed");
 }

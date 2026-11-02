@@ -26,4 +26,19 @@ static inline int packet_video_ready(struct packet_pacing s, size_t record_frame
     }
     return 0;
 }
+/* Whether an audio record at pts may go to the ring now. Audio is held to
+ * at most lead past the newest video written, so the ring's audio queue
+ * never runs seconds ahead of the pictures. Once the demuxer has finished
+ * and no video is left to write (video_done), the lead has nothing to pace
+ * against and the tail goes out as it is: a file whose audio runs on past
+ * its last picture by more than the PCM buffer holds would otherwise fill
+ * that buffer, and the demux queue behind it never empties (the player waited
+ * on it for ever: a 3.4 s silent tail after the last frame, Nov 2026). */
+static inline int audio_record_due(int draining, int video_done, int64_t pts,
+                                   int64_t video_written, int64_t lead)
+{
+    if (draining || video_done) return 1;
+    if (video_written == INT64_MIN || pts == INT64_MIN) return 1;
+    return pts <= video_written + lead;
+}
 #endif
