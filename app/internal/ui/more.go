@@ -47,6 +47,10 @@ func (p *Playing) bitrateValue(i int) string {
 // moreRows appends the new rows to More's; step is the Video bitrate step
 // picked and not yet applied (-1 for the one saved).
 func (p *Playing) moreRows(items, vals []string, step int) ([]string, []string) {
+	if p.app.chaptersEnabled() && len(p.item.Chapters) > 0 {
+		items = append(items, chaptersLabel)
+		vals = append(vals, itoa(len(p.item.Chapters)))
+	}
 	if p.autoplayMatters() {
 		items = append(items, moreAutoplay)
 		vals = append(vals, onOff(!p.app.Cfg.NoAutoplay))

@@ -10,7 +10,7 @@ import (
 func (a *App) openItem(original *plex.Item, at string) {
 	item := *original
 	client := a.Plex
-	if item.Type == "movie" && item.Summary != "" && item.PartID != "" {
+	if item.Type == "movie" && item.Summary != "" && item.PartID != "" && item.ChaptersLoaded {
 		a.Push(NewPreplay(a, original))
 		return
 	}

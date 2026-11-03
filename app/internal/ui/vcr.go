@@ -46,6 +46,7 @@ const (
 var vcrKeys = map[string]string{
 	"-10": string([]rune{gfx.PixelRewind, gfx.PixelRewind}), "Pause": string(gfx.PixelPause),
 	"Play": string(gfx.PixelPlay), "+10": string([]rune{gfx.PixelPlay, gfx.PixelPlay}),
+	chaptersLabel: "CHAPS",
 }
 
 func vcrKey(b string) string {
@@ -123,6 +124,9 @@ func (p *Playing) composeStaticVCR(c *gfx.Canvas, peek, timed bool) {
 	c.Fill(0, 0, c.W, c.H, vcrBlue)
 	x0, w := p.safeX(), p.safeW()
 	title, sub := heading(p.item)
+	if caption := p.chapterCaption(timed); caption != "" {
+		sub = caption
+	}
 	y := 12
 	c.PixelText(x0, y, vcrBig, vcrText, vcrShadow, vcrBig.Fit(title, w))
 	y += vcrBig.Height() + 4
@@ -132,6 +136,7 @@ func (p *Playing) composeStaticVCR(c *gfx.Canvas, peek, timed bool) {
 	y += vcrSmall.Height() + 10
 	p.pillY = y + (vcrBarH-PillH)/2 // the dot rides the blocks' middle
 	p.vcrBlocks(c, y)
+	p.chapterTicks(c, y-2, vcrBarH+4)
 	y += vcrBarH + 10
 	status := string(gfx.PixelPlay) + " PLAY"
 	if p.paused {
@@ -152,15 +157,17 @@ func (p *Playing) composeStaticVCR(c *gfx.Canvas, peek, timed bool) {
 		p.peekH = y
 		return
 	}
-	labels := make([]string, len(osdButtons))
-	total := vcrKeyGap * (len(labels) - 1)
-	for i, b := range osdButtons {
+	labels := make([]string, len(p.playbackButtons()))
+	total := 0
+	for i, b := range p.playbackButtons() {
 		if b == "Pause" && p.paused {
 			b = "Play"
 		}
 		labels[i] = vcrKey(b)
 		total += vcrBig.Width(labels[i])
 	}
+	gap := min(vcrKeyGap, max(8, (p.safeW()-total)/(len(labels)-1)))
+	total += gap * (len(labels) - 1)
 	x := (c.W - total) / 2
 	for i, b := range labels {
 		col := vcrLo
@@ -172,7 +179,7 @@ func (p *Playing) composeStaticVCR(c *gfx.Canvas, peek, timed bool) {
 		}
 		p.btnX[i], p.btnW[i], p.btnY = x, vcrBig.Width(b), y+vcrBig.Height()+3
 		c.PixelText(x, y, vcrBig, col, vcrShadow, b)
-		x += vcrBig.Width(b) + vcrKeyGap
+		x += vcrBig.Width(b) + gap
 	}
 }
 

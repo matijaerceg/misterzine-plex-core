@@ -75,14 +75,16 @@ type Playing struct {
 	barX, barY int
 	barW       int
 	barOn      bool
-	btnX, btnW [8]int // button places from the last compose, for the bar
+	btnX, btnW [9]int // button places from the last compose, for the bar
 	btnY       int
 	pillY      int
 	composed   bool
 	painter    *painter
 	Next       int // set to +1 or -1 when Prev or Next was chosen; the queue continues
 
-	list *listMode // an open audio or subtitle list
+	list           *listMode // an open audio or subtitle list
+	chapters       chapterState
+	completedSeeks func() uint64
 	// the worker's last status, as read: More > Playback info shows it
 	statusVals map[string]string
 	scrub      bool      // the cursor is on the timeline
@@ -313,7 +315,7 @@ func NewPlaying(app *App, it *plex.Item, queue []*plex.Item, idx int, send func(
 		l.SetDotLine(app.vcr()) // the VCR playhead is a line
 	}
 	// a listing's item may lack the markers, the part or its previews
-	if (len(it.Markers) == 0 || it.PartID == "" || it.Indexes == "") && app.Plex != nil {
+	if (!it.ChaptersLoaded || len(it.Markers) == 0 || it.PartID == "" || it.Indexes == "") && app.Plex != nil {
 		p.metadata = make(chan *plex.Item, 1)
 		client, id := app.Plex, it.RatingKey
 		go func() {
@@ -397,6 +399,9 @@ func (p *Playing) status() {
 	if err != nil {
 		return
 	}
+	if p.chapterStatus(values, written, pos) {
+		return
+	}
 	dur, _ := strconv.ParseFloat(values["duration"], 64)
 	if values["seek_state"] == "seeking" {
 		p.bufferStart, p.bufferEnd = 0, 0
@@ -413,7 +418,7 @@ func (p *Playing) status() {
 		p.seekAt = time.Time{}
 	}
 	p.pos, p.posAt = pos, written
-	if time.Since(p.pausedAt) > 700*time.Millisecond {
+	if !p.chapterBrowsing() && time.Since(p.pausedAt) > 700*time.Millisecond {
 		p.paused = values["state"] == "paused"
 	}
 	p.dur = playingDuration(float64(p.item.Duration), dur, p.direct != nil && p.direct())
@@ -512,15 +517,21 @@ func (p *Playing) seekBy(d float64) {
 }
 
 func (p *Playing) seekTo_(t float64) {
+	p.discardChapterChoice()
+	p.seekPosition(max(0, min(t, p.dur-6)))
+}
+
+// seekPosition accepts a validated destination, including a chapter near EOF.
+func (p *Playing) seekPosition(t float64) {
 	if p.paused && !p.pvPaused {
 		p.pausedSeek = true
-		p.seekTo = max(0, min(t, p.dur-6))
+		p.seekTo = t
 		p.pos = p.seekTo
 		p.dirty = true
 		return // do not flush the frozen picture until the user resumes
 	}
 	p.pausedSeek = false
-	p.seekTo = max(0, min(t, p.dur-6))
+	p.seekTo = t
 	p.pos = p.seekTo
 	p.seekAt = time.Now()
 	p.bufferStart, p.bufferEnd = 0, 0
@@ -531,7 +542,7 @@ func (p *Playing) seekTo_(t float64) {
 		// transcode's restart starts held while the session says paused
 		p.endPreview(p.seekAt)
 	}
-	p.send("seek " + ftoa(p.seekTo))
+	p.send("seek " + strconv.FormatFloat(p.seekTo, 'f', -1, 64))
 	p.dirty = true
 }
 
@@ -644,6 +655,8 @@ func (p *Playing) choose(l *listMode) {
 	switch l.kind {
 	case "More":
 		switch l.items[l.cur] {
+		case chaptersLabel:
+			p.openChapters(time.Now())
 		case moreAutoplay:
 			p.toggleAutoplay(l)
 		case moreDirect:
@@ -712,7 +725,8 @@ func (p *Playing) togglePause(now time.Time) {
 	if p.paused && p.pausedSeek {
 		p.paused, p.pausedAt, p.pvPaused = false, now, false
 		p.send("resume")
-		p.seekTo_(p.seekTo)
+		p.resumeChapter(now)
+		p.seekPosition(p.seekTo)
 		return
 	}
 	p.paused = !p.paused
@@ -723,6 +737,9 @@ func (p *Playing) togglePause(now time.Time) {
 }
 
 func (p *Playing) Key(ev input.Event, now time.Time) bool {
+	if handled, stop := p.chapterInput(ev, now); handled {
+		return stop
+	}
 	// Information has no selectable rows. Consume arrows, including releases,
 	// before the timeline or generic list handlers can act on them.
 	if l := p.list; l != nil {
@@ -901,7 +918,7 @@ func (p *Playing) Key(ev input.Event, now time.Time) bool {
 			return false
 		}
 		p.shownAt = now
-		switch osdButtons[p.focus] {
+		switch p.playbackButtons()[p.focus] {
 		case "-10":
 			p.seekBy(-10)
 		case "+10":
@@ -928,6 +945,8 @@ func (p *Playing) Key(ev input.Event, now time.Time) bool {
 			}
 		case "More":
 			p.openMore()
+		case chaptersLabel:
+			p.openQuickChapters(now)
 		}
 	case input.Left, input.Right:
 		d := 1
@@ -935,8 +954,8 @@ func (p *Playing) Key(ev input.Event, now time.Time) bool {
 			d = -1
 		}
 		if p.visible {
-			for i := 0; i < len(osdButtons); i++ {
-				p.focus = (p.focus + d + len(osdButtons)) % len(osdButtons)
+			for i := 0; i < len(p.playbackButtons()); i++ {
+				p.focus = (p.focus + d + len(p.playbackButtons())) % len(p.playbackButtons())
 				if !p.dimmed(p.focus) {
 					break
 				}
@@ -1002,6 +1021,21 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 				p.item.Versions = fresh.Versions
 			}
 			p.item.Markers, p.item.PartID, p.item.Indexes = fresh.Markers, fresh.PartID, fresh.Indexes
+			p.item.Chapters, p.item.ChaptersLoaded = fresh.Chapters, fresh.ChaptersLoaded
+			p.metadata = nil
+			p.staticFor, p.panelText, p.last = "", "", ""
+			if p.list != nil && p.list.kind == "More" {
+				step := p.list.step
+				p.reopenMore(p.list.items[p.list.cur])
+				p.list.step = step
+				if step >= 0 {
+					for i, row := range p.list.items {
+						if row == moreBitrate {
+							p.list.vals[i] = p.bitrateValue(step)
+						}
+					}
+				}
+			}
 			p.item.Audio, p.item.Subs = fresh.Audio, fresh.Subs
 			p.app.applyStreams(p.item)
 			p.takeSessionStreams()
@@ -1026,6 +1060,9 @@ func (p *Playing) Tick(now time.Time, osd OSD, field bool) {
 		p.status()
 	}
 	p.waiting(now)
+	if p.chapterOverlay(osd) {
+		return
+	}
 	if field && p.scrub && p.held != 0 {
 		p.shownAt = now // a hold keeps the overlay up
 		if !p.visible {
@@ -1291,7 +1328,7 @@ func (p *Playing) sprites() {
 
 // dimmed reports whether button i has nothing to do for this item.
 func (p *Playing) dimmed(i int) bool {
-	switch osdButtons[i] {
+	switch p.playbackButtons()[i] {
 	case "Prev":
 		return p.idx == 0
 	case "Next":
@@ -1302,6 +1339,8 @@ func (p *Playing) dimmed(i int) bool {
 		return len(p.item.Subs) == 0
 	case "More":
 		return false
+	case chaptersLabel:
+		return len(p.item.Chapters) == 0
 	}
 	return false
 }
@@ -1342,7 +1381,7 @@ func (p *Playing) panelKey() string {
 
 // episodeHold takes a shoulder button during playback: L held EpisodeHold
 // goes to the previous episode, R to the next, as the panel's Prev and
-// Next do; a tap does nothing. The hold is timed by the key's repeats, so
+// Next do; a short release opens chapter selection in Key. The hold is timed by the key's repeats, so
 // the go happens on the first repeat past it. Nothing happens with a list
 // up or without an episode that way.
 func (p *Playing) episodeHold(ev input.Event, now time.Time) bool {
@@ -1458,7 +1497,7 @@ func (p *Playing) compose(peek bool) {
 func (p *Playing) staticKey(peek, timed bool) string {
 	it := p.item
 	return it.Title + it.GrandTitle + it.Edition + "|" + itoa(int(p.pos)) + "|" + itoa(p.focus) + "|" + itoa(btoi(p.paused)) +
-		"|" + itoa(btoi(p.scrub)) + "|" + itoa(btoi(peek)) + "|" + itoa(btoi(timed)) + p.bufferKey()
+		"|" + itoa(btoi(p.scrub)) + "|" + itoa(btoi(peek)) + "|" + itoa(btoi(timed)) + p.bufferKey() + p.chapterCaption(timed)
 }
 
 // composeStatic paints the panel into c: the title, the pill, the times
@@ -1468,6 +1507,9 @@ func (p *Playing) composeStatic(c *gfx.Canvas, peek, timed bool) {
 	c.Fill(0, 0, c.W, c.H, gfx.Bg)
 	it := p.item
 	title, sub := heading(it)
+	if caption := p.chapterCaption(timed); caption != "" {
+		sub = caption
+	}
 	y := 14
 	{
 		p.app.text(c, p.safeX(), y, f.Body, gfx.GreyHi, f.Body.Fit(title, p.safeW()-320))
@@ -1491,6 +1533,7 @@ func (p *Playing) composeStatic(c *gfx.Canvas, peek, timed bool) {
 			c.Fill(x0, y+6, max(2, x1-x0), PillH, 0x5A6070)
 		}
 		c.Fill(p.safeX(), y+6, int(float64(pw)*p.pos/p.dur), PillH, gfx.Amber)
+		p.chapterTicks(c, y+3, PillH+6)
 	}
 	y += PillH + 14
 	if timed {
@@ -1509,16 +1552,17 @@ func (p *Playing) composeStatic(c *gfx.Canvas, peek, timed bool) {
 		return
 	}
 	// the buttons, centred, the focused one white with a bar under it
-	labels := make([]string, len(osdButtons))
+	labels := make([]string, len(p.playbackButtons()))
 	total := 0
-	for i, b := range osdButtons {
+	for i, b := range p.playbackButtons() {
 		if b == "Pause" && p.paused {
 			b = "Play"
 		}
 		labels[i] = b
 		total += p.btnCellW(b)
 	}
-	total += OsdBtnGap * (len(labels) - 1)
+	gap := min(OsdBtnGap, max(8, (p.safeW()-total)/(len(labels)-1)))
+	total += gap * (len(labels) - 1)
 	x := (c.W - total) / 2
 	for i, b := range labels {
 		col := gfx.GreyLo
@@ -1540,7 +1584,7 @@ func (p *Playing) composeStatic(c *gfx.Canvas, peek, timed bool) {
 		} else {
 			c.Text(x, y, f.Body, col, b) // a colour change on focus would miss the cache for a frame
 		}
-		x += w + OsdBtnGap
+		x += w + gap
 	}
 }
 

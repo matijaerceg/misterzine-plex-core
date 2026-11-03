@@ -227,7 +227,7 @@ func (c *Client) MediaPart(ctx context.Context, ratingKey, mediaID string) (*Med
 // listing's item needs to choose its tracks and then decide the stream,
 // without reading the record twice.
 func (c *Client) ItemAndPart(ctx context.Context, ratingKey, mediaID string) (*Item, *MediaPart, error) {
-	r, err := c.req("/library/metadata/"+ratingKey, url.Values{"includeMarkers": {"1"}})
+	r, err := c.req("/library/metadata/"+ratingKey, chapterMetadataQuery(url.Values{"includeMarkers": {"1"}}))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -246,6 +246,7 @@ func (c *Client) ItemAndPart(ctx context.Context, ratingKey, mediaID string) (*I
 				return nil, nil, err
 			}
 			it := mc.Items[i].item()
+			it.ChaptersLoaded = true
 			it.UseVersion(part.MediaID)
 			return it, part, nil
 		}

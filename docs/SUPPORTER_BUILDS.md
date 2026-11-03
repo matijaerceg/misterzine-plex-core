@@ -35,3 +35,5 @@ rejects private registries and premium implementation files.
 
 Moving a file out of the current source tree does not remove older public
 commits or revoke any rights already granted under its existing license.
+
+Chapters is supplied by the private overlay and is controlled by **Options > Chapters** (Off by default). Its code coverage matches the existing extras. The public app contains only chapter metadata types and no-op hooks; chapter parsing, navigation, thumbnails, the grid and the toggle implementation are compiled from the private repository.

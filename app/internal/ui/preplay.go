@@ -93,6 +93,9 @@ func (p *Preplay) rebuild() {
 	} else {
 		p.actions = append(p.actions, "Mark watched")
 	}
+	if p.app.chaptersEnabled() && len(it.Chapters) > 0 {
+		p.actions = append(p.actions, chaptersLabel)
+	}
 	if len(it.Audio) > 1 {
 		p.actions = append(p.actions, streamLabel("Audio", it.Audio))
 	}
@@ -133,6 +136,14 @@ func (p *Preplay) Key(ev input.Event, now time.Time) {
 		}
 		a := p.actions[p.cur]
 		switch {
+		case a == chaptersLabel:
+			p.app.browseChapters(p.item, func(offset int) {
+				p.app.playSettled(p.item, offset, nil, 0, func(*plex.Item, bool) {
+					p.periodic.reset()
+					p.rebuild()
+					p.app.afterReports(func() { p.cw.refetch(p.app) })
+				}, false, "chapter selection")
+			})
 		case a == RemoveContinue:
 			p.app.removeContinue(p.item, &p.cw, p.rebuild)
 		case strings.HasPrefix(a, "Audio"):

@@ -83,7 +83,7 @@ primary account. Automatic sign-in uses the saved server connection at startup.
   recent searches. Back clears the query, then leaves.
 - A movie's page holds **Play** (or **Resume from** and **Play from the
   start**), **Mark watched** or **Mark unwatched**, **Audio** when there is
-  more than one track, and **Subtitles** when there are any. When the summary
+  more than one track, **Chapters** when available, and **Subtitles** when there are any. When the summary
   is cut short, Up from the first action selects it and OK shows it in full.
 - A show with one season opens straight on its episodes. Otherwise its page
   lists the seasons; Down or OK opens one. An episode's actions are those of a
@@ -116,7 +116,15 @@ primary account. Automatic sign-in uses the saved server connection at startup.
   Audio with one track); OK presses it. The controls hide after four seconds
   unless paused. Down closes them.
 - Controller Start pauses or resumes playback in one press, including with
-  the controls or a playback list open. Holding Start does not repeat.
+  the controls or a playback list open. Holding Start does not repeat. The
+  chapter browser keeps playback paused until it is closed.
+- Tap controller L or R to open the chapter grid with the previous or next
+  destination highlighted. OK confirms the jump; Back cancels. L first selects
+  the current chapter's beginning unless within three seconds of it, when it
+  selects the preceding chapter. Chapter navigation stops at the
+  first and last chapter; it never changes episodes. Hold L or R for two
+  seconds to change episodes. The onscreen **Prev** and **Next** buttons also
+  change episodes; their purpose is shown when selected.
 - On a USB keyboard, Space or P pauses and resumes playback in one press; a
   pause brings up the controls showing **Play**. A USB remote whose play key
   MiSTer does not pass through can be remapped to Space in MiSTer's keyboard
@@ -145,16 +153,18 @@ primary account. Automatic sign-in uses the saved server connection at startup.
   scrub. A tap never pauses, and a video paused beforehand stays paused.
 - The progress bar shows how far is downloaded in pale lilac (cyan in the VCR
   controls). A seek inside that range can reuse what is already downloaded.
+  Small ticks mark chapter starts, and scrubbing shows the chapter name.
 - **Audio** and **Subs** open a list of tracks. A change is kept for the movie
   or show. Another audio track, or a subtitle track the server burns in,
   restarts the stream at the same position; a subtitle track the app draws
   changes without a restart (see Subtitles).
-- **More** is one list with no pages behind it: Left and Right change the
+- **More** holds settings and playback tools. Left and Right change the
   value of the row under the cursor in place, shown by the small arrows
   either side of it, and stop at the first and last choice. It holds
   **Crop**, for any picture, **Downmix boost** and **Subtitle size** (see
   Display setup, Sound and Subtitles), each applied as soon as it changes,
   and after them:
+  - **Chapters**, when available: OK opens the scene browser described below.
   - **Autoplay next** (episodes): On or Off by Left, Right or OK; the Options
     setting, saved at once, and the end of this playback follows it.
   - **Direct play**: On or Off by Left, Right or OK; the Options setting,
@@ -182,6 +192,36 @@ primary account. Automatic sign-in uses the saved server connection at startup.
 - When an episode plays to its end, the next one in the season is shown for
   ten seconds and then plays. OK plays it at once; Back stops. Options can
   turn this off.
+
+### Chapters
+
+Chapters is an optional supporter extra. Enable **Options > Chapters** with a MisterZine code; it is Off by default. Turning it off removes the chapter browser, playback button, shoulder shortcuts, timeline ticks and chapter captions. Existing supporter codes cover this feature.
+
+**Chapters** on a movie or episode page or the playback controls opens a
+six-picture scene browser. **More > Chapters** is also available. During playback,
+the grid is a translucent overlay over the paused movie. It starts on the current chapter
+(the saved resume point before playback). The D-pad moves through chapters;
+L and R select adjacent chapters in the playback controls' grid, or move six
+at a time in the details-page and More browsers. Each entry has a chapter number, a name when Plex
+supplies one, and a start time. OK selects it; Back leaves without seeking.
+
+During playback, browsing temporarily pauses the picture. Closing the browser
+restores the prior playing or paused state. If playback was already paused,
+selecting a chapter keeps the frozen picture until Resume commits the seek.
+From a details page, selection starts playback at that chapter using the
+version currently selected on the page.
+
+Only one confirmed chapter jump can load at a time. Additional input cannot
+queue more seeks while it loads; Back cancels that playback attempt and returns
+to the details page. A selection is never committed by a timeout.
+
+Thumbnails load in the background for the visible page. Missing or failed
+images show **No preview**, and chapters remain selectable. Plex's **Generate
+chapter thumbnails** setting supplies these images independently of **Generate
+video preview thumbnails**, which supplies the scrubber's previews. When Plex
+supplies no usable chapter data for the selected version, the playback button
+is dimmed and the details-page and More entries are hidden. Chapters are not
+generated on the MiSTer.
 
 ### Options
 
@@ -546,9 +586,15 @@ In short:
 The core saves these settings like any MiSTer core. Restart playback after
 changing a setting that affects playback speed. There is no 48 Hz mode.
 
-**Options > Video calibration** shows adjustable screen edges and a square
-with a circle in it. OK selects the next edge or the square's corner, the
-D-pad moves it, and Back saves and leaves. The saved edges and width
+**Options > Video calibration** has five steps: the four screen edges, then
+Aspect ratio. On each edge, move the highlighted line into view, then back
+out until it disappears beyond that screen edge. If it cannot be hidden,
+move it as close to the edge as it will go. The arrows identify the selected
+edge and show the available movement directions; they are not alignment targets.
+On Aspect ratio, make the square as wide as it is tall, with a round circle.
+If it already looks right, leave it as it is; a ruler or tape measure is optional.
+OK selects the next step, the D-pad adjusts it, and Back saves and leaves.
+The saved edges and width
 correction also move video playback on a core that supports it (interface 1.2
 or later, which the core shipped with the app does); menus are unaffected. On
 an older H.264 core the screen is labelled **Video calibration (preview

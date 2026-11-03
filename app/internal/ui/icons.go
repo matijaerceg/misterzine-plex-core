@@ -65,6 +65,9 @@ func iconMask(b string) *image.Gray {
 			}
 			iconMasks[label] = g
 		}
+		if grid := chapterIcon(); grid != nil {
+			iconMasks[chaptersLabel] = grid
+		}
 	})
 	return iconMasks[b]
 }

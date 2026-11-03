@@ -67,6 +67,8 @@ does to your library or your MiSTer.
   limited to lower widths; see [playback details](docs/PLAYBACK.md).
 - Pause, seeking, audio and subtitle track choice, skip intro and credits,
   autoplay and shuffle, with Standard, Icons or VCR-style playback controls.
+- Optional supporter chapter navigation and a six-scene browser, with Plex chapter thumbnails
+  when available.
 - Text subtitles drawn by the app in three sizes, without a transcode;
   picture subtitles burned into the picture by the server. A surround downmix
   boost with peak limiting.

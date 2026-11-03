@@ -77,6 +77,10 @@ func TestIconsLookCellsHoldTheirGlyphs(t *testing.T) {
 		if sy != iy {
 			t.Fatalf("paused %v: icon row at %d, standard at %d", paused, iy, sy)
 		}
+		gap := ix[1] - ix[0] - iw[0]
+		if gap < 8 || gap > OsdBtnGap {
+			t.Fatalf("controls have an unreadable gap: %d", gap)
+		}
 		for i, b := range osdButtons {
 			if b == "Pause" && paused {
 				b = "Play"
@@ -84,7 +88,7 @@ func TestIconsLookCellsHoldTheirGlyphs(t *testing.T) {
 			if iw[i] < sw[i] || iw[i] != iconCellW(a.F, b) {
 				t.Errorf("paused %v: %s cell %d wide, word %d, want %d", paused, b, iw[i], sw[i], iconCellW(a.F, b))
 			}
-			if i > 0 && ix[i] != ix[i-1]+iw[i-1]+OsdBtnGap {
+			if i > 0 && ix[i] != ix[i-1]+iw[i-1]+gap {
 				t.Errorf("paused %v: %s at %d, not a gap after the cell before", paused, b, ix[i])
 			}
 		}

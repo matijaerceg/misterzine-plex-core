@@ -593,6 +593,9 @@ func TestPlayerSeekWaitsForForcedKillAndReportsStoppedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Send("seek 25")
+	if s.CompletedSeeks() != 1 {
+		t.Fatal("replacement worker did not acknowledge its seek")
+	}
 	select {
 	case <-s.Done:
 	case <-time.After(5 * time.Second):

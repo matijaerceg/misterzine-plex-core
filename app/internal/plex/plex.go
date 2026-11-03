@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"plexcrt/internal/chapters"
 )
 
 // Client talks to one server.
@@ -121,42 +123,44 @@ func (c *Client) fetchContext(ctx context.Context, cl *http.Client, path string,
 
 // Item is a Video or Directory as the app sees it.
 type Item struct {
-	RatingKey  string
-	Key        string // children path for directories
-	Type       string // movie, show, season, episode, collection
-	Subtype    string // what a collection holds: movie or show
-	Title      string
-	SortTitle  string
-	Year       int
-	Duration   int // seconds
-	ViewOffset int // seconds
-	ViewCount  int
-	Summary    string
-	Thumb      string
-	Art        string
-	Theme      string  // show theme audio path
-	GrandTitle string  // show title for episodes
-	GrandKey   string  // the show's rating key for episodes
-	ParentKey  string  // the season's rating key for episodes, the show's for seasons
-	Children   int     // seasons of a show
-	Leaves     int     // episodes of a show or season
-	Viewed     int     // of which watched
-	Still      string  // an episode's own picture (Thumb is the show's poster)
-	Logo       string  // clear logo, when the metadata was fetched in full
-	Aspect     float64 // picture aspect of the chosen version (1.33, 1.78, 2.35), 0 unknown
-	Index      int     // episode number
-	Parent     int     // season number
-	Rating     float64
-	Tagline    string
-	Edition    string // a movie edition's name ("Director's Cut"); each edition is its own item
-	Genres     []string
-	Colors     [4]uint32 // the server's poster palette (top-left, top-right, bottom-right, bottom-left), 0 if none
-	Markers    []Marker  // intro and credits, when the server has found them
-	PartID     string    // the chosen version's first part, whose streams can be chosen
-	Indexes    string    // the part's preview indexes: "sd" when the server has made them (PartIndex)
-	Audio      []Stream  // its audio streams
-	Subs       []Stream  // its subtitle streams
-	Library    string    // the key of its library, when the server says (search results do)
+	RatingKey      string
+	Key            string // children path for directories
+	Type           string // movie, show, season, episode, collection
+	Subtype        string // what a collection holds: movie or show
+	Title          string
+	SortTitle      string
+	Year           int
+	Duration       int // seconds
+	ViewOffset     int // seconds
+	ViewCount      int
+	Summary        string
+	Thumb          string
+	Art            string
+	Theme          string  // show theme audio path
+	GrandTitle     string  // show title for episodes
+	GrandKey       string  // the show's rating key for episodes
+	ParentKey      string  // the season's rating key for episodes, the show's for seasons
+	Children       int     // seasons of a show
+	Leaves         int     // episodes of a show or season
+	Viewed         int     // of which watched
+	Still          string  // an episode's own picture (Thumb is the show's poster)
+	Logo           string  // clear logo, when the metadata was fetched in full
+	Aspect         float64 // picture aspect of the chosen version (1.33, 1.78, 2.35), 0 unknown
+	Index          int     // episode number
+	Parent         int     // season number
+	Rating         float64
+	Tagline        string
+	Edition        string // a movie edition's name ("Director's Cut"); each edition is its own item
+	Genres         []string
+	Colors         [4]uint32          // the server's poster palette (top-left, top-right, bottom-right, bottom-left), 0 if none
+	Markers        []Marker           // intro and credits, when the server has found them
+	Chapters       []chapters.Chapter // scene boundaries for the chosen version
+	ChaptersLoaded bool               // a full metadata request completed, including an empty list
+	PartID         string             // the chosen version's first part, whose streams can be chosen
+	Indexes        string             // the part's preview indexes: "sd" when the server has made them (PartIndex)
+	Audio          []Stream           // its audio streams
+	Subs           []Stream           // its subtitle streams
+	Library        string             // the key of its library, when the server says (search results do)
 	// Versions are the item's versions when it has two or more (nil for
 	// one), and VersionID the chosen one's ID ("" for the first). PartID,
 	// Indexes, Aspect, Audio and Subs are the chosen version's (UseVersion).
@@ -313,12 +317,13 @@ type xmlItem struct {
 		Type string `xml:"type,attr"`
 		URL  string `xml:"url,attr"`
 	} `xml:"Image"`
-	Medias       []xmlMedia `xml:"Media"`
-	Index        int        `xml:"index,attr"`
-	ParentIndex  int        `xml:"parentIndex,attr"`
-	Rating       float64    `xml:"rating,attr"`
-	Tagline      string     `xml:"tagline,attr"`
-	EditionTitle string     `xml:"editionTitle,attr"`
+	Medias       []xmlMedia   `xml:"Media"`
+	Chapters     []xmlChapter `xml:"Chapter"`
+	Index        int          `xml:"index,attr"`
+	ParentIndex  int          `xml:"parentIndex,attr"`
+	Rating       float64      `xml:"rating,attr"`
+	Tagline      string       `xml:"tagline,attr"`
+	EditionTitle string       `xml:"editionTitle,attr"`
 	Genres       []struct {
 		Tag string `xml:"tag,attr"`
 	} `xml:"Genre"`
@@ -338,25 +343,27 @@ type xmlItem struct {
 // xmlMedia is one version of an item's file(s), xmlPart one file of it and
 // xmlStream a stream of the part, with the details the server probed.
 type xmlMedia struct {
-	ID         string    `xml:"id,attr"`
-	Aspect     float64   `xml:"aspectRatio,attr"`
-	Bitrate    int       `xml:"bitrate,attr"` // kbit/s
-	FrameRate  string    `xml:"videoFrameRate,attr"`
-	Resolution string    `xml:"videoResolution,attr"` // 1080, 720, 480, sd, 4k
-	VideoCodec string    `xml:"videoCodec,attr"`
-	Width      int       `xml:"width,attr"`
-	Height     int       `xml:"height,attr"`
-	Parts      []xmlPart `xml:"Part"`
+	ID         string       `xml:"id,attr"`
+	Aspect     float64      `xml:"aspectRatio,attr"`
+	Bitrate    int          `xml:"bitrate,attr"` // kbit/s
+	FrameRate  string       `xml:"videoFrameRate,attr"`
+	Resolution string       `xml:"videoResolution,attr"` // 1080, 720, 480, sd, 4k
+	VideoCodec string       `xml:"videoCodec,attr"`
+	Width      int          `xml:"width,attr"`
+	Height     int          `xml:"height,attr"`
+	Parts      []xmlPart    `xml:"Part"`
+	Chapters   []xmlChapter `xml:"Chapter"`
 }
 
 type xmlPart struct {
-	ID        string      `xml:"id,attr"`
-	Key       string      `xml:"key,attr"`
-	File      string      `xml:"file,attr"`
-	Container string      `xml:"container,attr"`
-	Duration  int64       `xml:"duration,attr"` // ms
-	Indexes   string      `xml:"indexes,attr"`
-	Streams   []xmlStream `xml:"Stream"`
+	ID        string       `xml:"id,attr"`
+	Key       string       `xml:"key,attr"`
+	File      string       `xml:"file,attr"`
+	Container string       `xml:"container,attr"`
+	Duration  int64        `xml:"duration,attr"` // ms
+	Indexes   string       `xml:"indexes,attr"`
+	Streams   []xmlStream  `xml:"Stream"`
+	Chapters  []xmlChapter `xml:"Chapter"`
 }
 
 type xmlStream struct {
@@ -446,6 +453,7 @@ func (x *xmlItem) item() *Item {
 		}
 	}
 	it.Versions = x.versions()
+	it.Chapters = x.chaptersFor(0)
 	for _, g := range x.Genres {
 		it.Genres = append(it.Genres, g.Tag)
 	}
@@ -705,13 +713,14 @@ func (c *Client) Item(ratingKey string) (*Item, error) {
 }
 
 func (c *Client) ItemContext(ctx context.Context, ratingKey string) (*Item, error) {
-	items, err := c.ItemsContext(ctx, "/library/metadata/"+ratingKey, url.Values{"includeMarkers": {"1"}}, 1)
+	items, err := c.ItemsContext(ctx, "/library/metadata/"+ratingKey, chapterMetadataQuery(url.Values{"includeMarkers": {"1"}}), 1)
 	if err != nil {
 		return nil, err
 	}
 	if len(items) == 0 {
 		return nil, fmt.Errorf("item %s not found", ratingKey)
 	}
+	items[0].ChaptersLoaded = true
 	return items[0], nil
 }
 

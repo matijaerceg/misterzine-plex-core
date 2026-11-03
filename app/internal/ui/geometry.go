@@ -173,9 +173,9 @@ const calFill gfx.Color = 0x1C2230
 func NewCalibrate(a *App) *Calibrate {
 	s := &Calibrate{app: a, g: a.Cfg.Geometry.Normal()}
 	s.endL, s.endR = a.lineEnds()
-	// 288 lines (60% of the raster) unless the picture area is too short for
-	// it, as wide as the saved width says a square is
-	s.sqH = min(288, (480-s.g.Top-s.g.Bottom-60)&^1)
+	// Leave room below the shape for reassurance, measuring help and controls.
+	// Its width still follows the saved correction, including on reopening.
+	s.sqH = min(240, (480-s.g.Top-s.g.Bottom-100)&^1)
 	s.sqW = 2 * int(math.Round(float64(s.sqH)*9/8*float64(s.g.Width)/1000/2))
 	s.sqW0, s.sqH0, s.width0 = s.sqW, s.sqH, s.g.Width
 	return s
@@ -259,10 +259,10 @@ func (s *Calibrate) pastEnds(g Geometry) Geometry {
 
 // Draw paints the pattern: black outside the picture area, the area's edges
 // as lines (the selected one amber), where a 4:3 picture lands filled, and the
-// square and circle in the middle with the instructions inside the circle,
+// square and circle on the aspect-ratio step. Instructions stay central,
 // where overscan cannot hide them.
 func (s *Calibrate) Draw(c *gfx.Canvas, now time.Time) bool {
-	// the picture where playback puts it; the edges, square and values past
+	// the picture where playback puts it; the edges and square past
 	// the blanked line ends
 	px, py, pw, ph := s.g.Normal().Fit(4.0/3, 480)
 	g := s.pastEnds(s.g.Normal())
@@ -286,88 +286,90 @@ func (s *Calibrate) Draw(c *gfx.Canvas, now time.Time) bool {
 	c.Fill(ax, ay+ah-2, aw, 2, col(calBottom))
 	c.Fill(ax, ay, 4, ah, col(calLeft))
 	c.Fill(ax+aw-4, ay, 4, ah, col(calRight))
-	// arrows by the selected edge: it moves either way
+	// Arrows stay near the selected edge, but far enough in to remain visible
+	// when the line has just disappeared beyond the screen.
 	mx, my := ax+aw/2, ay+ah/2
 	switch s.sel {
 	case calTop:
-		chevron(c, mx, ay+10, true, gfx.Amber)
-		chevron(c, mx, ay+20, false, gfx.Amber)
+		chevron(c, mx, ay+32, true, gfx.Amber)
+		chevron(c, mx, ay+44, false, gfx.Amber)
 	case calBottom:
-		chevron(c, mx, ay+ah-26, true, gfx.Amber)
-		chevron(c, mx, ay+ah-16, false, gfx.Amber)
+		chevron(c, mx, ay+ah-50, true, gfx.Amber)
+		chevron(c, mx, ay+ah-38, false, gfx.Amber)
 	case calLeft:
-		chevronLeft(c, ax+16, my-6, gfx.Amber)
-		chevronRight(c, ax+28, my-6, gfx.Amber)
+		chevronLeft(c, ax+40, my-6, gfx.Amber)
+		chevronRight(c, ax+56, my-6, gfx.Amber)
 	case calRight:
-		chevronLeft(c, ax+aw-28, my-6, gfx.Amber)
-		chevronRight(c, ax+aw-16, my-6, gfx.Amber)
+		chevronLeft(c, ax+aw-56, my-6, gfx.Amber)
+		chevronRight(c, ax+aw-40, my-6, gfx.Amber)
+	}
+
+	if s.sel != calCorner {
+		// Edge instructions do not need a shape to measure. Keep the text
+		// independent of the moving edges, with room for the complete wording.
+		cx := c.W / 2
+		s.app.textCenterOn(c, cx, 130, f.Title, gfx.Amber, calFill,
+			fmt.Sprintf("%s (%d of %d)", calNames[s.sel], s.sel+1, calSteps))
+		in := [...]string{"DOWN", "LEFT", "UP", "RIGHT"}[s.sel]
+		out := [...]string{"UP", "RIGHT", "DOWN", "LEFT"}[s.sel]
+		edge := [...]string{"top", "right", "bottom", "left"}[s.sel]
+		lines := []string{
+			"Press " + in + " until you see the line,",
+			"then press " + out + " until it's disappeared",
+			"beyond the screen's " + edge + " edge.",
+			"Stop there.",
+		}
+		for i, line := range lines {
+			s.app.textCenterOn(c, cx, 176+i*26, f.Body, gfx.GreyHi, calFill, line)
+		}
+		s.app.textCenterOn(c, cx, 298, f.Body, gfx.GreyHi, calFill, "If the line can't be hidden, move it")
+		s.app.textCenterOn(c, cx, 324, f.Body, gfx.GreyHi, calFill, "as close to the edge as it'll go.")
+		s.app.textCenterOn(c, cx, 376, f.SmallBold, gfx.GreyLo, calFill, "OK: next   Back: save and exit")
+		return false
 	}
 
 	sx, sy, bottom := s.square(g)
 	sqDrawW := s.sqW // 9:8 compensates for the display's 8:9 horizontal pixel aspect
 	squareCenterX := geometryX(sx+s.sqW/2, c.W)
 	sx = squareCenterX - sqDrawW/2
-	sq := gfx.GreyHi
-	if s.sel == calCorner {
-		sq = gfx.Amber
-	}
+	sq := gfx.Amber
 	c.Fill(sx, sy, sqDrawW, 2, sq)
 	c.Fill(sx, bottom-2, sqDrawW, 2, sq)
 	c.Fill(sx, sy, 4, s.sqH, sq)
 	c.Fill(sx+sqDrawW-4, sy, 4, s.sqH, sq)
 	cx, cy := sx+sqDrawW/2, sy+s.sqH/2
 	inside := drawEllipse(c, cx, cy, sqDrawW/2, s.sqH/2, 4, 3, sq)
-	if s.sel == calCorner {
-		cornerArrow(c, sx+sqDrawW, sy, gfx.Amber)
-	}
+	cornerArrow(c, sx+sqDrawW, sy, gfx.Amber)
 
-	// the instructions, inside the circle
-	var lines []string
-	value, note := "", ""
-	if s.sel == calCorner {
-		lines = []string{"Use a ruler, and move the", "corner until the square is", "as wide as it is tall"}
-		value = fmt.Sprintf("Picture width %d.%d%%", g.Width/10, g.Width%10)
-	} else {
-		lines = []string{"Line it up with the edge", "of the screen, leaving a", "tiny bit of overscan"}
-		n, unit := [...]int{g.Top, g.Right, g.Bottom, g.Left}[s.sel], "pixels"
-		if s.sel == calTop || s.sel == calBottom {
-			unit = "lines"
-		}
-		value = itoa(n) + " " + unit + " in"
-		// at a blanked line end: why it goes no further out
-		if end := map[int]int{calLeft: s.endL, calRight: s.endR}[s.sel]; end > 0 && n == end {
-			value += " (minimum)"
-			note = "Always black beyond this line"
-		}
+	// Shape is the target; the correction percentage is not a score.
+	title, body := f.Title, f.Body
+	lines := []string{"Make the square", "as wide as it is tall.", "The circle should", "look round."}
+	step := fmt.Sprintf("%d of %d", s.sel+1, calSteps)
+	if sqDrawW < 240 || s.sqH < 220 {
+		title, body = f.SmallBold, f.SmallBold
 	}
-	ty := cy - 66
-	if note != "" {
-		ty -= 16 // room for it where the circle is still wide
+	if sqDrawW < 210 || s.sqH < 200 {
+		// At the smallest sizes, keep the same visual targets in short form
+		// so the heading and guidance still fit inside the circle.
+		lines = []string{"Equal sides", "Round circle"}
 	}
-	s.centre(c, cx, ty, f.Title, gfx.Amber, calNames[s.sel], inside)
-	ty += f.Title.Height() + 8
-	for _, l := range lines {
-		s.centre(c, cx, ty, f.Body, gfx.GreyHi, l, inside)
-		ty += 24
+	ty := cy - (title.Height()+2+f.SmallBold.Height()+4+len(lines)*body.Height())/2
+	s.centre(c, cx, ty, title, gfx.Amber, calNames[s.sel], inside)
+	ty += title.Height() + 2
+	s.centre(c, cx, ty, f.SmallBold, gfx.Amber, step, inside)
+	ty += f.SmallBold.Height() + 4
+	for _, line := range lines {
+		s.centre(c, cx, ty, body, gfx.GreyHi, line, inside)
+		ty += body.Height()
 	}
-	s.centre(c, cx, ty+6, f.Body, gfx.Amber, value, inside)
-	if note != "" {
-		s.centre(c, cx, ty+6+f.Body.Height()+6, f.SmallBold, gfx.GreyHi, note, inside)
-	}
-
-	// keys and every value, under the square; what this is, over it
-	by := bottom + 12
-	if by+f.Small.Height() <= py+ph-8 {
-		s.app.textCenterOn(c, mx, by, f.SmallBold, gfx.GreyLo, calFill, "OK: next   Back: save and exit")
-	}
-	by += 26
-	if by+f.Small.Height() <= py+ph-8 {
-		all := fmt.Sprintf("Top %d  Right %d  Bottom %d  Left %d  Width %d.%d%%",
-			g.Top, g.Right, g.Bottom, g.Left, g.Width/10, g.Width%10)
-		s.app.textCenterOn(c, mx, by, f.Small, gfx.GreyLo, calFill, f.Small.Fit(all, pwOnCanvas-24))
-	}
-	if ty := sy - 30; ty >= py+8 && s.sel != calCorner {
-		s.app.textCenterOn(c, mx, ty, f.SmallBold, gfx.GreyLo, calFill, "Video geometry: menus stay as they are")
+	by := bottom + 6
+	for _, line := range []string{
+		"If it already does, leave it as it is.",
+		"Use a ruler or tape measure if needed.",
+		"OK: next   Back: save and exit",
+	} {
+		s.app.textCenterOn(c, mx, by, f.SmallBold, gfx.GreyHi, calFill, line)
+		by += f.SmallBold.Height()
 	}
 	return false
 }
@@ -377,7 +379,7 @@ func (s *Calibrate) Draw(c *gfx.Canvas, now time.Time) bool {
 // its top or the corner's arrow off the screen.
 func (s *Calibrate) square(g Geometry) (x, top, bottom int) {
 	mx, my := g.Left+(720-g.Left-g.Right)/2, g.Top+(480-g.Top-g.Bottom)/2
-	bottom = max((my+s.sqH0/2)&^1, s.sqH+cornerArrowH+4)
+	bottom = max(min((my+s.sqH0/2)&^1, 360, 480-g.Bottom-74), s.sqH+cornerArrowH+4)
 	x = min(mx-s.sqW0/2, 720-8-s.sqW-cornerArrowW)
 	return x, bottom - s.sqH, bottom
 }
@@ -389,18 +391,15 @@ func (s *Calibrate) centre(c *gfx.Canvas, cx, y int, f *gfx.Font, col gfx.Color,
 
 // cornerArrowW and cornerArrowH are how far cornerArrow reaches right of
 // the corner and above it.
-const cornerArrowW, cornerArrowH = 56, 48
+const cornerArrowW, cornerArrowH = 30, 24
 
-// cornerArrow points down and left at (x, y) from above and to the right:
-// a head of two strokes at the tip and a shaft running up at 45 degrees on
-// the set (a line is 9/8 of a pixel).
+// cornerArrow shows horizontal and vertical movement near the top-right
+// corner, with a gap from the square so neither pair looks like a target.
 func cornerArrow(c *gfx.Canvas, x, y int, col gfx.Color) {
-	tx, ty := x+6, y-8 // the tip, clear of the square's lines
-	c.Fill(tx, ty-18, 4, 20, col)
-	c.Fill(tx, ty-2, 22, 2, col)
-	for i := 0; i < 40; i += 2 {
-		c.Fill(tx+2+i*9/8, ty-2-i, 5, 2, col)
-	}
+	chevronLeft(c, x-30, y-24, col)
+	chevronRight(c, x-12, y-24, col)
+	chevron(c, x+24, y+10, true, col)
+	chevron(c, x+24, y+26, false, col)
 }
 
 // drawEllipse strokes the ellipse centred on cx, cy with radii rx, ry, the

@@ -22,7 +22,7 @@ func TestPlayingControlsUseWideCanvasWithoutScalingFonts(t *testing.T) {
 	if p.safeX() != SafeX || p.safeW() != 848 {
 		t.Fatalf("wide safe area is %d+%d", p.safeX(), p.safeW())
 	}
-	left, right := p.btnX[0], p.btnX[len(p.btnX)-1]+p.btnW[len(p.btnW)-1]
+	left, right := p.btnX[0], p.btnX[len(p.playbackButtons())-1]+p.btnW[len(p.playbackButtons())-1]
 	if left >= right || left < p.safeX() || right > p.safeX()+p.safeW() {
 		t.Fatalf("button row bounds %d..%d exceed wide safe area %d..%d", left, right, p.safeX(), p.safeX()+p.safeW())
 	}

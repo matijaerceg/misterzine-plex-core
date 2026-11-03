@@ -27,7 +27,7 @@ func TestVCRPanelFitsAndKeepsTheSpritesPlaces(t *testing.T) {
 		it := &plex.Item{Type: "episode", GrandTitle: "A show with a rather long name indeed", Title: "An episode", Parent: 2, Index: 7, Duration: 1460}
 		p := NewPlaying(a, it, nil, 0, func(string) {})
 		p.compose(false)
-		left, right := p.btnX[0], p.btnX[len(p.btnX)-1]+p.btnW[len(p.btnW)-1]
+		left, right := p.btnX[0], p.btnX[len(p.playbackButtons())-1]+p.btnW[len(p.playbackButtons())-1]
 		if left < p.safeX() || right > p.safeX()+p.safeW() {
 			t.Fatalf("wide %v: keys %d..%d outside the safe area %d..%d", wide, left, right, p.safeX(), p.safeX()+p.safeW())
 		}

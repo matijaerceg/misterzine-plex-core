@@ -499,6 +499,7 @@ func (a *App) playSettled(it *plex.Item, offset int, queue []*plex.Item, idx int
 		}
 		ctl := NewPlaying(a, it, queue, idx, sess.SendUI)
 		ctl.direct = sess.Direct
+		ctl.completedSeeks = sess.CompletedSeeks
 		ctl.streamModes = sess.StreamModes
 		ctl.conversionReason = sess.ConversionReason
 		ctl.sourceInfo = sess.PlaybackSource

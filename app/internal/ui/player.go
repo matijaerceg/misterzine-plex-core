@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -105,7 +106,8 @@ type Session struct {
 	uiWake                   chan struct{}
 	uiStop                   bool
 	stopRequested            bool
-	seekID                   uint64 // opMu owns the in-process seek sequence
+	seekID                   uint64        // opMu owns the in-process seek sequence
+	completedSeeks           atomic.Uint64 // acknowledges a completed seek command to the UI
 	surroundSource           bool
 	transcodeSource          string // original selected version's size and display aspect
 	// forceTranscode makes every later PlaybackInfo of this session ask for a
@@ -873,6 +875,7 @@ func (s *Session) Send(line string) {
 		s.mu.Unlock()
 		s.reportProgress(ps)
 		if s.tryWorkerSeek(target) {
+			s.completedSeeks.Add(1)
 			return
 		}
 		if s.sessionContext().Err() != nil {
@@ -887,6 +890,8 @@ func (s *Session) Send(line string) {
 		err = s.startContext(int(target), reuse, s.sessionContext())
 		if err != nil {
 			s.finishLocked(s.suppressStopCancellation(err))
+		} else {
+			s.completedSeeks.Add(1)
 		}
 		return
 	}
@@ -1113,6 +1118,9 @@ func (s *Session) redecideLocked(target float64) {
 		s.finishLocked(s.suppressStopCancellation(err))
 	}
 }
+
+// CompletedSeeks changes only after the new seek is acknowledged or its replacement worker starts.
+func (s *Session) CompletedSeeks() uint64 { return s.completedSeeks.Load() }
 
 func (s *Session) Direct() bool {
 	s.mu.Lock()

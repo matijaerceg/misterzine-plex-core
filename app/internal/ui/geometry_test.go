@@ -318,39 +318,51 @@ func TestCalibratePreview(t *testing.T) {
 		sel  int
 	}{
 		{"top", Geometry{}, calTop},
+		{"right", Geometry{Left: 18, Top: 12, Right: 14, Bottom: 10}, calRight},
+		{"bottom", Geometry{Left: 18, Top: 12, Right: 14, Bottom: 10}, calBottom},
 		{"left-minimum", Geometry{}, calLeft},
 		{"left-set", Geometry{Left: 18, Top: 12, Right: 14, Bottom: 10}, calLeft},
 		{"corner", Geometry{Left: 18, Top: 12, Right: 14, Bottom: 10}, calCorner},
 		{"limits", Geometry{Left: 120, Top: 80, Right: 120, Bottom: 80}, calBottom},
+		{"corner-limits", Geometry{Left: 120, Top: 80, Right: 120, Bottom: 80, Width: 850}, calCorner},
+		{"corner-small", Geometry{Left: 120, Top: 80, Right: 120, Bottom: 80}, calCorner},
 	}
-	for _, shot := range shots {
-		s.app.Cfg.Geometry = shot.g
-		*s = *NewCalibrate(s.app)
-		s.sel = shot.sel
-		if shot.sel == calCorner {
-			press(s, input.Right, input.Right, input.Up)
-		}
-		c := gfx.NewCanvas(720, 480)
-		for i := 0; i < 15; i++ {
-			s.Draw(c, time.Now())
-			time.Sleep(20 * time.Millisecond)
-		}
-		// 720 source pixels occupy a 640-wide 4:3 display.
-		out := image.NewRGBA(image.Rect(0, 0, 640, 480))
-		for y := 0; y < 480; y++ {
-			for x := 0; x < 640; x++ {
-				p := (y*720 + x*720/640) * 4
-				out.SetRGBA(x, y, color.RGBA{c.Pix[p+2], c.Pix[p+1], c.Pix[p], 255})
+	for _, width := range []int{720, 960} {
+		for _, shot := range shots {
+			s.app.Cfg.Geometry = shot.g
+			*s = *NewCalibrate(s.app)
+			s.sel = shot.sel
+			if shot.sel == calCorner {
+				press(s, input.Right, input.Right, input.Up)
 			}
-		}
-		file, err := os.Create(filepath.Join(dir, "geometry-"+shot.name+".png"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		err = png.Encode(file, out)
-		file.Close()
-		if err != nil {
-			t.Fatal(err)
+			if shot.name == "corner-small" {
+				for i := 0; i < 32; i++ {
+					press(s, input.Left, input.Down)
+				}
+			}
+			c := gfx.NewCanvas(width, 480)
+			for i := 0; i < 15; i++ {
+				s.Draw(c, time.Now())
+				time.Sleep(20 * time.Millisecond)
+			}
+			// Both logical canvases use an 8:9 horizontal pixel aspect.
+			outW := width * 8 / 9
+			out := image.NewRGBA(image.Rect(0, 0, outW, 480))
+			for y := 0; y < 480; y++ {
+				for x := 0; x < outW; x++ {
+					p := (y*width + x*width/outW) * 4
+					out.SetRGBA(x, y, color.RGBA{c.Pix[p+2], c.Pix[p+1], c.Pix[p], 255})
+				}
+			}
+			file, err := os.Create(filepath.Join(dir, "geometry-"+shot.name+"-"+strconv.Itoa(width)+".png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = png.Encode(file, out)
+			file.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 }

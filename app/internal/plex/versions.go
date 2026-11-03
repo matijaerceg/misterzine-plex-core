@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"plexcrt/internal/chapters"
 )
 
 // Version is one of an item's versions: a Media of its record, of which
@@ -20,6 +22,7 @@ type Version struct {
 	File       string // the file's name, for telling apart versions that read the same
 	Audio      []Stream
 	Subs       []Stream
+	Chapters   []chapters.Chapter
 }
 
 // Detailed reports whether the record carried the version's streams
@@ -46,6 +49,7 @@ func (x *xmlItem) versions() []Version {
 		v := Version{ID: m.ID, Part: *x.mediaPart(i), Indexes: xp.Indexes, Aspect: m.Aspect, Resolution: strings.ToLower(m.Resolution),
 			Codec: strings.ToLower(m.VideoCodec), Width: m.Width, Height: m.Height, File: baseName(xp.File)}
 		v.Audio, v.Subs = tracks(xp)
+		v.Chapters = x.chaptersFor(i)
 		out = append(out, v)
 	}
 	return out
@@ -85,6 +89,7 @@ func (it *Item) UseVersion(id string) bool {
 		}
 		it.Audio = append([]Stream(nil), v.Audio...)
 		it.Subs = append([]Stream(nil), v.Subs...)
+		it.Chapters = v.Chapters
 		return true
 	}
 	return false

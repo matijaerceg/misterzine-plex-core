@@ -248,7 +248,11 @@ func (s *Season) rebuild() {
 		s.actions = append(s.actions, "Mark watched")
 	}
 	if len(it.Audio) > 1 {
+		// Audio and chapters both come from the focused episode's full record.
 		s.actions = append(s.actions, streamLabel("Audio", it.Audio))
+	}
+	if s.app.chaptersEnabled() && len(it.Chapters) > 0 {
+		s.actions = append(s.actions, chaptersLabel)
 	}
 	if len(it.Subs) > 0 {
 		s.actions = append(s.actions, streamLabel("Subtitles", it.Subs))
@@ -282,7 +286,7 @@ func (s *Season) rebuild() {
 // holding Right along the filmstrip must not ask for every episode passed.
 func (s *Season) wantTracks(now time.Time) {
 	it := s.focused()
-	if it == nil || len(it.Audio) > 0 || len(it.Subs) > 0 || s.fetched[it.RatingKey] {
+	if it == nil || it.ChaptersLoaded || s.fetched[it.RatingKey] || s.app.Plex == nil {
 		return
 	}
 	if !s.acts && !s.moved.IsZero() && now.Sub(s.moved) < TrackRest {
@@ -308,6 +312,7 @@ func (s *Season) wantTracks(now time.Time) {
 func (s *Season) streamsArrived(it, fresh *plex.Item) {
 	s.app.applyVersion(fresh, it.VersionID)
 	it.PartID, it.Audio, it.Subs = fresh.PartID, fresh.Audio, fresh.Subs
+	it.Chapters, it.ChaptersLoaded = fresh.Chapters, fresh.ChaptersLoaded
 	if len(fresh.Versions) > 1 {
 		it.Versions, it.VersionID, it.Indexes, it.Aspect = fresh.Versions, fresh.VersionID, fresh.Indexes, fresh.Aspect
 	}
@@ -505,6 +510,12 @@ func (s *Season) do(a string) {
 	// after the beta code entry
 	played := func(last *plex.Item, finished bool) { s.refreshAfter(it, last, finished) }
 	switch {
+	case a == chaptersLabel:
+		queue, idx := s.eps, s.cur
+		s.app.browseChapters(it, func(offset int) {
+			s.app.playSettled(it, offset, queue, idx, played, false, "chapter selection")
+		})
+		return
 	case strings.HasPrefix(a, "Audio"):
 		s.app.chooseStream(it, "Audio", s.rebuild)
 		return

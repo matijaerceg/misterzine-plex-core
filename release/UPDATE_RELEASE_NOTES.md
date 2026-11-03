@@ -1,12 +1,15 @@
-# MisterZine Plex Core 0.1.0-beta.38 (unreleased)
+# MisterZine Plex Core 0.1.0-beta.38
 
-- Send a report now includes the board’s network setup and private IPv4 addresses,
-  plus subnet and ARP-cache clues from failed connection attempts. Server addresses,
-  hostnames, MAC addresses and public addresses are omitted from these new diagnostics.
-- A completed Plex link-code sign-in is saved even when no server answers.
-  Retrying or restarting keeps the sign-in; a rejected account token asks for a new code.
-- Send a report now includes the composite and S-Video setup: `vga_mode`, `ntsc_mode` and the picture controls from the MiSTer INI, and whether MiSTer main will use the app's colour subcarrier lines in `yc.txt`.
-- An episode whose audio track runs on past its last picture by more than two seconds now ends. Before, the screen went black at the end and the time kept counting until Back was pressed: the player held that audio tail back waiting for video that never came, so the stream was never told it was over. The log now records the end of input, the end of stream and the core's end, so a report shows where a stuck ending waited.
+- Optional supporter chapter navigation: enable **Options > Chapters** to browse a six-thumbnail grid from the playback controls or the movie/episode page. Thumbnails appear when the server provides them. Chapters starts Off, and existing supporter codes cover it.
+- Chapter browsing pauses the picture and only moves the selection. **OK** confirms the jump; **Back** cancels. Only one confirmed jump can load at a time, and Back during loading stops playback and returns to the details page.
+- Video geometry calibration now gives clearer edge-by-edge instructions and keeps the square, circle and measuring guidance together on the shape step.
+- Corrects a squeezed picture when a Plex video transcode resizes the image but incorrectly retains the original pixel-aspect tag. Direct play and correctly tagged transcodes keep their original aspect.
+- Stopping or switching cores while video is paused now exits the playback worker promptly.
+- Episodes now finish when audio continues past the last picture. The playback log also records the end-of-stream stages to help diagnose stuck endings.
+- Send a report includes private network/subnet clues and the composite/S-Video setup, while omitting server names, MAC addresses and public addresses from the new network diagnostics.
+- A completed Plex link-code sign-in is retained when no server answers, so Retry or restarting does not require linking again.
+
+Reuses the previous release’s qualified FPGA core with updated app and playback worker. Settings, calibration and saved access are preserved. Update through **Options > Updates**, or use the beta installer.
 
 # MisterZine Plex Core 0.1.0-beta.37
 

@@ -111,6 +111,10 @@ within it has a suitable keyframe for a fast seek.
 Seeking or changing audio while paused keeps the replacement paused. Resume
 continues playback; it does not automatically start because a stream restarted.
 
+In supporter builds, chapter metadata is requested with `includeChapters=1`. Chapters must be enabled in Options and covered by the card's MisterZine code before any chapter UI or navigation runs. Chapter starts are validated, sorted and deduplicated in source seconds. The scene browser uses the existing background artwork cache for the visible six thumbnails and the normal seek path for selection. Moving the selection does not seek. Playback uses a translucent grid over the paused movie; OK confirms one destination, and Back cancels. While that jump loads, further seek input is blocked until fresh status acknowledges the seek or playback advances at its destination. Back can still stop the attempt. The feature needs neither video preview thumbnails nor a new FPGA interface. Chapter jumps have the same keyframe and restart limitations as other seeks; they are not guaranteed frame-exact.
+
+Chapters attached to a media version or its first part belong to that version. For chapters returned at the video level, a `/library/media/.../chapterImages/` thumbnail path identifies the version. Unscoped video-level chapters are used only with the first version; the app does not assume another cut has the same scene boundaries. Missing chapter data leaves ordinary seeking available.
+
 On initial playback and Resume, the loading UI covers the retained previous
 picture with opaque black until a new picture is shown. The session handshake
 keeps that cover in place until the core acknowledges its display reset.
