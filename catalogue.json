@@ -24,23 +24,23 @@
   },
   "current": {
     "beta": {
-      "id": "beta-0.1.0-beta.37",
-      "version": "0.1.0-beta.37",
+      "id": "beta-0.1.0-beta.38",
+      "version": "0.1.0-beta.38",
       "channel": "beta",
-      "notes": "# MisterZine Plex Core 0.1.0-beta.37\n\n- A movie's edition (Director's Cut, Extended, Remastered) now shows after\n  the runtime on the movie page, the Home hero and the library band, on the\n  right of the playback controls, and in search results, so two editions of\n  one film can be told apart.\n- Composite and S-Video colour: the core now reports its video clock count\n  over a whole frame to MiSTer main (words 19/20 of the current framework),\n  so main computes the subcarrier exactly on every start instead of from a\n  one-line measurement that landed on 80.99 or 81.01 MHz. The yc.txt lines\n  added in beta.36 stay as a fallback for MiSTer releases before August 2026.\n  The core also picks up the framework's Y/C chroma and NTSC timing fixes,\n  registered analog audio pins and a scaler state reset at VSync.\n- 720p transcodes from Plex servers that use Intel Quick Sync hardware encoding now show a picture; before, the screen stayed black while the sound played. Intel's encoder codes 720p as 1280x736 with a note to show only 720 lines, and the core silently refused anything larger than 1280x720. It now accepts pictures up to 4,096 blocks of 16x16 pixels, which its frame memory always had room for, so hardware encoding can stay on.\n- If the core still decodes a stream but shows none of it, or drops its pictures as too large, the app now notices (within a second for pictures that are too large, a few seconds otherwise) and restarts the item once at the same point as a transcode of at most 854x480, instead of leaving the spinner up over the sound. A file played as stored falls back to an ordinary transcode first.\n- Files coded at 1280x736 and similar sizes just over 720 lines can now play as stored, at up to 29.6 frames per second.\n\nShips a new qualified FPGA core. Existing settings, calibration and saved\naccess are preserved. Rollback restores the previous release.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.37/MisterZine-Plex-Core-beta-0.1.0-beta.37.zip",
+      "notes": "# MisterZine Plex Core 0.1.0-beta.38\n\n- Optional supporter chapter navigation: enable **Options > Chapters** to browse a six-thumbnail grid from the playback controls or the movie/episode page. Thumbnails appear when the server provides them. Chapters starts Off, and existing supporter codes cover it.\n- Chapter browsing pauses the picture and only moves the selection. **OK** confirms the jump; **Back** cancels. Only one confirmed jump can load at a time, and Back during loading stops playback and returns to the details page.\n- Video geometry calibration now gives clearer edge-by-edge instructions and keeps the square, circle and measuring guidance together on the shape step.\n- Corrects a squeezed picture when a Plex video transcode resizes the image but incorrectly retains the original pixel-aspect tag. Direct play and correctly tagged transcodes keep their original aspect.\n- Stopping or switching cores while video is paused now exits the playback worker promptly.\n- Episodes now finish when audio continues past the last picture. The playback log also records the end-of-stream stages to help diagnose stuck endings.\n- Send a report includes private network/subnet clues and the composite/S-Video setup, while omitting server names, MAC addresses and public addresses from the new network diagnostics.\n- A completed Plex link-code sign-in is retained when no server answers, so Retry or restarting does not require linking again.\n\nReuses the previous release\u2019s qualified FPGA core with updated app and playback worker. Settings, calibration and saved access are preserved. Update through **Options > Updates**, or use the beta installer.\n\nVerified on MiSTer Pi with rapid chapter browsing, confirmed jumps and cancellation.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.38/MisterZine-Plex-Core-beta-0.1.0-beta.38.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 14204546,
-      "sha256": "0ca3dfd5e12a1207b3f845e86b85183ec1b036c114e1f8e5c8e39122efe3833f",
+      "size": 14238475,
+      "sha256": "7ff33468cd0c180e0516327f3a7c34fe0d46fa606cffa9b1441d844c2a096484",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
       },
       "source": {
-        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.37.zip",
-        "size": 140177964,
-        "sha256": "dffd2ac2cd22d3c9f9e89daae2b2944262f208c4f8b648f3d24c130a8cfda1b8",
-        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.37/MisterZine-Plex-Core-Source-beta-0.1.0-beta.37.zip"
+        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.38.zip",
+        "size": 140201148,
+        "sha256": "47b3b257cfb459459934e7945b94f017265cdb1ea61f1a4ae53de54d87df1d0b",
+        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.38/MisterZine-Plex-Core-Source-beta-0.1.0-beta.38.zip"
       }
     }
   },
