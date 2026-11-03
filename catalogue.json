@@ -24,23 +24,23 @@
   },
   "current": {
     "beta": {
-      "id": "beta-0.1.0-beta.38",
-      "version": "0.1.0-beta.38",
+      "id": "beta-0.1.0-beta.39",
+      "version": "0.1.0-beta.39",
       "channel": "beta",
-      "notes": "# MisterZine Plex Core 0.1.0-beta.38\n\n- Optional supporter chapter navigation: enable **Options > Chapters** to browse a six-thumbnail grid from the playback controls or the movie/episode page. Thumbnails appear when the server provides them. Chapters starts Off, and existing supporter codes cover it.\n- Chapter browsing pauses the picture and only moves the selection. **OK** confirms the jump; **Back** cancels. Only one confirmed jump can load at a time, and Back during loading stops playback and returns to the details page.\n- Video geometry calibration now gives clearer edge-by-edge instructions and keeps the square, circle and measuring guidance together on the shape step.\n- Corrects a squeezed picture when a Plex video transcode resizes the image but incorrectly retains the original pixel-aspect tag. Direct play and correctly tagged transcodes keep their original aspect.\n- Stopping or switching cores while video is paused now exits the playback worker promptly.\n- Episodes now finish when audio continues past the last picture. The playback log also records the end-of-stream stages to help diagnose stuck endings.\n- Send a report includes private network/subnet clues and the composite/S-Video setup, while omitting server names, MAC addresses and public addresses from the new network diagnostics.\n- A completed Plex link-code sign-in is retained when no server answers, so Retry or restarting does not require linking again.\n\nReuses the previous release\u2019s qualified FPGA core with updated app and playback worker. Settings, calibration and saved access are preserved. Update through **Options > Updates**, or use the beta installer.\n\nVerified on MiSTer Pi with rapid chapter browsing, confirmed jumps and cancellation.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.38/MisterZine-Plex-Core-beta-0.1.0-beta.38.zip",
+      "notes": "# MisterZine Plex Core 0.1.0-beta.39\n\n- Playback now checks picture timestamps before and during direct play. Files whose timing does not match the decoder switch once to a video transcode at the current position; ordinary compatible files keep direct play.\n- When video encoding is required, a server response that still copies video is rejected instead of replaying the incompatible stream. Audio-only conversion can still copy compatible video.\n\nReuses the previous release\u2019s qualified FPGA core. Settings, calibration and saved supporter access are preserved. Update through **Options > Updates**, or use the beta installer.\n\nVerified on DE10-Nano with direct play, timing-triggered transcoding, pause/resume and repeated seeks.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.39/MisterZine-Plex-Core-beta-0.1.0-beta.39.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 14238475,
-      "sha256": "7ff33468cd0c180e0516327f3a7c34fe0d46fa606cffa9b1441d844c2a096484",
+      "size": 14240283,
+      "sha256": "cdf05da8f492bb628c2d12adb60cefddadc717eb2fd87207e08bc5cb4e014d8e",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
       },
       "source": {
-        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.38.zip",
-        "size": 140201148,
-        "sha256": "47b3b257cfb459459934e7945b94f017265cdb1ea61f1a4ae53de54d87df1d0b",
-        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.38/MisterZine-Plex-Core-Source-beta-0.1.0-beta.38.zip"
+        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.39.zip",
+        "size": 140204837,
+        "sha256": "243d84a0a602410b204448e35019cf3afd8209470c617f8562ce96d4d835b4e6",
+        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.39/MisterZine-Plex-Core-Source-beta-0.1.0-beta.39.zip"
       }
     }
   },
