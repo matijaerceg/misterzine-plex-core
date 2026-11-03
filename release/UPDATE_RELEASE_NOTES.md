@@ -1,3 +1,12 @@
+# MisterZine Plex Core 0.1.0-beta.39
+
+- Playback now checks picture timestamps before and during direct play. Files whose timing does not match the decoder switch once to a video transcode at the current position; ordinary compatible files keep direct play.
+- When video encoding is required, a server response that still copies video is rejected instead of replaying the incompatible stream. Audio-only conversion can still copy compatible video.
+
+Reuses the previous release’s qualified FPGA core. Settings, calibration and saved supporter access are preserved. Update through **Options > Updates**, or use the beta installer.
+
+Verified on DE10-Nano with direct play, timing-triggered transcoding, pause/resume and repeated seeks.
+
 # MisterZine Plex Core 0.1.0-beta.38
 
 - Optional supporter chapter navigation: enable **Options > Chapters** to browse a six-thumbnail grid from the playback controls or the movie/episode page. Thumbnails appear when the server provides them. Chapters starts Off, and existing supporter codes cover it.

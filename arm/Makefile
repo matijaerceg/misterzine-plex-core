@@ -19,10 +19,10 @@ all: jfplay
 
 # Every host test: none needs the ARM toolchain or a device.
 test: transcode-aspect-test video-bitrate-test menu-click-test contract-test core-owner-test audio-boost-test seek-cache-test seek-protocol-test h264-idr-test \
-	film-speed-test direct-check-test video-geometry-test packet-pacing-test vui-timing-test pal-diagnostic-test size-watch-test
+	film-speed-test direct-check-test video-geometry-test packet-pacing-test vui-timing-test pal-diagnostic-test size-watch-test timing-watch-test
 
 jfplay: jfplay.c transcode_aspect.h video_bitrate.h menu_audio.h menu_click.h menu_tone.h audio_boost.h film_speed.h h264_idr.h seek_cache.h seek_protocol.h video_geometry.h core_owner.h \
-		direct_check.h packet_pacing.h lag_watch.h size_watch.h vui_timing.h pal_diagnostic.h $(H264CHECK)/h264check.c $(H264CHECK)/h264check.h $(ROOT)/build/arm/libh264ring.a
+		direct_check.h packet_pacing.h lag_watch.h timing_watch.h size_watch.h vui_timing.h pal_diagnostic.h $(H264CHECK)/h264check.c $(H264CHECK)/h264check.h $(ROOT)/build/arm/libh264ring.a
 
 	$(CC) $(CFLAGS) -o $@ $< $(H264CHECK)/h264check.c $(LIBS)
 
@@ -30,6 +30,11 @@ direct-check-test:
 	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -O2 -I$(H264CHECK) -o /tmp/jfplay-direct-check-test \
 		test_direct_check.c $(H264CHECK)/h264check.c
 	/tmp/jfplay-direct-check-test
+
+.PHONY: timing-watch-test
+timing-watch-test:
+	$(HOSTCC) -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -g -o /tmp/jfplay-timing-watch-test test_timing_watch.c
+	/tmp/jfplay-timing-watch-test
 
 .PHONY: transcode-aspect-test
 transcode-aspect-test:

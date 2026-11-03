@@ -93,3 +93,23 @@ func TestServerSurroundOutputIsRejected(t *testing.T) {
 		t.Fatal("surround server output accepted")
 	}
 }
+
+func TestServerCannotCopyVideoWhenEncodingIsRequired(t *testing.T) {
+	for name, r := range map[string]PlaybackRequest{
+		"decoder fallback": {RatingKey: "101", VideoKbps: 6000, SubtitleStream: "-1", ForceTranscode: true},
+		"bitrate limit":    {RatingKey: "101", VideoKbps: 2000, SubtitleStream: "-1"},
+		"subtitle burn":    {RatingKey: "101", VideoKbps: 6000, SubtitleStream: "26"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newPlaybackServer(t)
+			f.decision = stereoCopyDecision
+			info, err := f.c.PlaybackInfo(context.Background(), r)
+			if err == nil || !strings.Contains(err.Error(), "video copy when video encoding was required") || info != nil {
+				t.Fatalf("incompatible video-copy response accepted: info=%+v err=%v", info, err)
+			}
+			if q := f.last("/video/:/transcode/universal/decision").URL.Query(); q.Get("directStream") != "0" {
+				t.Fatalf("encoding request allowed video copy: %v", q)
+			}
+		})
+	}
+}

@@ -170,6 +170,16 @@ after each); four consecutive seconds with new late pickups and a picture that
 is behind and falling further behind (or more than 2 s behind) also exit with
 code 7. The `position` written at exit is where to resume a transcode.
 
+For streams identified as progressive, `timing_watch.h` also compares picture
+timestamps with the nominal rate used by the core. It sorts bounded windows
+to allow for B-picture reordering and tolerates timestamp rounding and sparse
+outliers. A mostly inconsistent window, or two persistently mixed windows,
+exits with code 7. Startup inspects up to two windows of the compressed queue
+before feeding the core, waiting at most one additional second for evidence;
+checking continues during playback and resets on seek. Missing timestamps and
+unknown or interlaced scan type do not trigger this check. This detects
+sustained timing incompatibility, not every variable-rate file.
+
 Whatever the source, the SPS that travels with a key frame is checked against
 the container's frame rate before it reaches the core (`vui_timing.h`). The
 core schedules pictures by the SPS VUI timing (`num_units_in_tick` /
@@ -322,7 +332,7 @@ and fractional seconds use three decimal places.
 | 4 | The URL could not be opened or initial stream setup failed. |
 | 5 | The core refused the stream (unsupported profile, size, or similar). |
 | 6 | A network/demux/decode failure occurred after playback opened. A socket read that sees no data for 15 s (direct) or 60 s (transcode) fails and FFmpeg reconnects at the same offset, backing off for about two minutes; only then does the worker exit 6. |
-| 7 | `--direct` only: the stream needs a server transcode (pre-check failed, or the core could not keep up). |
+| 7 | `--direct` only: the stream needs a server transcode (parameter or timestamp checks failed, or the core could not keep up). |
 | 8 | The stream gave no data while the media was being opened: `--open-timeout` ran out before the open and the stream probe finished, or the socket's read timeout did. The app ends playback with a line saying the server accepted the request but sent no video. |
 | 9 | The core decoded pictures but showed none for two seconds after the first access unit, four seconds in: the app retries the item as a smaller transcode. With `JFPLAY_NOPIC_CAPTURE` set to a path the first 6 MiB of the video sent, as raw Annex-B, is saved there first. |
 | 10 | The core is dropping the pictures as larger than its macroblock bound (status word 81): its size-refusal counter (word 20) rose on two status polls in a row, about half a second. Such a picture raises no refusal code. Direct streams and transcodes alike: the app restarts a direct stream as a transcode and a transcode as a smaller one. The `--direct` pre-check takes its size and rate bounds from word 81 too, when the core has published it. |

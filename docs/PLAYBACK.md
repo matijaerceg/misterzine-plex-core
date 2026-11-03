@@ -30,7 +30,9 @@ server conversion to stereo AAC. When the video passes the checks above and
 no subtitle needs burning in, the app requests video copy with an explicit
 AAC two-channel capability limit. It verifies Plex's video-copy decision;
 if Plex instead proposes video encoding, it requests the normal bounded
-transcode. Video copy retains the worker's parameter-set check and fallback.
+transcode. Video copy retains the worker's parameter-set and picture-timing
+checks and fallback. When video encoding is required, a server decision to
+copy video is rejected: changing the container alone cannot repair the video.
 The audio conversion is triggered by capabilities, not a low bitrate target.
 The picture block budget permits shapes such as 968x722 and 1280x736 (how
 some hardware encoders code 720p), but not 1280x832 or 1920x1080; the
@@ -60,7 +62,16 @@ versus CABAC when the server does not know, MBAFF versus field-coded
 interlace). MBAFF is refused and field-coded interlace is accepted; the app
 logs an interlaced direct stream and lets `jfplay` decide. `jfplay` checks a
 direct stream's parameter sets before the first picture is shown, against the
-size and rate bounds the running core reports. If the check fails, the core
+size and rate bounds the running core reports. For known progressive video it
+also compares queued picture timestamps with the nominal frame rate before
+feeding the core, waiting at most one additional second for evidence. The
+check continues during playback and resets after seeking. Sustained timing
+mismatches request a transcode; timestamp rounding, B-picture reordering and
+isolated outliers are tolerated. Missing timestamps and unknown or interlaced
+scan type do not trigger this timing check. This is a targeted compatibility
+check, not a blanket rejection of variable-rate files.
+
+If either check fails, the core
 refuses the stream, the core drops its pictures as too large, or the core
 keeps falling behind for several seconds, the app restarts the item once as a
 transcode at the current position. The switch is recorded in the playback log

@@ -604,6 +604,11 @@ func (c *Client) PlaybackInfo(ctx context.Context, r PlaybackRequest) (*Playback
 			q = c.transcodeQuery(r, info.Session, *part)
 			continue
 		}
+		if !copyVideo && d.copiesVideo() {
+			// A container transcode that copies video cannot repair a decoder
+			// incompatibility, including mismatched picture timing.
+			return nil, fmt.Errorf("the server offered video copy when video encoding was required")
+		}
 		for _, media := range d.Media {
 			for _, st := range media.Streams {
 				if st.Type == StreamAudio && st.Channels > 2 {

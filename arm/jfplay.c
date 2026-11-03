@@ -41,6 +41,7 @@
 #include "packet_pacing.h"
 #include "video_bitrate.h"
 #include "lag_watch.h"
+#include "timing_watch.h"
 #include "size_watch.h"
 #include "vui_timing.h"
 #include "transcode_aspect.h"
@@ -178,6 +179,7 @@ struct player {
     struct direct_check dcheck;   /* --direct: the SPS / PPS pre-check */
     int direct_ok;                /* --direct: the pre-check passed */
     struct lag_watch lag;         /* --direct: the keep-up watchdog */
+    struct timing_watch timing;
     struct size_watch size;       /* the core dropping pictures as too large */
     int caps_read;                /* --direct: the pre-check took the core's bounds (word 81) */
     unsigned vui_rewrites;        /* access units whose SPS VUI timing was rewritten */
@@ -1862,6 +1864,7 @@ static int service_seek(struct player *p)
         p->swr_rate = 0;
         p->audio_channels_in = 0;
         p->saw_idr = 0;
+        timing_watch_reset(&p->timing);
         p->origin_ready = 0;
         p->origin90 = 0;
         p->newest_video90 = INT64_MIN;
@@ -2026,9 +2029,57 @@ static int receive_video(struct player *p)
     }
 }
 
+static int check_video_timing(struct player *p, struct timing_watch *watch, const AVPacket *pkt)
+{
+    AVStream *st = p->fmt->streams[p->rd.vi];
+    /* Field-coded video needs its field semantics. This check is limited
+     * to streams the demuxer positively identifies as progressive. */
+    if (!p->cfg.direct || st->codecpar->field_order != AV_FIELD_PROGRESSIVE) return 0;
+    int64_t pts = pkt->pts == AV_NOPTS_VALUE ? INT64_MIN :
+        av_rescale_q(pkt->pts, st->time_base, (AVRational){1, 90000});
+    AVRational rate = p->nominal_video_rate;
+    if (rate.num > 0 && rate.den > 0 &&
+        timing_watch_sample(watch, pts, (unsigned)rate.num, (unsigned)rate.den)) {
+        fail(p, EX_NEEDS_TRANSCODE,
+             "direct stream needs a transcode: picture timestamps disagree with %.6g fps; constant frame rate required",
+             av_q2d(rate));
+        return 1;
+    }
+    return 0;
+}
+
+/* Inspect queued packets without consuming them. At most one second of
+ * startup waiting; the normal packet path keeps checking if the stream is
+ * too slow or sparse to fill a window here. Audio/video queues stay intact. */
+static void check_startup_timing(struct player *p)
+{
+    if (!p->cfg.direct || p->fmt->streams[p->rd.vi]->codecpar->field_order != AV_FIELD_PROGRESSIVE) return;
+    uint64_t deadline = mono_ms() + 1000;
+    for (;;) {
+        struct timing_watch watch = {0};
+        pthread_mutex_lock(&p->rd.mutex);
+        int ready = p->rd.vq.count >= TIMING_WATCH_COUNT || p->rd.done || p->rd.queue_wait || mono_ms() >= deadline;
+        if (ready) {
+            unsigned sampled = 0;
+            for (struct packet_node *n = p->rd.vq.head; n && sampled < 2 * TIMING_WATCH_COUNT; n = n->next, ++sampled) {
+                if (check_video_timing(p, &watch, n->pkt)) break;
+            }
+        }
+        pthread_mutex_unlock(&p->rd.mutex);
+        if (ready || atomic_load(&p->stop) || atomic_load(&p->exit_code)) return;
+        if (caught_signal) { atomic_store(&p->stop, 1); return; }
+        poll_fifo(p);
+        usleep(1500);
+    }
+}
+
 static int handle_video(struct player *p, AVPacket *in)
 {
     int rc;
+    if (in && check_video_timing(p, &p->timing, in)) {
+        av_packet_free(&in);
+        return 0;
+    }
     for (;;) {
         rc = av_bsf_send_packet(p->bsf, in);
         if (rc != AVERROR(EAGAIN)) break;
@@ -2275,6 +2326,7 @@ int main(int argc, char **argv)
     rc = start_reader(&p);
     if (rc) { fail(&p, EX_STREAM, "cannot start demux reader: %s", strerror(rc)); goto done; }
     reader_started = 1;
+    check_startup_timing(&p);
     int dbg_on = getenv("JFPLAY_DEBUG") != NULL; unsigned long dbg_records = 0;
     struct timespec dbg_last = {0, 0};
     while (!atomic_load(&p.exit_code) && !atomic_load(&p.stop)) {
