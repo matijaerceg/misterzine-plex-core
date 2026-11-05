@@ -69,8 +69,8 @@ does to your library or your MiSTer.
   autoplay and shuffle, with Standard, Icons or VCR-style playback controls.
 - Optional supporter chapter navigation and a six-scene browser, with Plex chapter thumbnails
   when available.
-- Text subtitles drawn by the app in three sizes, without a transcode;
-  picture subtitles burned into the picture by the server. A surround downmix
+- Plain text subtitles drawn by the app in three sizes, without a transcode;
+  ASS/SSA and picture subtitles burned into the picture by the server. A surround downmix
   boost with peak limiting.
 - Display modes and refresh matching are selected in the core's OSD, including
   240p/288p playback and 23.976/24-to-25 film speed-up on PAL output. Film

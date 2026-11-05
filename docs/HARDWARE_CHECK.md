@@ -21,10 +21,14 @@ For subtitles, use a file with an SRT track, an ASS/SSA track and a PGS or VobSu
 track. With the SRT track, compare Normal, Large and Extra large on CRT and HDMI,
 check the cues come and go with the speech, and check a long line wraps inside
 the safe area with cropping on. Changing size, turning subtitles off and on, and
-switching between text tracks should never reload the video, playing or paused.
+switching between plain text tracks should never reload the video, playing or paused.
 Check Options and playback More show the same saved choice after relaunch, and
-More is available for a 4:3 video too. The PGS or VobSub track should restart
-the stream once and appear burned in; a Cyrillic or other non-Latin text track
+More is available for a 4:3 video too. ASS/SSA and PGS or VobSub tracks should restart
+the stream once and appear burned in. Check ASS/SSA both as the initial selection
+and when switching tracks, including an external track. Verify positioned signs,
+karaoke and drawings stay in the picture without duplicate text or drawing commands
+at the bottom. Switching back to SRT or Off should preserve position and pause state.
+A Cyrillic or other non-Latin text track
 should do the same after a moment. Record any server or format limitations.
 
 For household profiles, test an ordinary account with no Plex Home (no picker),

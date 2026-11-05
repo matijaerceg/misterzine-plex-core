@@ -366,8 +366,14 @@ func TestPlayingFetchesTextSubtitles(t *testing.T) {
 
 // A text track the app draws leaves the stream free to play as stored;
 // switching between drawn tracks or turning them off keeps the stream, and
-// a picture track is burned into a transcode with a restart.
+// a picture or ASS/SSA track is burned into a transcode with a restart.
 func TestSessionDrawnSubtitlesKeepTheStream(t *testing.T) {
+	for _, codec := range []string{"pgs", "ass", "ssa"} {
+		t.Run(codec, func(t *testing.T) { testSessionSubtitlesKeepTheStream(t, codec) })
+	}
+}
+
+func testSessionSubtitlesKeepTheStream(t *testing.T, burnCodec string) {
 	var mu sync.Mutex
 	var requests []string
 	record := func(r string) {
@@ -381,13 +387,16 @@ func TestSessionDrawnSubtitlesKeepTheStream(t *testing.T) {
 			record("probe")
 			_, _ = w.Write([]byte(`<MediaContainer size="1"><Video ratingKey="film" type="movie"><Media container="mkv">` +
 				`<Part id="src" key="/library/parts/src/1/file.mkv" container="mkv">` +
-				`<Stream id="3" streamType="3" codec="srt" key="/library/streams/3"/>` +
+				`<Stream id="3" streamType="3" codec="srt" key="/library/streams/3" selected="1"/>` +
 				`<Stream id="4" streamType="3" codec="srt" key="/library/streams/4"/>` +
-				`<Stream id="5" streamType="3" codec="pgs"/>` +
+				`<Stream id="5" streamType="3" codec="` + burnCodec + `" key="/library/streams/5"/>` +
 				`</Part></Media></Video></MediaContainer>`))
 		case r.Method == http.MethodPut && r.URL.Path == "/library/parts/src":
 			record("subtitle " + r.URL.Query().Get("subtitleStreamID"))
 		case r.URL.Path == "/video/:/transcode/universal/decision":
+			if r.URL.Query().Get("subtitles") != "burn" || r.URL.Query().Get("directStream") != "0" {
+				t.Errorf("subtitle transcode did not require burn-in: %s", r.URL.RawQuery)
+			}
 			record("transcode")
 			_, _ = w.Write([]byte(`<MediaContainer transcodeDecisionCode="1001" transcodeDecisionText="Direct play not available; Conversion OK."/>`))
 		default:
@@ -397,8 +406,9 @@ func TestSessionDrawnSubtitlesKeepTheStream(t *testing.T) {
 	defer srv.Close()
 	dir := t.TempDir()
 	status := dir + "/status"
+	a := &App{}
 	p := &Player{Client: testClient(srv.URL, "synthetic-token", t.TempDir()), Binary: "jfplay", Fifo: dir + "/fifo", Status: status, LogTo: dir + "/log",
-		DrawsSubtitle: func(_ string, s plex.Stream) bool { return s.Text }}
+		DrawsSubtitle: a.drawsSubtitle}
 	var cmdMu sync.Mutex
 	var child *exec.Cmd
 	launches := 0
@@ -410,7 +420,10 @@ func TestSessionDrawnSubtitlesKeepTheStream(t *testing.T) {
 		cmdMu.Unlock()
 		return cmd
 	}
-	item := &plex.Item{RatingKey: "film", PartID: "src", Subs: []plex.Stream{{ID: "3", Text: true, Selected: true}, {ID: "4", Text: true}, {ID: "5"}}}
+	item, err := p.Client.Item("film")
+	if err != nil {
+		t.Fatal(err)
+	}
 	s, err := p.Start(item, 20)
 	if err != nil {
 		t.Fatal(err)
@@ -444,9 +457,9 @@ func TestSessionDrawnSubtitlesKeepTheStream(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	// the start's probe; the picture track selected on the part and burned
+	// the item fetch and start's probe; the selected track burned
 	// into a transcode; the drawn track's probe again, played as stored
-	want := []string{"probe", "probe", "subtitle 5", "transcode", "probe"}
+	want := []string{"probe", "probe", "probe", "subtitle 5", "transcode", "probe"}
 	if !slices.Equal(requests, want) {
 		t.Fatalf("server requests %q, want %q", requests, want)
 	}

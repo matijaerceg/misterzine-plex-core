@@ -342,15 +342,14 @@ The audio and subtitle tracks chosen on a page or during playback are kept for
 that movie, or for the whole show, and used for every play. Until you choose,
 the server's selection is used.
 
-Text subtitle tracks (SRT, ASS/SSA, WebVTT and the other text formats the
-server can hand over as a file) are drawn by the app over the picture, as
+Plain text subtitle tracks (SRT, WebVTT and other text formats the server can
+serve separately, except ASS/SSA) are drawn by the app over the picture, as
 white type with a thin dark outline
 (or on a translucent box, see below), centred along the bottom of the screen. The
 video is sent without them, so a film with text subtitles can still play as
 stored, and turning text subtitles on or off, choosing another text track or
-changing their size does not restart the video. Only the words are shown:
-styling, positioning and effects in ASS/SSA tracks are left out, and accented
-letters lose their accents. Long lines wrap; up to six lines show at a time.
+changing their size does not restart the video. Only the words are shown, and
+accented letters lose their accents. Long lines wrap; up to six lines show at a time.
 Subtitles step aside while the controls, a list, the seek strip or a skip
 button are on screen.
 
@@ -367,9 +366,10 @@ and is saved for future playback. During playback, Left and Right on
 behind each line in place of the outline. A change shows on the next cue drawn,
 including one already on screen.
 
-Picture subtitles (PGS, VobSub, DVB) are burned into the picture by the Plex
-server, which therefore transcodes the video. A text track in a script the
-app's fonts lack (Cyrillic, Greek, Arabic, Chinese, Japanese, Korean and
+ASS/SSA subtitles are burned into the picture by the Plex server to preserve
+their styling, positioning, karaoke effects and drawings. Picture subtitles
+(PGS, VobSub, DVB) are burned in too. This requires video transcoding. A text
+track in a script the app's fonts lack (Cyrillic, Greek, Arabic, Chinese, Japanese, Korean and
 others) is handed to the server the same way. Choosing one, or changing from
 one, restarts the stream at the same position; the server can take a while to
 start the new transcode. The server scales the subtitles it burns in to the

@@ -176,11 +176,11 @@ sources are unchanged. Changing boost during playback does not restart the
 stream; audio already queued may retain its previous gain briefly. The separate
 worker volume control only attenuates sound.
 
-Text subtitle tracks (SRT, ASS/SSA, WebVTT and the other text formats the
-server serves as a file of their own) are drawn by the app. It fetches the
+Plain text subtitle tracks (SRT, WebVTT and other text formats the server can
+serve separately, except ASS/SSA) are drawn by the app. It fetches the
 whole track from `/library/streams/<id>`, asked for as UTF-8 SRT so the server
-converts other text formats, keeps the cue text only (styling, positioning and
-ASS effects are dropped) and draws the cues as white type on a translucent box,
+converts other text formats, keeps the cue text only and draws the cues as
+white type with a dark outline or optional translucent box,
 centred along the bottom of the safe area. The stream is requested without
 them, so it can still play as stored, and choosing another text track or Off
 changes the overlay without restarting the stream. Cue times follow the
@@ -195,8 +195,11 @@ Extra large (200%). For drawn subtitles, Normal is 22-pixel type on the
 show at once. A change applies from the next subtitle painted, without a
 restart.
 
-Picture subtitles (PGS, VobSub, DVB), and text tracks the server does not
-serve as a file, are burned into the video by the server. The app requests a
+ASS/SSA subtitles are always burned into the video by the server, preserving
+their styling, positioning, karaoke effects and drawings instead of converting
+them to plain text. This applies to embedded and external tracks, even when
+Plex offers a subtitle download key. Picture subtitles (PGS, VobSub, DVB), and
+text tracks the server does not serve as a file, are burned in too. The app requests a
 transcode with that track selected on the part and the subtitle size;
 changing the size of a burned-in track starts the transcode over. The overlay
 fonts cover ASCII; Latin letters with accents (Latin-1 and Latin Extended-A)

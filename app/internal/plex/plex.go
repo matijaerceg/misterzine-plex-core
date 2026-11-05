@@ -180,8 +180,8 @@ type Stream struct {
 	Title    string // "English (DTS 5.1)"
 	Selected bool
 	Channels int // source audio channels; zero for subtitle tracks or unknown
-	// Text marks a text subtitle track (SRT, ASS, WebVTT ...) the server
-	// hands over as a file (SubtitleText); picture subtitles, and tracks the
+	// Text marks a subtitle track the app can draw from an SRT file
+	// (SubtitleText); ASS/SSA, picture subtitles, and tracks the
 	// server offers no file for, can only be burned into a transcode.
 	Text bool
 }
@@ -390,8 +390,9 @@ type xmlStream struct {
 	CABAC     string  `xml:"cabac,attr"`
 }
 
-// textCodecs are the subtitle formats that are text the app can draw.
-var textCodecs = map[string]bool{"srt": true, "subrip": true, "ass": true, "ssa": true, "vtt": true,
+// textCodecs are the subtitle formats the app can draw. ASS/SSA stays with
+// the server: converting it to SRT loses layout and can expose drawings as text.
+var textCodecs = map[string]bool{"srt": true, "subrip": true, "vtt": true,
 	"webvtt": true, "ttml": true, "smi": true, "sami": true, "mov_text": true, "text": true}
 
 // textSubtitle reports whether a subtitle stream is a text track the

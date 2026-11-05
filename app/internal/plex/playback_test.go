@@ -142,6 +142,26 @@ func TestMediaPartMissing(t *testing.T) {
 	}
 }
 
+func TestStyledSubtitleTracksStayWithServer(t *testing.T) {
+	for _, codec := range []string{"ass", "ASS", "ssa", "SSA", "srt", "subrip", "webvtt"} {
+		t.Run(codec, func(t *testing.T) {
+			f := newPlaybackServer(t)
+			// Give the ASS track a download key: availability as a text file
+			// must not make the app flatten its styles and drawings.
+			f.metadata = strings.Replace(metadataXML, `codec="ass" index="3"`,
+				`codec="`+codec+`" key="/library/streams/25" index="3"`, 1)
+			item, err := f.c.Item("101")
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantText := codec == "srt" || codec == "subrip" || codec == "webvtt"
+			if len(item.Subs) != 3 || item.Subs[1].Text != wantText {
+				t.Fatalf("%s subtitle %+v, want overlay=%v", codec, item.Subs, wantText)
+			}
+		})
+	}
+}
+
 func videoPart(v MediaStream, total int) MediaPart {
 	v.Type = StreamVideo
 	return MediaPart{ID: "9", Key: "/library/parts/9/1/file.mkv", Bitrate: total, Streams: []MediaStream{v, {ID: "2", Type: StreamAudio, Index: 1, Channels: 2}}}
