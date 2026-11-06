@@ -601,4 +601,8 @@ set_global_assignment -name ROUTER_TIMING_OPTIMIZATION_LEVEL NORMAL
 #   and video 84.79/81.77 MHz. SEED 7 failed decoder 99.27/100.62 MHz.
 #   SEED 9 qualified: decoder 102.16/104.16 MHz, video 91.49/89.10 MHz;
 #   40,985 ALMs, 421 M10K, 107 DSP; H264_buttons_20261019_0322.rbf.
+# 2026-11-06 (plex-0.1.0-beta.41, RetroTINK 4K DV1 Auto-Crop), MHz at 100C/-40C:
+#   Seed 1 missed clock margin. Decoder 96.61/98.39, video 93.24/90.73 MHz; 41,142 ALMs; DV1 minimum +0.237 ns.
+#   Seed 5 qualified. Decoder 101.62/103.51, video 94.91/88.72 MHz; 40,966 ALMs; DV1 minimum +0.327 ns.
+#   All 48 DV1 checks passed on the winning fit at dd205569.
 set_global_assignment -name SEED 5
