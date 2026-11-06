@@ -24,23 +24,23 @@
   },
   "current": {
     "beta": {
-      "id": "beta-0.1.0-beta.40",
-      "version": "0.1.0-beta.40",
+      "id": "beta-0.1.0-beta.41",
+      "version": "0.1.0-beta.41",
       "channel": "beta",
-      "notes": "# MisterZine Plex Core 0.1.0-beta.40\n\n- ASS and SSA subtitles are now burned into the video by the server, including downloadable external tracks. This preserves styled text, karaoke, positioning and drawings instead of flattening them into plain text or showing drawing commands. Selecting these subtitles requires server video transcoding.\n- Plain SRT and WebVTT subtitles continue to use the app overlay.\n\nReuses the previous release\u00e2\u20ac\u2122s qualified FPGA core and playback worker. Settings, calibration and saved supporter access are preserved. Update through **Options > Updates**, or use the beta installer.\n\nVerified on DE10-Nano with embedded and external styled subtitles, plain subtitles, subtitles off, pause/resume and forward/backward seeking.\n",
-      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.40/MisterZine-Plex-Core-beta-0.1.0-beta.40.zip",
+      "notes": "# MisterZine Plex Core 0.1.0-beta.41\n\nFixes a picture shifted to the left or cut off at the left edge when using MiSTer Direct Video with RetroTINK 4K Auto-Crop enabled. Open **Options > Updates** to install the new core, or use the beta installer.\n",
+      "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.41/MisterZine-Plex-Core-beta-0.1.0-beta.41.zip",
       "db_url": "https://raw.githubusercontent.com/matijaerceg/misterzine-plex-core/distribution/beta.json.zip",
-      "size": 14240280,
-      "sha256": "e5239cbed45316870adf1d2dfca34fc1d13c14f8726f1abc0e5b9fe0280d67d7",
+      "size": 14234513,
+      "sha256": "df7318c1bb9e0bc4941e228f96732a51f456ef5108f69efb444ec3be67c6e0e5",
       "access": {
         "batch": "initial-beta",
         "sha256": "7915f13296ba503857c14e7a2070b1e79bc85c0bd40fdb8c8e103bcfaab5d192"
       },
       "source": {
-        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.40.zip",
-        "size": 140205704,
-        "sha256": "b14dffcff8090b938e4e73d11bf3888d819656fd2e59f0ef27bab8b5b69584a9",
-        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.40/MisterZine-Plex-Core-Source-beta-0.1.0-beta.40.zip"
+        "filename": "MisterZine-Plex-Core-Source-beta-0.1.0-beta.41.zip",
+        "size": 140210732,
+        "sha256": "23d97bcd4ae1b46e50eff98abe48a5e96792a7dbfecce83172724ce6f9a79ee5",
+        "url": "https://github.com/matijaerceg/misterzine-plex-core/releases/download/v0.1.0-beta.41/MisterZine-Plex-Core-Source-beta-0.1.0-beta.41.zip"
       }
     }
   },
