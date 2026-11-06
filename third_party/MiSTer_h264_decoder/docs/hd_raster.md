@@ -309,6 +309,21 @@ as they were put:
   as its line clock and drops lock on those; the stock `csync` (HSync XOR VSync, every other
   core's) is what it expects. So (dv27b) `dv_cs_src` hands `direct_video` the stock waveform and
   the analog board keeps SMPTE.
+- **DV1 crop metadata:** the 27 MHz transmitter also requires both horizontal
+  metadata measurements in its sample units. Framework `video_calc` counts
+  pixel repetition (word 16) and the HSync-end-to-active-picture distance
+  (word 17) at 81 MHz. Both are divided by three on `clk_sys` when Direct
+  Video is enabled. Converting only repetition leaves a horizontal offset
+  three times too large in Main's DV1 SPD packet, so an external scaler's
+  auto-crop cuts off the left edge. The vertical offset remains in lines;
+  width remains in source pixels; `ctime` and whole-frame counts retain
+  their 81 MHz units for Y/C. `clk_sys` registers capture both held horizontal
+  measurements before division: a direct `clk_vid`-to-`clk_sys` path has only
+  one 81 MHz period of setup time, whereas each registered divider gets a full
+  27 MHz period. `bench/h264/run_video_calc_dv.sh --red` checks all six fitted
+  rasters (480p/i, 240p, 576p/i, 288p), the normal-output control and unchanged
+  clock measurements, and detects a reintroduced unscaled crop offset.
+  A tester confirmed the corrected crop on a physical RetroTINK 4K with the Jellyfin diagnostic build.
 
 ## 12. Stage A, as built (2026-10-03, in progress)
 

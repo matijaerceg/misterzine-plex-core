@@ -79,6 +79,11 @@ but they share ram1's occupancy. Measured in the cosim (P3h): x264_sun through t
 polls on, runs 1,243 clk_dec cycles a macroblock -- the same as fed directly: no measurable
 cost under the DDR model. On the rig `ddr_probe`'s busy_max stays ~47 cycles.
 
+The `H264-FORK` in `sys/hps_io.sv` reports Direct Video's horizontal crop
+offset and pixel repetition in 27 MHz HDMI samples, while preserving the
+81 MHz clock counts used for Y/C. See `hd_raster.md` §11 and
+`bench/h264/run_video_calc_dv.sh` for the conversion and regression coverage.
+
 ## The HPS interface, v0.1 (decision D4, 2026-09-27)
 
 **Status: version 1.0, FROZEN (2026-10-07, roadmap Phase 7; "Version 1.0" below).** Version

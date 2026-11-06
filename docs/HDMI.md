@@ -152,6 +152,10 @@ stay hidden. `direct_video=1` sends the core's own timing, and with
 attached. A `[video=...]` section applies only when it names the core's
 current video mode, which MiSTer measures once the core runs.
 
+## Direct Video through a RetroTINK 4K
+
+With `direct_video=1`, beta.41 reports the horizontal crop offset in HDMI samples. On earlier cores, the RetroTINK 4K could cut off the left edge of the picture with MiSTer DV1 Auto-Crop enabled. Users on those cores can turn Auto-Crop off until they update.
+
 ## What has been checked
 
 These recommendations follow from how the core and MiSTer's scaler work. The

@@ -910,6 +910,17 @@ module video_calc
 	output reg [15:0] dout
 );
 
+// H264-FORK (dv-crop): capture the held DV1 measurements before dividing.
+// clk_vid -> clk_sys has only one 81 MHz period of setup time, even though
+// clk_sys itself runs at 27 MHz. This register gives the divider a full
+// clk_sys period and keeps it out of that cross-clock path.
+reg  [7:0] vid_pixrep_sys;
+reg [15:0] vid_de_h_sys;
+always @(posedge clk_sys) begin
+	vid_pixrep_sys <= vid_pixrep;
+	vid_de_h_sys <= vid_de_h;
+end
+
 always @(posedge clk_sys) begin
 	case(par_num)
 		1: dout <= {video_rotated, |vid_int, vid_nres};
@@ -935,8 +946,12 @@ always @(posedge clk_sys) begin
 	  // on the clk_vid side it cost the raster clock its 86 MHz gate). The clock count (ctime)
 	  // stays clk_vid's, as does the whole-frame count in words 19/20: main's Y/C subcarrier increment is computed from them and yc_out still
 	  // runs on clk_vid.
-	  16: dout <= direct_video ? (vid_pixrep / 8'd3) : vid_pixrep;
-	  17: dout <= vid_de_h;
+	  16: dout <= direct_video ? (vid_pixrep_sys / 8'd3) : vid_pixrep;
+	  // H264-FORK (dv-crop): de_h also counts 81 MHz clocks. Main copies it
+	  // unchanged into DV1's horizontal offset, which is in HDMI samples.
+	  // Match the 27 MHz transmitter just like pixel repetition above; leaving
+	  // this at 81 MHz makes an external scaler crop three times the back porch.
+	  17: dout <= direct_video ? (vid_de_h_sys / 16'd3) : vid_de_h;
 	  18: dout <= vid_de_v;
 	  19: dout <= vid_fclks[15:0];
 	  20: dout <= {8'd0, vid_fclks[23:16]};
